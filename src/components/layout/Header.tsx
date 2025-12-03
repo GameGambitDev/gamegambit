@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { truncateAddress } from '@/lib/constants';
 
 const navItems = [
+  { label: 'Dashboard', href: '/dashboard' },
   { label: 'Arena', href: '/arena' },
   { label: 'My Wagers', href: '/my-wagers' },
   { label: 'Leaderboard', href: '/leaderboard' },
