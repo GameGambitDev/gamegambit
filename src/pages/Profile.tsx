@@ -218,11 +218,11 @@ export default function Profile() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="activision">Activision ID</Label>
+                      <Label htmlFor="codm">Call of Duty Username</Label>
                       <div className="flex gap-2">
                         <Input
-                          id="activision"
-                          placeholder="Your Activision ID"
+                          id="codm"
+                          placeholder="Your CODM username"
                           value={activisionId}
                           onChange={(e) => setActivisionId(e.target.value)}
                           className="bg-muted/50"
