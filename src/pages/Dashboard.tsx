@@ -3,7 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { 
   Trophy, Swords, TrendingUp, Wallet, Clock, Target, 
-  ChevronRight, Flame, Star, Activity
+  ChevronRight, Flame, Star, Activity, Loader2
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/landing/Footer';
@@ -11,35 +11,42 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { truncateAddress } from '@/lib/constants';
+import { truncateAddress, formatSol, GAMES } from '@/lib/constants';
 import { Link } from 'react-router-dom';
+import { usePlayer, useCreatePlayer } from '@/hooks/usePlayer';
+import { useMyWagers, Wager } from '@/hooks/useWagers';
+import { useEffect } from 'react';
+
+const getGameData = (game: string) => {
+  switch (game) {
+    case 'chess': return GAMES.CHESS;
+    case 'codm': return GAMES.CODM;
+    case 'pubg': return GAMES.PUBG;
+    default: return GAMES.CHESS;
+  }
+};
 
 export default function Dashboard() {
   const { connected, publicKey } = useWallet();
+  const { data: player, isLoading: playerLoading } = usePlayer();
+  const { data: wagers, isLoading: wagersLoading } = useMyWagers();
+  const createPlayer = useCreatePlayer();
 
-  // Mock data - replace with real data later
-  const stats = {
-    balance: 12.5,
-    totalEarnings: 57.7,
-    totalWagered: 45.2,
-    wins: 47,
-    losses: 22,
-    winRate: 68,
-    currentStreak: 3,
-    bestStreak: 8,
-  };
+  // Auto-create player profile if doesn't exist
+  useEffect(() => {
+    if (connected && !playerLoading && !player && publicKey) {
+      createPlayer.mutate();
+    }
+  }, [connected, playerLoading, player, publicKey]);
 
-  const recentMatches = [
-    { id: 1, game: '♟️', opponent: 'ChessMaster99', result: 'win', amount: 0.5, time: '2h ago' },
-    { id: 2, game: '🎮', opponent: 'ProGamer_X', result: 'win', amount: 1.0, time: '5h ago' },
-    { id: 3, game: '♟️', opponent: 'KnightRider', result: 'loss', amount: -0.25, time: '1d ago' },
-    { id: 4, game: '🔫', opponent: 'HeadshotKing', result: 'win', amount: 2.0, time: '2d ago' },
-  ];
-
-  const activeWagers = [
-    { id: 1, game: '♟️', opponent: 'Waiting...', stake: 0.5, status: 'open' },
-    { id: 2, game: '🎮', opponent: 'MobileKing', stake: 1.0, status: 'live' },
-  ];
+  const activeWagers = wagers?.filter(w => ['created', 'joined', 'voting', 'disputed'].includes(w.status)) || [];
+  const completedWagers = wagers?.filter(w => w.status === 'resolved') || [];
+  const recentMatches = completedWagers.slice(0, 4);
+  
+  const walletAddress = publicKey?.toBase58() || '';
+  const winRate = player && (player.total_wins + player.total_losses) > 0 
+    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+    : 0;
 
   if (!connected) {
     return (
@@ -61,6 +68,20 @@ export default function Dashboard() {
                 <WalletMultiButton />
               </div>
             </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (playerLoading || wagersLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-24 pb-16">
+          <div className="container px-4 flex justify-center items-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         </main>
         <Footer />
@@ -98,8 +119,10 @@ export default function Dashboard() {
                   <Wallet className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground uppercase">Balance</p>
-                  <p className="text-xl font-gaming font-bold text-primary">{stats.balance} SOL</p>
+                  <p className="text-xs text-muted-foreground uppercase">Wagered</p>
+                  <p className="text-xl font-gaming font-bold text-primary">
+                    {player ? formatSol(player.total_wagered) : '0'} SOL
+                  </p>
                 </div>
               </div>
             </Card>
@@ -111,7 +134,9 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase">Total Earned</p>
-                  <p className="text-xl font-gaming font-bold text-success">+{stats.totalEarnings} SOL</p>
+                  <p className="text-xl font-gaming font-bold text-success">
+                    +{player ? formatSol(player.total_earnings) : '0'} SOL
+                  </p>
                 </div>
               </div>
             </Card>
@@ -123,7 +148,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase">Wins</p>
-                  <p className="text-xl font-gaming font-bold">{stats.wins}</p>
+                  <p className="text-xl font-gaming font-bold">{player?.total_wins || 0}</p>
                 </div>
               </div>
             </Card>
@@ -135,7 +160,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase">Streak</p>
-                  <p className="text-xl font-gaming font-bold">{stats.currentStreak} 🔥</p>
+                  <p className="text-xl font-gaming font-bold">{player?.current_streak || 0} 🔥</p>
                 </div>
               </div>
             </Card>
@@ -162,21 +187,21 @@ export default function Dashboard() {
                       <div>
                         <div className="flex justify-between mb-2">
                           <span className="text-sm text-muted-foreground">Win Rate</span>
-                          <span className="font-gaming text-primary">{stats.winRate}%</span>
+                          <span className="font-gaming text-primary">{winRate}%</span>
                         </div>
-                        <Progress value={stats.winRate} className="h-3" />
+                        <Progress value={winRate} className="h-3" />
                       </div>
                       <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border/50">
                         <div className="text-center">
-                          <p className="text-2xl font-gaming text-success">{stats.wins}</p>
+                          <p className="text-2xl font-gaming text-success">{player?.total_wins || 0}</p>
                           <p className="text-xs text-muted-foreground">Wins</p>
                         </div>
                         <div className="text-center">
-                          <p className="text-2xl font-gaming text-destructive">{stats.losses}</p>
+                          <p className="text-2xl font-gaming text-destructive">{player?.total_losses || 0}</p>
                           <p className="text-xs text-muted-foreground">Losses</p>
                         </div>
                         <div className="text-center">
-                          <p className="text-2xl font-gaming text-accent">{stats.bestStreak}</p>
+                          <p className="text-2xl font-gaming text-accent">{player?.best_streak || 0}</p>
                           <p className="text-xs text-muted-foreground">Best Streak</p>
                         </div>
                       </div>
@@ -204,30 +229,43 @@ export default function Dashboard() {
                     </Link>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
-                      {recentMatches.map((match) => (
-                        <div
-                          key={match.id}
-                          className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-2xl">{match.game}</span>
-                            <div>
-                              <p className="font-medium">vs {match.opponent}</p>
-                              <p className="text-xs text-muted-foreground">{match.time}</p>
+                    {recentMatches.length > 0 ? (
+                      <div className="space-y-3">
+                        {recentMatches.map((match) => {
+                          const game = getGameData(match.game);
+                          const won = match.winner_wallet === walletAddress;
+                          const opponent = match.player_a_wallet === walletAddress 
+                            ? match.player_b_wallet 
+                            : match.player_a_wallet;
+                          const amount = won ? match.stake_lamports : -match.stake_lamports;
+                          
+                          return (
+                            <div
+                              key={match.id}
+                              className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-2xl">{game.icon}</span>
+                                <div>
+                                  <p className="font-medium">vs {opponent ? truncateAddress(opponent) : 'Unknown'}</p>
+                                  <p className="text-xs text-muted-foreground">{game.name}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <Badge variant={won ? 'success' : 'destructive'}>
+                                  {won ? 'WIN' : 'LOSS'}
+                                </Badge>
+                                <p className={`text-sm font-gaming mt-1 ${amount > 0 ? 'text-success' : 'text-destructive'}`}>
+                                  {amount > 0 ? '+' : ''}{formatSol(Math.abs(amount))} SOL
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant={match.result === 'win' ? 'success' : 'destructive'}>
-                              {match.result === 'win' ? 'WIN' : 'LOSS'}
-                            </Badge>
-                            <p className={`text-sm font-gaming mt-1 ${match.amount > 0 ? 'text-success' : 'text-destructive'}`}>
-                              {match.amount > 0 ? '+' : ''}{match.amount} SOL
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">No matches yet. Start playing!</p>
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>
@@ -250,27 +288,38 @@ export default function Dashboard() {
                     <Badge variant="outline">{activeWagers.length}</Badge>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
-                      {activeWagers.map((wager) => (
-                        <div
-                          key={wager.id}
-                          className="p-3 rounded-lg bg-muted/30 border border-border/50"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xl">{wager.game}</span>
-                              <span className="text-sm">{wager.opponent}</span>
+                    {activeWagers.length > 0 ? (
+                      <div className="space-y-3">
+                        {activeWagers.slice(0, 3).map((wager) => {
+                          const game = getGameData(wager.game);
+                          const opponent = wager.player_a_wallet === walletAddress 
+                            ? wager.player_b_wallet 
+                            : wager.player_a_wallet;
+                            
+                          return (
+                            <div
+                              key={wager.id}
+                              className="p-3 rounded-lg bg-muted/30 border border-border/50"
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xl">{game.icon}</span>
+                                  <span className="text-sm">{opponent ? truncateAddress(opponent) : 'Waiting...'}</span>
+                                </div>
+                                <Badge variant={wager.status === 'joined' ? 'live' : 'secondary'}>
+                                  {wager.status === 'joined' ? '🔴 LIVE' : wager.status.toUpperCase()}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                Stake: <span className="text-primary font-gaming">{formatSol(wager.stake_lamports)} SOL</span>
+                              </p>
                             </div>
-                            <Badge variant={wager.status === 'live' ? 'live' : 'secondary'}>
-                              {wager.status === 'live' ? '🔴 LIVE' : 'OPEN'}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            Stake: <span className="text-primary font-gaming">{wager.stake} SOL</span>
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-4">No active wagers</p>
+                    )}
                     <Link to="/arena" className="block mt-4">
                       <Button variant="neon" className="w-full">
                         Find Match
