@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { Search, MapPin, Zap, Filter, Plus, Swords, Clock, Trophy } from 'lucide-react';
+import { Search, MapPin, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/landing/Footer';
 import { Button } from '@/components/ui/button';
@@ -10,83 +10,44 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
+import { useOpenWagers, useLiveWagers, Wager } from '@/hooks/useWagers';
+import { usePlayer } from '@/hooks/usePlayer';
 
-// Mock data
-const mockOpenWagers = [
-  {
-    id: '1',
-    playerA: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-    game: GAMES.CHESS,
-    stake: 500000000,
-    createdAt: Date.now() - 1000 * 60 * 2,
-  },
-  {
-    id: '2',
-    playerA: '9mT2k3JxYB7nUqXWD6PzKqZ5Y8hLpV4B2Q8nMxX3Y9Cw',
-    game: GAMES.CODM,
-    stake: 1000000000,
-    createdAt: Date.now() - 1000 * 60 * 5,
-  },
-  {
-    id: '3',
-    playerA: '5xLXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-    game: GAMES.PUBG,
-    stake: 2500000000,
-    createdAt: Date.now() - 1000 * 60 * 8,
-  },
-  {
-    id: '4',
-    playerA: '2tK9FEkPBz8sB7rJdKdAYHHBNSYKLQV5D5mK3dZ9TwoW',
-    game: GAMES.CHESS,
-    stake: 100000000,
-    createdAt: Date.now() - 1000 * 60 * 1,
-  },
-];
+const getGameData = (game: string) => {
+  switch (game) {
+    case 'chess': return GAMES.CHESS;
+    case 'codm': return GAMES.CODM;
+    case 'pubg': return GAMES.PUBG;
+    default: return GAMES.CHESS;
+  }
+};
 
-const mockLiveMatches = [
-  {
-    id: 'l1',
-    playerA: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-    playerB: '3tK9FEkPBz8sB7rJdKdAYHHBNSYKLQV5D5mK3dZ9TwoW',
-    game: GAMES.CHESS,
-    stake: 500000000,
-    status: 'joined',
-    startedAt: Date.now() - 1000 * 60 * 12,
-  },
-  {
-    id: 'l2',
-    playerA: '9mT2k3JxYB7nUqXWD6PzKqZ5Y8hLpV4B2Q8nMxX3Y9Cw',
-    playerB: '4vK9YEkJHz8nR7kFeDaYEJJRNSZKLSK5E5oL3eY9UwoX',
-    game: GAMES.CODM,
-    stake: 1500000000,
-    status: 'voting',
-    startedAt: Date.now() - 1000 * 60 * 25,
-  },
-];
-
-function OpenWagerCard({ wager }: { wager: typeof mockOpenWagers[0] }) {
+function OpenWagerCard({ wager }: { wager: Wager }) {
+  const game = getGameData(wager.game);
+  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
+  
   return (
     <Card variant="wager" className="group cursor-pointer">
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="text-3xl">{wager.game.icon}</div>
+            <div className="text-3xl">{game.icon}</div>
             <div>
               <div className="font-gaming text-sm mb-1">
-                {truncateAddress(wager.playerA)}
+                {truncateAddress(wager.player_a_wallet)}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{wager.game.name}</span>
+                <span>{game.name}</span>
                 <span>•</span>
                 <Clock className="h-3 w-3" />
-                <span>{Math.floor((Date.now() - wager.createdAt) / 60000)}m ago</span>
+                <span>{timeDiff}m ago</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="font-gaming text-lg font-bold text-accent">
-                {formatSol(wager.stake)} SOL
+                {formatSol(wager.stake_lamports)} SOL
               </div>
             </div>
             <Button variant="neon" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -99,14 +60,17 @@ function OpenWagerCard({ wager }: { wager: typeof mockOpenWagers[0] }) {
   );
 }
 
-function LiveMatchCard({ match }: { match: typeof mockLiveMatches[0] }) {
+function LiveMatchCard({ wager }: { wager: Wager }) {
+  const game = getGameData(wager.game);
+  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
+  
   return (
     <Card variant="wager" className="cursor-pointer border-primary/20">
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="text-3xl">{match.game.icon}</div>
+              <div className="text-3xl">{game.icon}</div>
               <span className="absolute -top-1 -right-1 flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive" />
@@ -114,21 +78,21 @@ function LiveMatchCard({ match }: { match: typeof mockLiveMatches[0] }) {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-gaming text-sm">{truncateAddress(match.playerA)}</span>
+                <span className="font-gaming text-sm">{truncateAddress(wager.player_a_wallet)}</span>
                 <Swords className="h-4 w-4 text-primary" />
-                <span className="font-gaming text-sm">{truncateAddress(match.playerB)}</span>
+                <span className="font-gaming text-sm">{wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{match.game.name}</span>
+                <span>{game.name}</span>
                 <span>•</span>
-                <span>{Math.floor((Date.now() - match.startedAt) / 60000)}m</span>
+                <span>{timeDiff}m</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="font-gaming text-accent">{formatSol(match.stake * 2)} SOL</div>
-            <Badge variant={match.status === 'voting' ? 'voting' : 'joined'}>
-              {match.status === 'voting' ? 'Voting' : 'Live'}
+            <div className="font-gaming text-accent">{formatSol(wager.stake_lamports * 2)} SOL</div>
+            <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'}>
+              {wager.status === 'voting' ? 'Voting' : 'Live'}
             </Badge>
           </div>
         </div>
@@ -137,9 +101,25 @@ function LiveMatchCard({ match }: { match: typeof mockLiveMatches[0] }) {
   );
 }
 
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="text-center py-12 px-4">
+      <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
+        <Swords className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h3 className="font-gaming text-lg mb-2">{title}</h3>
+      <p className="text-muted-foreground text-sm">{description}</p>
+    </div>
+  );
+}
+
 export default function Arena() {
   const { connected } = useWallet();
   const [searchQuery, setSearchQuery] = useState('');
+  
+  const { data: openWagers, isLoading: openLoading } = useOpenWagers();
+  const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
+  const { data: player } = usePlayer();
 
   if (!connected) {
     return (
@@ -218,44 +198,63 @@ export default function Arena() {
             {/* Main Content - Open Wagers */}
             <div className="lg:col-span-2 space-y-6">
               {/* Live Matches */}
-              {mockLiveMatches.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
-                    </span>
-                    <h2 className="font-gaming text-lg">Live Matches</h2>
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+                  </span>
+                  <h2 className="font-gaming text-lg">Live Matches</h2>
+                </div>
+                {liveLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
+                ) : liveWagers && liveWagers.length > 0 ? (
                   <div className="space-y-3">
-                    {mockLiveMatches.map((match) => (
+                    {liveWagers.map((wager) => (
                       <motion.div
-                        key={match.id}
+                        key={wager.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                       >
-                        <LiveMatchCard match={match} />
+                        <LiveMatchCard wager={wager} />
                       </motion.div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <Card variant="gaming" className="p-6">
+                    <p className="text-center text-muted-foreground text-sm">No live matches right now</p>
+                  </Card>
+                )}
+              </div>
 
               {/* Open Wagers */}
               <div>
                 <h2 className="font-gaming text-lg mb-4">Open Wagers</h2>
-                <div className="space-y-3">
-                  {mockOpenWagers.map((wager, index) => (
-                    <motion.div
-                      key={wager.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                    >
-                      <OpenWagerCard wager={wager} />
-                    </motion.div>
-                  ))}
-                </div>
+                {openLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : openWagers && openWagers.length > 0 ? (
+                  <div className="space-y-3">
+                    {openWagers.map((wager, index) => (
+                      <motion.div
+                        key={wager.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <OpenWagerCard wager={wager} />
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState 
+                    title="No open wagers" 
+                    description="Be the first to create a wager and challenge opponents!" 
+                  />
+                )}
               </div>
             </div>
 
@@ -270,15 +269,23 @@ export default function Arena() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Total Won</span>
-                      <span className="font-gaming text-success">+12.5 SOL</span>
+                      <span className="font-gaming text-success">
+                        +{player ? formatSol(player.total_earnings) : '0'} SOL
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Win Rate</span>
-                      <span className="font-gaming text-accent">68%</span>
+                      <span className="font-gaming text-accent">
+                        {player && (player.total_wins + player.total_losses) > 0 
+                          ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+                          : 0}%
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Matches Played</span>
-                      <span className="font-gaming">47</span>
+                      <span className="font-gaming">
+                        {player ? player.total_wins + player.total_losses : 0}
+                      </span>
                     </div>
                   </div>
                 </CardContent>
@@ -290,24 +297,9 @@ export default function Arena() {
                   <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
                     Recent Winners
                   </h3>
-                  <div className="space-y-3">
-                    {[
-                      { address: '7xKX...sAsU', amount: 2.5, game: '♟️' },
-                      { address: '9mT2...Y9Cw', amount: 1.0, game: '🎯' },
-                      { address: '5xLX...sAsU', amount: 4.0, game: '🔫' },
-                    ].map((winner, i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span>{winner.game}</span>
-                          <span className="text-sm">{winner.address}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-sm text-success">
-                          <Trophy className="h-3 w-3" />
-                          +{winner.amount} SOL
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No recent winners yet
+                  </p>
                 </CardContent>
               </Card>
             </div>

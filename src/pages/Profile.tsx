@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { User, Trophy, Swords, Clock, ExternalLink, CheckCircle, Link2, Copy, Check } from 'lucide-react';
+import { User, Trophy, Swords, Clock, CheckCircle, Link2, Copy, Check, Loader2 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/landing/Footer';
 import { Button } from '@/components/ui/button';
@@ -10,20 +10,41 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { GAMES, truncateAddress } from '@/lib/constants';
+import { GAMES, truncateAddress, formatSol } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
+import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer';
 
 export default function Profile() {
   const { connected, publicKey } = useWallet();
+  const { data: player, isLoading } = usePlayer();
+  const createPlayer = useCreatePlayer();
+  const updatePlayer = useUpdatePlayer();
+  
   const [lichessUsername, setLichessUsername] = useState('');
-  const [activisionId, setActivisionId] = useState('');
+  const [codmUsername, setCodmUsername] = useState('');
   const [pubgName, setPubgName] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
 
+  // Auto-create player profile if doesn't exist
+  useEffect(() => {
+    if (connected && !isLoading && !player && publicKey) {
+      createPlayer.mutate();
+    }
+  }, [connected, isLoading, player, publicKey]);
+
+  // Load existing usernames
+  useEffect(() => {
+    if (player) {
+      setLichessUsername(player.lichess_username || '');
+      setCodmUsername(player.codm_username || '');
+      setPubgName(player.pubg_username || '');
+    }
+  }, [player]);
+
   const linkedAccounts = [
-    { game: GAMES.CHESS, linked: true, username: 'chessmaster2024' },
-    { game: GAMES.CODM, linked: false, username: null },
-    { game: GAMES.PUBG, linked: false, username: null },
+    { game: GAMES.CHESS, linked: !!player?.lichess_username, username: player?.lichess_username },
+    { game: GAMES.CODM, linked: !!player?.codm_username, username: player?.codm_username },
+    { game: GAMES.PUBG, linked: !!player?.pubg_username, username: player?.pubg_username },
   ];
 
   const copyAddress = () => {
@@ -34,6 +55,40 @@ export default function Profile() {
       toast({ title: 'Address copied!' });
     }
   };
+
+  const handleLinkLichess = async () => {
+    if (!lichessUsername) return;
+    try {
+      await updatePlayer.mutateAsync({ lichess_username: lichessUsername });
+      toast({ title: 'Lichess account linked!' });
+    } catch (error) {
+      toast({ title: 'Failed to link account', variant: 'destructive' });
+    }
+  };
+
+  const handleLinkCodm = async () => {
+    if (!codmUsername) return;
+    try {
+      await updatePlayer.mutateAsync({ codm_username: codmUsername });
+      toast({ title: 'Call of Duty account linked!' });
+    } catch (error) {
+      toast({ title: 'Failed to link account', variant: 'destructive' });
+    }
+  };
+
+  const handleLinkPubg = async () => {
+    if (!pubgName) return;
+    try {
+      await updatePlayer.mutateAsync({ pubg_username: pubgName });
+      toast({ title: 'PUBG account linked!' });
+    } catch (error) {
+      toast({ title: 'Failed to link account', variant: 'destructive' });
+    }
+  };
+
+  const winRate = player && (player.total_wins + player.total_losses) > 0 
+    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+    : 0;
 
   if (!connected) {
     return (
@@ -55,6 +110,20 @@ export default function Profile() {
                 <WalletMultiButton />
               </div>
             </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-24 pb-16">
+          <div className="container px-4 flex justify-center items-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         </main>
         <Footer />
@@ -90,20 +159,20 @@ export default function Profile() {
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Trophy className="h-4 w-4 text-accent" />
-                      47 Wins
+                      {player?.total_wins || 0} Wins
                     </span>
                     <span className="flex items-center gap-1">
                       <Swords className="h-4 w-4" />
-                      68% Win Rate
+                      {winRate}% Win Rate
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock className="h-4 w-4" />
-                      Joined Nov 2024
+                      Joined {player ? new Date(player.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently'}
                     </span>
                   </div>
                 </div>
                 <Badge variant="gold" className="text-base px-4 py-2">
-                  +12.5 SOL
+                  +{player ? formatSol(player.total_earnings) : '0'} SOL
                 </Badge>
               </div>
             </Card>
@@ -142,9 +211,7 @@ export default function Profile() {
                           <span className="text-sm text-success">{account.username}</span>
                         </div>
                       ) : (
-                        <Button variant="outline" size="sm">
-                          Link Account
-                        </Button>
+                        <Badge variant="outline">Not Linked</Badge>
                       )}
                     </div>
                   ))}
@@ -168,14 +235,14 @@ export default function Profile() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     {[
-                      { label: 'Total Matches', value: '69' },
-                      { label: 'Wins', value: '47' },
-                      { label: 'Losses', value: '22' },
-                      { label: 'Win Rate', value: '68%' },
-                      { label: 'Total Wagered', value: '45.2 SOL' },
-                      { label: 'Total Earned', value: '57.7 SOL' },
-                      { label: 'Best Streak', value: '8 wins' },
-                      { label: 'Favorite Game', value: '♟️ Chess' },
+                      { label: 'Total Matches', value: player ? player.total_wins + player.total_losses : 0 },
+                      { label: 'Wins', value: player?.total_wins || 0 },
+                      { label: 'Losses', value: player?.total_losses || 0 },
+                      { label: 'Win Rate', value: `${winRate}%` },
+                      { label: 'Total Wagered', value: `${player ? formatSol(player.total_wagered) : '0'} SOL` },
+                      { label: 'Total Earned', value: `${player ? formatSol(player.total_earnings) : '0'} SOL` },
+                      { label: 'Best Streak', value: `${player?.best_streak || 0} wins` },
+                      { label: 'Current Streak', value: `${player?.current_streak || 0} wins` },
                     ].map((stat) => (
                       <div key={stat.label} className="p-3 rounded-lg bg-muted/30">
                         <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
@@ -198,7 +265,7 @@ export default function Profile() {
             >
               <Card variant="gaming">
                 <CardHeader>
-                  <CardTitle>Link a New Account</CardTitle>
+                  <CardTitle>Link a Game Account</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -212,8 +279,12 @@ export default function Profile() {
                           onChange={(e) => setLichessUsername(e.target.value)}
                           className="bg-muted/50"
                         />
-                        <Button variant="outline" disabled={!lichessUsername}>
-                          Verify
+                        <Button 
+                          variant="outline" 
+                          disabled={!lichessUsername || updatePlayer.isPending}
+                          onClick={handleLinkLichess}
+                        >
+                          {updatePlayer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link'}
                         </Button>
                       </div>
                     </div>
@@ -223,12 +294,16 @@ export default function Profile() {
                         <Input
                           id="codm"
                           placeholder="Your CODM username"
-                          value={activisionId}
-                          onChange={(e) => setActivisionId(e.target.value)}
+                          value={codmUsername}
+                          onChange={(e) => setCodmUsername(e.target.value)}
                           className="bg-muted/50"
                         />
-                        <Button variant="outline" disabled={!activisionId}>
-                          Link
+                        <Button 
+                          variant="outline" 
+                          disabled={!codmUsername || updatePlayer.isPending}
+                          onClick={handleLinkCodm}
+                        >
+                          {updatePlayer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link'}
                         </Button>
                       </div>
                     </div>
@@ -242,8 +317,12 @@ export default function Profile() {
                           onChange={(e) => setPubgName(e.target.value)}
                           className="bg-muted/50"
                         />
-                        <Button variant="outline" disabled={!pubgName}>
-                          Link
+                        <Button 
+                          variant="outline" 
+                          disabled={!pubgName || updatePlayer.isPending}
+                          onClick={handleLinkPubg}
+                        >
+                          {updatePlayer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link'}
                         </Button>
                       </div>
                     </div>
