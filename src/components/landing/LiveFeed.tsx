@@ -1,57 +1,20 @@
 import { motion } from 'framer-motion';
-import { ExternalLink, Trophy, Clock, Swords } from 'lucide-react';
+import { ExternalLink, Trophy, Clock, Swords, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
+import { useRecentWagers, Wager } from '@/hooks/useWagers';
+import { Link } from 'react-router-dom';
 
-// Mock data for demo
-const mockWagers = [
-  {
-    id: '1',
-    playerA: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-    playerB: '3tK9FEkPBz8sB7rJdKdAYHHBNSYKLQV5D5mK3dZ9TwoW',
-    game: GAMES.CHESS,
-    stake: 500000000, // 0.5 SOL
-    status: 'joined',
-    winner: null,
-    lichessId: 'abc123',
-    createdAt: Date.now() - 1000 * 60 * 5,
-  },
-  {
-    id: '2',
-    playerA: '9mT2k3JxYB7nUqXWD6PzKqZ5Y8hLpV4B2Q8nMxX3Y9Cw',
-    playerB: '4vK9YEkJHz8nR7kFeDaYEJJRNSZKLSK5E5oL3eY9UwoX',
-    game: GAMES.CODM,
-    stake: 1000000000, // 1 SOL
-    status: 'disputed',
-    winner: null,
-    lichessId: null,
-    createdAt: Date.now() - 1000 * 60 * 15,
-  },
-  {
-    id: '3',
-    playerA: '5xLXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-    playerB: '2tK9FEkPBz8sB7rJdKdAYHHBNSYKLQV5D5mK3dZ9TwoW',
-    game: GAMES.CHESS,
-    stake: 250000000, // 0.25 SOL
-    status: 'resolved',
-    winner: '5xLXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-    lichessId: 'xyz789',
-    createdAt: Date.now() - 1000 * 60 * 30,
-  },
-  {
-    id: '4',
-    playerA: '8nS2m3JxYB7nUqXWD6PzKqZ5Y8hLpV4B2Q8nMxX3Y9Dw',
-    playerB: null,
-    game: GAMES.PUBG,
-    stake: 2000000000, // 2 SOL
-    status: 'created',
-    winner: null,
-    lichessId: null,
-    createdAt: Date.now() - 1000 * 60 * 2,
-  },
-];
+const getGameData = (game: string) => {
+  switch (game) {
+    case 'chess': return GAMES.CHESS;
+    case 'codm': return GAMES.CODM;
+    case 'pubg': return GAMES.PUBG;
+    default: return GAMES.CHESS;
+  }
+};
 
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -70,8 +33,10 @@ const getStatusBadge = (status: string) => {
   }
 };
 
-function WagerCard({ wager, index }: { wager: typeof mockWagers[0]; index: number }) {
+function WagerCard({ wager, index }: { wager: Wager; index: number }) {
+  const game = getGameData(wager.game);
   const isLive = wager.status === 'joined';
+  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
   
   return (
     <motion.div
@@ -87,7 +52,7 @@ function WagerCard({ wager, index }: { wager: typeof mockWagers[0]; index: numbe
               {/* Game Icon */}
               <div className="relative">
                 <div className={`text-3xl ${isLive ? 'animate-pulse' : ''}`}>
-                  {wager.game.icon}
+                  {game.icon}
                 </div>
                 {isLive && (
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -101,18 +66,18 @@ function WagerCard({ wager, index }: { wager: typeof mockWagers[0]; index: numbe
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-gaming text-sm text-foreground">
-                    {truncateAddress(wager.playerA)}
+                    {truncateAddress(wager.player_a_wallet)}
                   </span>
                   <Swords className="h-4 w-4 text-muted-foreground" />
                   <span className="font-gaming text-sm text-foreground">
-                    {wager.playerB ? truncateAddress(wager.playerB) : '???'}
+                    {wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{wager.game.name}</span>
+                  <span>{game.name}</span>
                   <span>•</span>
                   <Clock className="h-3 w-3" />
-                  <span>{Math.floor((Date.now() - wager.createdAt) / 60000)}m ago</span>
+                  <span>{timeDiff}m ago</span>
                 </div>
               </div>
             </div>
@@ -122,10 +87,10 @@ function WagerCard({ wager, index }: { wager: typeof mockWagers[0]; index: numbe
               {/* Stake */}
               <div className="text-right">
                 <div className="font-gaming text-lg font-bold text-accent">
-                  {formatSol(wager.stake)} SOL
+                  {formatSol(wager.stake_lamports)} SOL
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Total Pot: {formatSol(wager.stake * 2)}
+                  Total Pot: {formatSol(wager.stake_lamports * 2)}
                 </div>
               </div>
 
@@ -137,10 +102,10 @@ function WagerCard({ wager, index }: { wager: typeof mockWagers[0]; index: numbe
                     Join
                   </Button>
                 )}
-                {wager.winner && (
+                {wager.winner_wallet && (
                   <div className="flex items-center gap-1 text-xs text-success">
                     <Trophy className="h-3 w-3" />
-                    {truncateAddress(wager.winner)}
+                    {truncateAddress(wager.winner_wallet)}
                   </div>
                 )}
               </div>
@@ -152,7 +117,25 @@ function WagerCard({ wager, index }: { wager: typeof mockWagers[0]; index: numbe
   );
 }
 
+function EmptyFeed() {
+  return (
+    <div className="text-center py-12">
+      <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
+        <Swords className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h3 className="font-gaming text-lg mb-2">No wagers yet</h3>
+      <p className="text-muted-foreground text-sm mb-4">Be the first to create a wager!</p>
+      <Link to="/arena">
+        <Button variant="neon">Enter Arena</Button>
+      </Link>
+    </div>
+  );
+}
+
 export function LiveFeed() {
+  const { data: wagers, isLoading } = useRecentWagers(10);
+  const activeCount = wagers?.filter(w => ['created', 'joined', 'voting'].includes(w.status)).length || 0;
+
   return (
     <section className="py-20 relative">
       <div className="container px-4">
@@ -167,18 +150,28 @@ export function LiveFeed() {
               Watch matches unfold in real-time
             </p>
           </div>
-          <Button variant="outline" className="group">
-            View All
-            <ExternalLink className="h-4 w-4 ml-2 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-          </Button>
+          <Link to="/arena">
+            <Button variant="outline" className="group">
+              View All
+              <ExternalLink className="h-4 w-4 ml-2 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </Button>
+          </Link>
         </div>
 
         {/* Feed */}
-        <div className="space-y-3">
-          {mockWagers.map((wager, index) => (
-            <WagerCard key={wager.id} wager={wager} index={index} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : wagers && wagers.length > 0 ? (
+          <div className="space-y-3">
+            {wagers.map((wager, index) => (
+              <WagerCard key={wager.id} wager={wager} index={index} />
+            ))}
+          </div>
+        ) : (
+          <EmptyFeed />
+        )}
 
         {/* Live Count */}
         <div className="mt-8 text-center">
@@ -188,7 +181,7 @@ export function LiveFeed() {
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
             </span>
             <span className="text-sm text-muted-foreground">
-              <span className="font-gaming text-primary">24</span> active wagers right now
+              <span className="font-gaming text-primary">{activeCount}</span> active wagers right now
             </span>
           </div>
         </div>
