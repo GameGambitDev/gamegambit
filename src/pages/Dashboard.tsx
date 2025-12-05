@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { usePlayer, useCreatePlayer } from '@/hooks/usePlayer';
 import { useMyWagers, Wager } from '@/hooks/useWagers';
 import { useEffect } from 'react';
+import { PageTransition } from '@/components/PageTransition';
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -90,81 +91,57 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="pt-24 pb-16">
-        <div className="container px-4">
-          {/* Welcome Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-8"
-          >
-            <h1 className="text-3xl font-bold font-gaming mb-2">
-              Welcome back, <span className="text-primary">{publicKey && truncateAddress(publicKey.toBase58(), 4)}</span>
-            </h1>
-            <p className="text-muted-foreground">Here's your gaming overview</p>
-          </motion.div>
+    <PageTransition>
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-24 pb-16">
+          <div className="container px-4">
+            {/* Welcome Header */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-8"
+            >
+              <h1 className="text-3xl font-bold font-gaming mb-2">
+                Welcome back, <span className="text-primary">{publicKey && truncateAddress(publicKey.toBase58(), 4)}</span>
+              </h1>
+              <p className="text-muted-foreground">Here's your gaming overview</p>
+            </motion.div>
 
-          {/* Quick Stats Row */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
-          >
-            <Card variant="gaming" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/20">
-                  <Wallet className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase">Wagered</p>
-                  <p className="text-xl font-gaming font-bold text-primary">
-                    {player ? formatSol(player.total_wagered) : '0'} SOL
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <Card variant="gaming" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-success/20">
-                  <TrendingUp className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase">Total Earned</p>
-                  <p className="text-xl font-gaming font-bold text-success">
-                    +{player ? formatSol(player.total_earnings) : '0'} SOL
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <Card variant="gaming" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-accent/20">
-                  <Trophy className="h-5 w-5 text-accent" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase">Wins</p>
-                  <p className="text-xl font-gaming font-bold">{player?.total_wins || 0}</p>
-                </div>
-              </div>
-            </Card>
-
-            <Card variant="gaming" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-orange-500/20">
-                  <Flame className="h-5 w-5 text-orange-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase">Streak</p>
-                  <p className="text-xl font-gaming font-bold">{player?.current_streak || 0} 🔥</p>
-                </div>
-              </div>
-            </Card>
-          </motion.div>
+            {/* Quick Stats Row */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+            >
+              {[
+                { icon: Wallet, label: 'Wagered', value: `${player ? formatSol(player.total_wagered) : '0'} SOL`, color: 'text-primary', bgColor: 'bg-primary/20' },
+                { icon: TrendingUp, label: 'Total Earned', value: `+${player ? formatSol(player.total_earnings) : '0'} SOL`, color: 'text-success', bgColor: 'bg-success/20' },
+                { icon: Trophy, label: 'Wins', value: player?.total_wins || 0, color: 'text-accent', bgColor: 'bg-accent/20' },
+                { icon: Flame, label: 'Streak', value: `${player?.current_streak || 0} 🔥`, color: 'text-orange-500', bgColor: 'bg-orange-500/20' },
+              ].map((stat, index) => (
+                <motion.div
+                  key={stat.label}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 + index * 0.05 }}
+                  whileHover={{ scale: 1.02, y: -2 }}
+                >
+                  <Card variant="gaming" className="p-4 transition-all hover:border-primary/30">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${stat.bgColor}`}>
+                        <stat.icon className={`h-5 w-5 ${stat.color}`} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase">{stat.label}</p>
+                        <p className={`text-xl font-gaming font-bold ${stat.color}`}>{stat.value}</p>
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              ))}
+            </motion.div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Content - Left Side */}
@@ -367,5 +344,6 @@ export default function Dashboard() {
       </main>
       <Footer />
     </div>
+    </PageTransition>
   );
 }

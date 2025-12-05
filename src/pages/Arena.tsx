@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { useOpenWagers, useLiveWagers, Wager } from '@/hooks/useWagers';
 import { usePlayer } from '@/hooks/usePlayer';
+import { PageTransition, staggerContainer, staggerItem } from '@/components/PageTransition';
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -149,164 +150,191 @@ export default function Arena() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="pt-24 pb-16">
-        <div className="container px-4">
-          {/* Top Actions */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">
-                <span className="gradient-text">Arena</span>
-              </h1>
-              <p className="text-muted-foreground">Find opponents and stake your claim</p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="neon" className="group">
-                <Plus className="h-4 w-4 mr-2" />
-                Create Wager
-              </Button>
-            </div>
-          </div>
-
-          {/* Search & Filters */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-8">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by wallet address or username..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-card border-border"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="icon">
-                <MapPin className="h-4 w-4" />
-              </Button>
-              <Button variant="outline">
-                <Zap className="h-4 w-4 mr-2" />
-                Quick Match
-              </Button>
-              <Button variant="ghost" size="icon">
-                <Filter className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Content - Open Wagers */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Live Matches */}
+    <PageTransition>
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-24 pb-16">
+          <div className="container px-4">
+            {/* Top Actions */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8"
+            >
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
-                  </span>
-                  <h2 className="font-gaming text-lg">Live Matches</h2>
-                </div>
-                {liveLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <h1 className="text-3xl font-bold mb-2">
+                  <span className="gradient-text">Arena</span>
+                </h1>
+                <p className="text-muted-foreground">Find opponents and stake your claim</p>
+              </div>
+              <div className="flex gap-3">
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button variant="neon" className="group">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Wager
+                  </Button>
+                </motion.div>
+              </div>
+            </motion.div>
+
+            {/* Search & Filters */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="flex flex-col sm:flex-row gap-4 mb-8"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by wallet address or username..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 bg-card border-border"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="icon">
+                  <MapPin className="h-4 w-4" />
+                </Button>
+                <Button variant="outline">
+                  <Zap className="h-4 w-4 mr-2" />
+                  Quick Match
+                </Button>
+                <Button variant="ghost" size="icon">
+                  <Filter className="h-4 w-4" />
+                </Button>
+              </div>
+            </motion.div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Main Content - Open Wagers */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Live Matches */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+                    </span>
+                    <h2 className="font-gaming text-lg">Live Matches</h2>
                   </div>
-                ) : liveWagers && liveWagers.length > 0 ? (
-                  <div className="space-y-3">
-                    {liveWagers.map((wager) => (
-                      <motion.div
-                        key={wager.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                      >
-                        <LiveMatchCard wager={wager} />
-                      </motion.div>
-                    ))}
-                  </div>
-                ) : (
-                  <Card variant="gaming" className="p-6">
-                    <p className="text-center text-muted-foreground text-sm">No live matches right now</p>
-                  </Card>
-                )}
+                  {liveLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  ) : liveWagers && liveWagers.length > 0 ? (
+                    <motion.div 
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="space-y-3"
+                    >
+                      {liveWagers.map((wager) => (
+                        <motion.div key={wager.id} variants={staggerItem}>
+                          <LiveMatchCard wager={wager} />
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  ) : (
+                    <Card variant="gaming" className="p-6">
+                      <p className="text-center text-muted-foreground text-sm">No live matches right now</p>
+                    </Card>
+                  )}
+                </motion.div>
+
+                {/* Open Wagers */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                >
+                  <h2 className="font-gaming text-lg mb-4">Open Wagers</h2>
+                  {openLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  ) : openWagers && openWagers.length > 0 ? (
+                    <motion.div 
+                      variants={staggerContainer}
+                      initial="initial"
+                      animate="animate"
+                      className="space-y-3"
+                    >
+                      {openWagers.map((wager) => (
+                        <motion.div key={wager.id} variants={staggerItem}>
+                          <OpenWagerCard wager={wager} />
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  ) : (
+                    <EmptyState 
+                      title="No open wagers" 
+                      description="Be the first to create a wager and challenge opponents!" 
+                    />
+                  )}
+                </motion.div>
               </div>
 
-              {/* Open Wagers */}
-              <div>
-                <h2 className="font-gaming text-lg mb-4">Open Wagers</h2>
-                {openLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  </div>
-                ) : openWagers && openWagers.length > 0 ? (
-                  <div className="space-y-3">
-                    {openWagers.map((wager, index) => (
-                      <motion.div
-                        key={wager.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <OpenWagerCard wager={wager} />
-                      </motion.div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState 
-                    title="No open wagers" 
-                    description="Be the first to create a wager and challenge opponents!" 
-                  />
-                )}
-              </div>
-            </div>
+              {/* Sidebar */}
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4 }}
+                className="space-y-6"
+              >
+                {/* Quick Stats */}
+                <Card variant="gaming">
+                  <CardContent className="p-6">
+                    <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
+                      Your Stats
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Total Won</span>
+                        <span className="font-gaming text-success">
+                          +{player ? formatSol(player.total_earnings) : '0'} SOL
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Win Rate</span>
+                        <span className="font-gaming text-accent">
+                          {player && (player.total_wins + player.total_losses) > 0 
+                            ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+                            : 0}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Matches Played</span>
+                        <span className="font-gaming">
+                          {player ? player.total_wins + player.total_losses : 0}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Quick Stats */}
-              <Card variant="gaming">
-                <CardContent className="p-6">
-                  <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
-                    Your Stats
-                  </h3>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Total Won</span>
-                      <span className="font-gaming text-success">
-                        +{player ? formatSol(player.total_earnings) : '0'} SOL
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Win Rate</span>
-                      <span className="font-gaming text-accent">
-                        {player && (player.total_wins + player.total_losses) > 0 
-                          ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
-                          : 0}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Matches Played</span>
-                      <span className="font-gaming">
-                        {player ? player.total_wins + player.total_losses : 0}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Recent Winners */}
-              <Card variant="gaming">
-                <CardContent className="p-6">
-                  <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
-                    Recent Winners
-                  </h3>
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No recent winners yet
-                  </p>
-                </CardContent>
-              </Card>
+                {/* Recent Winners */}
+                <Card variant="gaming">
+                  <CardContent className="p-6">
+                    <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
+                      Recent Winners
+                    </h3>
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No recent winners yet
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             </div>
           </div>
-        </div>
-      </main>
-      <Footer />
-    </div>
+        </main>
+        <Footer />
+      </div>
+    </PageTransition>
   );
 }

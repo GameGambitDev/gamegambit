@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { useMyWagers, Wager } from '@/hooks/useWagers';
 import { usePlayer } from '@/hooks/usePlayer';
+import { PageTransition, staggerContainer, staggerItem } from '@/components/PageTransition';
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -141,114 +142,124 @@ export default function MyWagers() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="pt-24 pb-16">
-        <div className="container px-4">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">
-              My <span className="gradient-text">Wagers</span>
-            </h1>
-            <p className="text-muted-foreground">Track all your active and completed matches</p>
-          </div>
+    <PageTransition>
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-24 pb-16">
+          <div className="container px-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-8"
+            >
+              <h1 className="text-3xl font-bold mb-2">
+                My <span className="gradient-text">Wagers</span>
+              </h1>
+              <p className="text-muted-foreground">Track all your active and completed matches</p>
+            </motion.div>
 
-          {/* Stats Overview */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {[
-              { label: 'Active', value: activeWagers.length, icon: Swords, color: 'text-primary' },
-              { label: 'Won', value: winsCount, icon: Trophy, color: 'text-success' },
-              { label: 'Lost', value: lossesCount, icon: XCircle, color: 'text-destructive' },
-              { label: 'Total Earned', value: player ? `+${formatSol(player.total_earnings)} SOL` : '+0 SOL', icon: CheckCircle, color: 'text-accent' },
-            ].map((stat) => (
-              <Card key={stat.label} variant="gaming" className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg bg-muted ${stat.color}`}>
-                    <stat.icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider">{stat.label}</div>
-                    <div className="font-gaming text-xl">{stat.value}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
+            {/* Stats Overview */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+            >
+              {[
+                { label: 'Active', value: activeWagers.length, icon: Swords, color: 'text-primary' },
+                { label: 'Won', value: winsCount, icon: Trophy, color: 'text-success' },
+                { label: 'Lost', value: lossesCount, icon: XCircle, color: 'text-destructive' },
+                { label: 'Total Earned', value: player ? `+${formatSol(player.total_earnings)} SOL` : '+0 SOL', icon: CheckCircle, color: 'text-accent' },
+              ].map((stat, index) => (
+                <motion.div
+                  key={stat.label}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 + index * 0.05 }}
+                  whileHover={{ scale: 1.02, y: -2 }}
+                >
+                  <Card variant="gaming" className="p-4 transition-all hover:border-primary/30">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg bg-muted ${stat.color}`}>
+                        <stat.icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wider">{stat.label}</div>
+                        <div className="font-gaming text-xl">{stat.value}</div>
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              ))}
+            </motion.div>
 
-          {/* Tabs */}
-          <Tabs defaultValue="all" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <TabsList className="bg-muted/50">
-                <TabsTrigger value="all" className="font-gaming">All</TabsTrigger>
-                <TabsTrigger value="active" className="font-gaming">Active</TabsTrigger>
-                <TabsTrigger value="completed" className="font-gaming">Completed</TabsTrigger>
-              </TabsList>
-              <Button variant="ghost" size="icon">
-                <Filter className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {isLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            {/* Tabs */}
+            <Tabs defaultValue="all" className="space-y-6">
+              <div className="flex items-center justify-between">
+                <TabsList className="bg-muted/50">
+                  <TabsTrigger value="all" className="font-gaming">All</TabsTrigger>
+                  <TabsTrigger value="active" className="font-gaming">Active</TabsTrigger>
+                  <TabsTrigger value="completed" className="font-gaming">Completed</TabsTrigger>
+                </TabsList>
+                <Button variant="ghost" size="icon">
+                  <Filter className="h-4 w-4" />
+                </Button>
               </div>
-            ) : (
-              <>
-                <TabsContent value="all" className="space-y-3">
-                  {wagers && wagers.length > 0 ? (
-                    wagers.map((wager, index) => (
-                      <motion.div
-                        key={wager.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <WagerRow wager={wager} myWallet={walletAddress} />
-                      </motion.div>
-                    ))
-                  ) : (
-                    <EmptyState message="You haven't created or joined any wagers yet." />
-                  )}
-                </TabsContent>
 
-                <TabsContent value="active" className="space-y-3">
-                  {activeWagers.length > 0 ? (
-                    activeWagers.map((wager, index) => (
-                      <motion.div
-                        key={wager.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <WagerRow wager={wager} myWallet={walletAddress} />
+              {isLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : (
+                <>
+                  <TabsContent value="all" className="space-y-3">
+                    {wagers && wagers.length > 0 ? (
+                      <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
+                        {wagers.map((wager) => (
+                          <motion.div key={wager.id} variants={staggerItem}>
+                            <WagerRow wager={wager} myWallet={walletAddress} />
+                          </motion.div>
+                        ))}
                       </motion.div>
-                    ))
-                  ) : (
-                    <EmptyState message="No active wagers. Create or join one!" />
-                  )}
-                </TabsContent>
+                    ) : (
+                      <EmptyState message="You haven't created or joined any wagers yet." />
+                    )}
+                  </TabsContent>
 
-                <TabsContent value="completed" className="space-y-3">
-                  {completedWagers.length > 0 ? (
-                    completedWagers.map((wager, index) => (
-                      <motion.div
-                        key={wager.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <WagerRow wager={wager} myWallet={walletAddress} />
+                  <TabsContent value="active" className="space-y-3">
+                    {activeWagers.length > 0 ? (
+                      <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
+                        {activeWagers.map((wager) => (
+                          <motion.div key={wager.id} variants={staggerItem}>
+                            <WagerRow wager={wager} myWallet={walletAddress} />
+                          </motion.div>
+                        ))}
                       </motion.div>
-                    ))
-                  ) : (
-                    <EmptyState message="No completed wagers yet." />
-                  )}
-                </TabsContent>
-              </>
-            )}
-          </Tabs>
-        </div>
-      </main>
-      <Footer />
-    </div>
+                    ) : (
+                      <EmptyState message="No active wagers. Create or join one!" />
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="completed" className="space-y-3">
+                    {completedWagers.length > 0 ? (
+                      <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
+                        {completedWagers.map((wager) => (
+                          <motion.div key={wager.id} variants={staggerItem}>
+                            <WagerRow wager={wager} myWallet={walletAddress} />
+                          </motion.div>
+                        ))}
+                      </motion.div>
+                    ) : (
+                      <EmptyState message="No completed wagers yet." />
+                    )}
+                  </TabsContent>
+                </>
+              )}
+            </Tabs>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    </PageTransition>
   );
 }
