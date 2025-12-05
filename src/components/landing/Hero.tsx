@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { ArrowRight, Zap, Shield, Users } from 'lucide-react';
+import { ArrowRight, Zap, Shield, Users, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import heroBg from '@/assets/hero-bg.jpg';
+import { PageTransition } from '@/components/PageTransition';
 
 export function Hero() {
   const { connected } = useWallet();
@@ -98,10 +99,32 @@ export function Hero() {
           >
             {connected ? (
               <Link to="/arena">
-                <Button variant="hero" size="xl" className="group">
-                  Enter Arena
-                  <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  animate={{
+                    boxShadow: [
+                      '0 0 20px hsl(var(--primary) / 0.4)',
+                      '0 0 60px hsl(var(--primary) / 0.6)',
+                      '0 0 20px hsl(var(--primary) / 0.4)',
+                    ],
+                  }}
+                  transition={{
+                    boxShadow: { duration: 2, repeat: Infinity, ease: 'easeInOut' },
+                  }}
+                  className="rounded-xl"
+                >
+                  <Button variant="hero" size="xl" className="group relative overflow-hidden">
+                    <motion.span
+                      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                      animate={{ x: ['-100%', '100%'] }}
+                      transition={{ duration: 2, repeat: Infinity, repeatDelay: 1 }}
+                    />
+                    <Sparkles className="h-5 w-5 mr-2" />
+                    Enter Arena
+                    <ArrowRight className="h-5 w-5 ml-2 group-hover:translate-x-2 transition-transform duration-300" />
+                  </Button>
+                </motion.div>
               </Link>
             ) : (
               <div className="[&_.wallet-adapter-button]:!bg-gradient-to-r [&_.wallet-adapter-button]:!from-primary [&_.wallet-adapter-button]:!via-neon-cyan [&_.wallet-adapter-button]:!to-primary [&_.wallet-adapter-button]:!bg-[length:200%_100%] [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!font-bold [&_.wallet-adapter-button]:!text-lg [&_.wallet-adapter-button]:!tracking-wider [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-14 [&_.wallet-adapter-button]:!px-10 [&_.wallet-adapter-button]:!shadow-neon-lg [&_.wallet-adapter-button]:hover:!shadow-neon-lg [&_.wallet-adapter-button]:!transition-all [&_.wallet-adapter-button]:!uppercase">
