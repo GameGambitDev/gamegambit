@@ -4,7 +4,6 @@ import {
   WalletProvider,
 } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { clusterApiUrl } from '@solana/web3.js';
 
 // Import wallet adapter styles
@@ -18,13 +17,8 @@ export const WalletContextProvider: FC<WalletContextProviderProps> = ({ children
   // Use devnet for development
   const endpoint = useMemo(() => clusterApiUrl('devnet'), []);
 
-  const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-    ],
-    []
-  );
+  // Empty array - wallets supporting wallet-standard are auto-detected
+  const wallets = useMemo(() => [], []);
 
   return (
     <ConnectionProvider endpoint={endpoint}>
