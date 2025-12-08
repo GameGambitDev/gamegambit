@@ -117,6 +117,25 @@ export function useRecentWagers(limit: number = 10) {
   });
 }
 
+// Fetch recent winners (resolved wagers with winner)
+export function useRecentWinners(limit: number = 5) {
+  return useQuery({
+    queryKey: ['wagers', 'winners', limit],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('status', 'resolved')
+        .not('winner_wallet', 'is', null)
+        .order('resolved_at', { ascending: false })
+        .limit(limit);
+      
+      if (error) throw error;
+      return data as Wager[];
+    },
+  });
+}
+
 // Create a new wager
 export function useCreateWager() {
   const queryClient = useQueryClient();
