@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
-import { useOpenWagers, useLiveWagers, Wager } from '@/hooks/useWagers';
+import { useOpenWagers, useLiveWagers, useRecentWinners, Wager } from '@/hooks/useWagers';
 import { usePlayer } from '@/hooks/usePlayer';
 import { PageTransition, staggerContainer, staggerItem } from '@/components/PageTransition';
 
@@ -120,6 +120,7 @@ export default function Arena() {
   
   const { data: openWagers, isLoading: openLoading } = useOpenWagers();
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
+  const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5);
   const { data: player } = usePlayer();
 
   if (!connected) {
@@ -324,9 +325,35 @@ export default function Arena() {
                     <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
                       Recent Winners
                     </h3>
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No recent winners yet
-                    </p>
+                    {winnersLoading ? (
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      </div>
+                    ) : recentWinners && recentWinners.length > 0 ? (
+                      <div className="space-y-3">
+                        {recentWinners.map((wager) => {
+                          const game = getGameData(wager.game);
+                          return (
+                            <div key={wager.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
+                              <span className="text-xl">{game.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-gaming text-sm text-success truncate">
+                                  {truncateAddress(wager.winner_wallet!)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  +{formatSol(wager.stake_lamports)} SOL
+                                </p>
+                              </div>
+                              <Trophy className="h-4 w-4 text-accent" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No recent winners yet
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>
