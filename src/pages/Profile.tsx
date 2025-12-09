@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { User, Trophy, Swords, Clock, CheckCircle, Link2, Copy, Check, Loader2 } from 'lucide-react';
+import { User, Trophy, Swords, Clock, CheckCircle, Link2, Copy, Check, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,12 +11,18 @@ import { Label } from '@/components/ui/label';
 import { GAMES, truncateAddress, formatSol } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
 import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
+import { useLichessUser } from '@/hooks/useLichess';
 
 export default function Profile() {
   const { connected, publicKey } = useWallet();
   const { data: player, isLoading } = usePlayer();
+  const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance();
   const createPlayer = useCreatePlayer();
   const updatePlayer = useUpdatePlayer();
+  
+  // Get Lichess user data when linked
+  const { data: lichessUserData } = useLichessUser(player?.lichess_username);
   
   const [lichessUsername, setLichessUsername] = useState('');
   const [codmUsername, setCodmUsername] = useState('');
@@ -147,7 +153,11 @@ export default function Profile() {
                     {copiedAddress ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Wallet className="h-4 w-4 text-primary" />
+                    {balanceLoading ? '...' : `${walletBalance?.toFixed(4) || '0'} SOL`}
+                  </span>
                   <span className="flex items-center gap-1">
                     <Trophy className="h-4 w-4 text-accent" />
                     {player?.total_wins || 0} Wins
@@ -212,6 +222,73 @@ export default function Profile() {
                 ))}
               </CardContent>
             </Card>
+
+            {/* Lichess Stats */}
+            {lichessUserData && (
+              <Card variant="gaming" className="mt-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <span className="text-xl">♟️</span>
+                    Lichess Stats
+                    {lichessUserData.online && (
+                      <Badge variant="live" className="ml-2">Online</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {lichessUserData.perfs?.bullet && (
+                      <div className="p-3 rounded-lg bg-muted/30 text-center">
+                        <div className="text-xs text-muted-foreground uppercase">Bullet</div>
+                        <div className="font-gaming text-lg text-primary">{lichessUserData.perfs.bullet.rating}</div>
+                        <div className="text-xs text-muted-foreground">{lichessUserData.perfs.bullet.games} games</div>
+                      </div>
+                    )}
+                    {lichessUserData.perfs?.blitz && (
+                      <div className="p-3 rounded-lg bg-muted/30 text-center">
+                        <div className="text-xs text-muted-foreground uppercase">Blitz</div>
+                        <div className="font-gaming text-lg text-primary">{lichessUserData.perfs.blitz.rating}</div>
+                        <div className="text-xs text-muted-foreground">{lichessUserData.perfs.blitz.games} games</div>
+                      </div>
+                    )}
+                    {lichessUserData.perfs?.rapid && (
+                      <div className="p-3 rounded-lg bg-muted/30 text-center">
+                        <div className="text-xs text-muted-foreground uppercase">Rapid</div>
+                        <div className="font-gaming text-lg text-primary">{lichessUserData.perfs.rapid.rating}</div>
+                        <div className="text-xs text-muted-foreground">{lichessUserData.perfs.rapid.games} games</div>
+                      </div>
+                    )}
+                    {lichessUserData.perfs?.classical && (
+                      <div className="p-3 rounded-lg bg-muted/30 text-center">
+                        <div className="text-xs text-muted-foreground uppercase">Classical</div>
+                        <div className="font-gaming text-lg text-primary">{lichessUserData.perfs.classical.rating}</div>
+                        <div className="text-xs text-muted-foreground">{lichessUserData.perfs.classical.games} games</div>
+                      </div>
+                    )}
+                  </div>
+                  {lichessUserData.count && (
+                    <div className="mt-4 pt-4 border-t border-border/50 flex justify-around text-center">
+                      <div>
+                        <div className="font-gaming text-success">{lichessUserData.count.win}</div>
+                        <div className="text-xs text-muted-foreground">Wins</div>
+                      </div>
+                      <div>
+                        <div className="font-gaming text-destructive">{lichessUserData.count.loss}</div>
+                        <div className="text-xs text-muted-foreground">Losses</div>
+                      </div>
+                      <div>
+                        <div className="font-gaming text-muted-foreground">{lichessUserData.count.draw}</div>
+                        <div className="text-xs text-muted-foreground">Draws</div>
+                      </div>
+                      <div>
+                        <div className="font-gaming">{lichessUserData.count.all}</div>
+                        <div className="text-xs text-muted-foreground">Total</div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </motion.div>
 
           {/* Stats */}
