@@ -1,1 +1,10 @@
 project_id = "nwbvwiygifiavflxvfgb"
+
+[functions.verify-wallet]
+verify_jwt = false
+
+[functions.secure-player]
+verify_jwt = false
+
+[functions.secure-wager]
+verify_jwt = false

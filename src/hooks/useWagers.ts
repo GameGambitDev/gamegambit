@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletAuth } from './useWalletAuth';
 
 export type WagerStatus = 'created' | 'joined' | 'voting' | 'retractable' | 'disputed' | 'resolved';
 export type GameType = 'chess' | 'codm' | 'pubg';
@@ -136,28 +137,33 @@ export function useRecentWinners(limit: number = 5) {
   });
 }
 
-// Create a new wager
+// Secure wager creation via edge function with wallet verification
 export function useCreateWager() {
   const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
 
   return useMutation({
     mutationFn: async (wager: {
-      match_id: number;
-      player_a_wallet: string;
       game: GameType;
       stake_lamports: number;
       lichess_game_id?: string;
       is_public?: boolean;
       stream_url?: string;
     }) => {
-      const { data, error } = await supabase
-        .from('wagers')
-        .insert(wager)
-        .select()
-        .single();
+      // Get verified session token
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required. Please sign the message to continue.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('secure-wager', {
+        body: { action: 'create', ...wager },
+        headers: { 'x-wallet-session': sessionToken },
+      });
       
       if (error) throw error;
-      return data as Wager;
+      if (data?.error) throw new Error(data.error);
+      return data.wager as Wager;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
@@ -165,24 +171,27 @@ export function useCreateWager() {
   });
 }
 
-// Join a wager
+// Secure wager join via edge function with wallet verification
 export function useJoinWager() {
   const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
 
   return useMutation({
-    mutationFn: async ({ wagerId, playerBWallet }: { wagerId: string; playerBWallet: string }) => {
-      const { data, error } = await supabase
-        .from('wagers')
-        .update({ 
-          player_b_wallet: playerBWallet,
-          status: 'joined' as WagerStatus
-        })
-        .eq('id', wagerId)
-        .select()
-        .single();
+    mutationFn: async ({ wagerId }: { wagerId: string; playerBWallet?: string }) => {
+      // Get verified session token
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required. Please sign the message to continue.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('secure-wager', {
+        body: { action: 'join', wagerId },
+        headers: { 'x-wallet-session': sessionToken },
+      });
       
       if (error) throw error;
-      return data as Wager;
+      if (data?.error) throw new Error(data.error);
+      return data.wager as Wager;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
@@ -190,35 +199,35 @@ export function useJoinWager() {
   });
 }
 
-// Submit vote
+// Secure vote submission via edge function with wallet verification
 export function useSubmitVote() {
   const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
 
   return useMutation({
     mutationFn: async ({ 
       wagerId, 
-      voterWallet, 
       votedWinner,
-      isPlayerA 
     }: { 
       wagerId: string; 
-      voterWallet: string; 
+      voterWallet?: string; 
       votedWinner: string;
-      isPlayerA: boolean;
+      isPlayerA?: boolean;
     }) => {
-      const updateData = isPlayerA 
-        ? { vote_player_a: votedWinner, status: 'voting' as WagerStatus }
-        : { vote_player_b: votedWinner, status: 'voting' as WagerStatus };
-      
-      const { data, error } = await supabase
-        .from('wagers')
-        .update(updateData)
-        .eq('id', wagerId)
-        .select()
-        .single();
+      // Get verified session token
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required. Please sign the message to continue.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('secure-wager', {
+        body: { action: 'vote', wagerId, votedWinner },
+        headers: { 'x-wallet-session': sessionToken },
+      });
       
       if (error) throw error;
-      return data as Wager;
+      if (data?.error) throw new Error(data.error);
+      return data.wager as Wager;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
