@@ -31,6 +31,7 @@ export type Database = {
           total_wagered: number | null
           total_wins: number | null
           updated_at: string
+          username: string | null
           wallet_address: string
         }
         Insert: {
@@ -49,6 +50,7 @@ export type Database = {
           total_wagered?: number | null
           total_wins?: number | null
           updated_at?: string
+          username?: string | null
           wallet_address: string
         }
         Update: {
@@ -67,6 +69,7 @@ export type Database = {
           total_wagered?: number | null
           total_wins?: number | null
           updated_at?: string
+          username?: string | null
           wallet_address?: string
         }
         Relationships: []

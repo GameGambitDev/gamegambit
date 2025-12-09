@@ -43,10 +43,16 @@ async function validateSessionToken(token: string): Promise<string | null> {
   }
 }
 
-// Validate username format
-function validateUsername(username: string): boolean {
+// Validate game username format (for lichess, codm, pubg)
+function validateGameUsername(username: string): boolean {
   if (!username || username.length < 1 || username.length > 50) return false;
   return /^[a-zA-Z0-9_-]+$/.test(username);
+}
+
+// Validate platform username format (stricter - 3-20 chars, no hyphens)
+function validatePlatformUsername(username: string): boolean {
+  if (!username || username.length < 3 || username.length > 20) return false;
+  return /^[a-zA-Z0-9_]+$/.test(username);
 }
 
 serve(async (req) => {
@@ -131,20 +137,30 @@ serve(async (req) => {
 
       const { updates } = data;
       
-      // Validate usernames if provided
-      if (updates.lichess_username && !validateUsername(updates.lichess_username)) {
+      // Validate platform username if provided
+      if (updates.username !== undefined) {
+        if (updates.username && !validatePlatformUsername(updates.username)) {
+          return new Response(JSON.stringify({ error: 'Username must be 3-20 characters, letters, numbers, and underscores only' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      // Validate game usernames if provided
+      if (updates.lichess_username && !validateGameUsername(updates.lichess_username)) {
         return new Response(JSON.stringify({ error: 'Invalid Lichess username format' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      if (updates.codm_username && !validateUsername(updates.codm_username)) {
+      if (updates.codm_username && !validateGameUsername(updates.codm_username)) {
         return new Response(JSON.stringify({ error: 'Invalid CODM username format' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      if (updates.pubg_username && !validateUsername(updates.pubg_username)) {
+      if (updates.pubg_username && !validateGameUsername(updates.pubg_username)) {
         return new Response(JSON.stringify({ error: 'Invalid PUBG username format' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -153,6 +169,7 @@ serve(async (req) => {
 
       // Only allow safe fields to be updated
       const safeUpdates: Record<string, unknown> = {};
+      if (updates.username !== undefined) safeUpdates.username = updates.username;
       if (updates.lichess_username !== undefined) safeUpdates.lichess_username = updates.lichess_username;
       if (updates.codm_username !== undefined) safeUpdates.codm_username = updates.codm_username;
       if (updates.pubg_username !== undefined) safeUpdates.pubg_username = updates.pubg_username;

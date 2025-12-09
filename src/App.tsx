@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { WalletContextProvider } from "@/contexts/WalletContext";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { Layout } from "@/components/layout/Layout";
+import { UsernameEnforcer } from "@/components/UsernameEnforcer";
 import Index from "./pages/Index";
 import Arena from "./pages/Arena";
 import MyWagers from "./pages/MyWagers";
@@ -24,17 +25,19 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <ScrollToTop />
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/arena" element={<Arena />} />
-              <Route path="/my-wagers" element={<MyWagers />} />
-              <Route path="/leaderboard" element={<Leaderboard />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Layout>
+          <UsernameEnforcer>
+            <Layout>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/arena" element={<Arena />} />
+                <Route path="/my-wagers" element={<MyWagers />} />
+                <Route path="/leaderboard" element={<Leaderboard />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Layout>
+          </UsernameEnforcer>
         </BrowserRouter>
       </TooltipProvider>
     </WalletContextProvider>

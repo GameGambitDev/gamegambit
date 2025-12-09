@@ -6,6 +6,7 @@ import { useWalletAuth } from './useWalletAuth';
 export interface Player {
   id: string;
   wallet_address: string;
+  username: string | null;
   lichess_username: string | null;
   codm_username: string | null;
   pubg_username: string | null;

@@ -1,15 +1,23 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletAuth } from './useWalletAuth';
 import { toast } from 'sonner';
 
 export function useQuickMatch() {
   const { publicKey } = useWallet();
   const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
 
   return useMutation({
     mutationFn: async (game?: 'chess' | 'codm' | 'pubg' | undefined) => {
       if (!publicKey) throw new Error('Wallet not connected');
+      
+      // Get verified session token
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required. Please sign the message to continue.');
+      }
       
       const walletAddress = publicKey.toBase58();
       
@@ -37,22 +45,16 @@ export function useQuickMatch() {
       const randomIndex = Math.floor(Math.random() * eligibleWagers.length);
       const selectedWager = eligibleWagers[randomIndex];
       
-      // Join the wager
-      const { data, error: joinError } = await supabase
-        .from('wagers')
-        .update({
-          player_b_wallet: walletAddress,
-          status: 'joined',
-        })
-        .eq('id', selectedWager.id)
-        .eq('status', 'created') // Ensure it's still available
-        .select()
-        .single();
+      // Join the wager via secure edge function
+      const { data, error: joinError } = await supabase.functions.invoke('secure-wager', {
+        body: { action: 'join', wagerId: selectedWager.id },
+        headers: { 'x-wallet-session': sessionToken },
+      });
       
       if (joinError) throw joinError;
-      if (!data) throw new Error('Wager was taken by someone else');
+      if (data?.error) throw new Error(data.error);
       
-      return data;
+      return data.wager;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
