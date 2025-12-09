@@ -9,12 +9,25 @@ export function useWalletBalance() {
   return useQuery({
     queryKey: ['walletBalance', publicKey?.toBase58()],
     queryFn: async () => {
-      if (!publicKey) return 0;
-      const balance = await connection.getBalance(publicKey);
-      return balance / LAMPORTS_PER_SOL;
+      if (!publicKey) {
+        console.log('[useWalletBalance] No public key available');
+        return 0;
+      }
+      
+      try {
+        console.log('[useWalletBalance] Fetching balance for:', publicKey.toBase58());
+        const balance = await connection.getBalance(publicKey);
+        console.log('[useWalletBalance] Balance in lamports:', balance);
+        return balance / LAMPORTS_PER_SOL;
+      } catch (error) {
+        console.error('[useWalletBalance] Error fetching balance:', error);
+        throw error;
+      }
     },
     enabled: connected && !!publicKey,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
     staleTime: 10000,
+    retry: 3,
+    retryDelay: 1000,
   });
 }
