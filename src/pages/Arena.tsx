@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { Search, MapPin, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2 } from 'lucide-react';
+import { Search, MapPin, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { useOpenWagers, useLiveWagers, useRecentWinners, Wager } from '@/hooks/useWagers';
 import { usePlayer } from '@/hooks/usePlayer';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
+import { useQuickMatch } from '@/hooks/useQuickMatch';
 import { staggerContainer, staggerItem } from '@/components/PageTransition';
 
 const getGameData = (game: string) => {
@@ -120,6 +122,12 @@ export default function Arena() {
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5);
   const { data: player } = usePlayer();
+  const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance();
+  const quickMatch = useQuickMatch();
+
+  const handleQuickMatch = () => {
+    quickMatch.mutate(undefined);
+  };
 
   if (!connected) {
     return (
@@ -186,11 +194,16 @@ export default function Arena() {
             />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="icon">
-              <MapPin className="h-4 w-4" />
-            </Button>
-            <Button variant="outline">
-              <Zap className="h-4 w-4 mr-2" />
+            <Button 
+              variant="outline" 
+              onClick={handleQuickMatch}
+              disabled={quickMatch.isPending}
+            >
+              {quickMatch.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Zap className="h-4 w-4 mr-2" />
+              )}
               Quick Match
             </Button>
             <Button variant="ghost" size="icon">
@@ -279,13 +292,28 @@ export default function Arena() {
             transition={{ delay: 0.4 }}
             className="space-y-6"
           >
-            {/* Quick Stats */}
+            {/* Wallet & Quick Stats */}
             <Card variant="gaming">
               <CardContent className="p-6">
                 <h3 className="font-gaming text-sm uppercase tracking-wider text-muted-foreground mb-4">
-                  Your Stats
+                  Your Wallet
                 </h3>
-                <div className="space-y-4">
+                <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                  <div className="p-2 rounded-lg bg-primary/20">
+                    <Wallet className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Balance</p>
+                    <p className="text-xl font-gaming font-bold text-primary">
+                      {balanceLoading ? (
+                        <span className="animate-pulse">...</span>
+                      ) : (
+                        `${walletBalance?.toFixed(4) || '0'} SOL`
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Total Won</span>
                     <span className="font-gaming text-success">

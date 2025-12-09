@@ -13,6 +13,7 @@ import { truncateAddress, formatSol, GAMES } from '@/lib/constants';
 import { Link } from 'react-router-dom';
 import { usePlayer, useCreatePlayer } from '@/hooks/usePlayer';
 import { useMyWagers, Wager } from '@/hooks/useWagers';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useEffect } from 'react';
 
 const getGameData = (game: string) => {
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const { connected, publicKey } = useWallet();
   const { data: player, isLoading: playerLoading } = usePlayer();
   const { data: wagers, isLoading: wagersLoading } = useMyWagers();
+  const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance();
   const createPlayer = useCreatePlayer();
 
   // Auto-create player profile if doesn't exist
@@ -102,7 +104,7 @@ export default function Dashboard() {
           className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
         >
           {[
-            { icon: Wallet, label: 'Wagered', value: `${player ? formatSol(player.total_wagered) : '0'} SOL`, color: 'text-primary', bgColor: 'bg-primary/20' },
+            { icon: Wallet, label: 'Balance', value: balanceLoading ? '...' : `${walletBalance?.toFixed(4) || '0'} SOL`, color: 'text-primary', bgColor: 'bg-primary/20' },
             { icon: TrendingUp, label: 'Total Earned', value: `+${player ? formatSol(player.total_earnings) : '0'} SOL`, color: 'text-success', bgColor: 'bg-success/20' },
             { icon: Trophy, label: 'Wins', value: player?.total_wins || 0, color: 'text-accent', bgColor: 'bg-accent/20' },
             { icon: Flame, label: 'Streak', value: `${player?.current_streak || 0} 🔥`, color: 'text-orange-500', bgColor: 'bg-orange-500/20' },
