@@ -13,7 +13,7 @@ import { toast } from '@/hooks/use-toast';
 import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useLichessUser } from '@/hooks/useLichess';
-
+import { usernameSchema, validateWithError } from '@/lib/validation';
 export default function Profile() {
   const { connected, publicKey } = useWallet();
   const { data: player, isLoading } = usePlayer();
@@ -61,32 +61,47 @@ export default function Profile() {
   };
 
   const handleLinkLichess = async () => {
-    if (!lichessUsername) return;
+    const validation = validateWithError(usernameSchema, lichessUsername);
+    if (!validation.success) {
+      toast({ title: (validation as { success: false; error: string }).error, variant: 'destructive' });
+      return;
+    }
     try {
-      await updatePlayer.mutateAsync({ lichess_username: lichessUsername });
+      await updatePlayer.mutateAsync({ lichess_username: (validation as { success: true; data: string }).data });
       toast({ title: 'Lichess account linked!' });
     } catch (error) {
-      toast({ title: 'Failed to link account', variant: 'destructive' });
+      const message = error instanceof Error ? error.message : 'Failed to link account';
+      toast({ title: message, variant: 'destructive' });
     }
   };
 
   const handleLinkCodm = async () => {
-    if (!codmUsername) return;
+    const validation = validateWithError(usernameSchema, codmUsername);
+    if (!validation.success) {
+      toast({ title: (validation as { success: false; error: string }).error, variant: 'destructive' });
+      return;
+    }
     try {
-      await updatePlayer.mutateAsync({ codm_username: codmUsername });
+      await updatePlayer.mutateAsync({ codm_username: (validation as { success: true; data: string }).data });
       toast({ title: 'Call of Duty account linked!' });
     } catch (error) {
-      toast({ title: 'Failed to link account', variant: 'destructive' });
+      const message = error instanceof Error ? error.message : 'Failed to link account';
+      toast({ title: message, variant: 'destructive' });
     }
   };
 
   const handleLinkPubg = async () => {
-    if (!pubgName) return;
+    const validation = validateWithError(usernameSchema, pubgName);
+    if (!validation.success) {
+      toast({ title: (validation as { success: false; error: string }).error, variant: 'destructive' });
+      return;
+    }
     try {
-      await updatePlayer.mutateAsync({ pubg_username: pubgName });
+      await updatePlayer.mutateAsync({ pubg_username: (validation as { success: true; data: string }).data });
       toast({ title: 'PUBG account linked!' });
     } catch (error) {
-      toast({ title: 'Failed to link account', variant: 'destructive' });
+      const message = error instanceof Error ? error.message : 'Failed to link account';
+      toast({ title: message, variant: 'destructive' });
     }
   };
 

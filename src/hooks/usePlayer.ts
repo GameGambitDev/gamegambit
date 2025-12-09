@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletAuth } from './useWalletAuth';
 
 export interface Player {
   id: string;
@@ -43,22 +44,30 @@ export function usePlayer() {
   });
 }
 
+// Secure player creation via edge function with wallet verification
 export function useCreatePlayer() {
   const queryClient = useQueryClient();
   const { publicKey } = useWallet();
+  const { getSessionToken } = useWalletAuth();
 
   return useMutation({
     mutationFn: async () => {
       if (!publicKey) throw new Error('Wallet not connected');
       
-      const { data, error } = await supabase
-        .from('players')
-        .insert({ wallet_address: publicKey.toBase58() })
-        .select()
-        .single();
+      // Get verified session token
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required. Please sign the message to continue.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('secure-player', {
+        body: { action: 'create' },
+        headers: { 'x-wallet-session': sessionToken },
+      });
       
       if (error) throw error;
-      return data as Player;
+      if (data?.error) throw new Error(data.error);
+      return data.player as Player;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['player'] });
@@ -66,23 +75,30 @@ export function useCreatePlayer() {
   });
 }
 
+// Secure player update via edge function with wallet verification
 export function useUpdatePlayer() {
   const queryClient = useQueryClient();
   const { publicKey } = useWallet();
+  const { getSessionToken } = useWalletAuth();
 
   return useMutation({
     mutationFn: async (updates: Partial<Player>) => {
       if (!publicKey) throw new Error('Wallet not connected');
       
-      const { data, error } = await supabase
-        .from('players')
-        .update(updates)
-        .eq('wallet_address', publicKey.toBase58())
-        .select()
-        .single();
+      // Get verified session token
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required. Please sign the message to continue.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('secure-player', {
+        body: { action: 'update', updates },
+        headers: { 'x-wallet-session': sessionToken },
+      });
       
       if (error) throw error;
-      return data as Player;
+      if (data?.error) throw new Error(data.error);
+      return data.player as Player;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['player'] });
