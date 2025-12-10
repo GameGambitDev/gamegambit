@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, User, AlertCircle } from 'lucide-react';
+import { Loader2, User, AlertCircle, Shield } from 'lucide-react';
 import { useUpdatePlayer } from '@/hooks/usePlayer';
 import { toast } from 'sonner';
 
@@ -36,10 +36,10 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
 
     try {
       await updatePlayer.mutateAsync({ username: username.trim() });
-      toast.success('Username set successfully!');
+      toast.success('Username set successfully! Welcome to the arena!');
       onSuccess();
     } catch (err: any) {
-      if (err.message?.includes('duplicate') || err.message?.includes('unique')) {
+      if (err.message?.includes('duplicate') || err.message?.includes('unique') || err.message?.includes('already')) {
         setError('This username is already taken');
       } else {
         setError(err.message || 'Failed to set username');
@@ -49,19 +49,28 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <User className="h-5 w-5 text-primary" />
-            Set Your Username
+      <DialogContent 
+        className="sm:max-w-md border-primary/30 bg-card" 
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <DialogHeader className="text-center">
+          <div className="mx-auto w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4">
+            <User className="h-8 w-8 text-primary" />
+          </div>
+          <DialogTitle className="text-2xl font-gaming text-center">
+            Choose Your Username
           </DialogTitle>
-          <DialogDescription>
-            Choose a unique username to get started. This will be visible to other players.
+          <DialogDescription className="text-center">
+            This is your identity on the platform. Choose wisely - other players will see this name.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+        
+        <form onSubmit={handleSubmit} className="space-y-6 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username" className="text-sm font-medium">
+              Username
+            </Label>
             <Input
               id="username"
               placeholder="Enter username (3-20 characters)"
@@ -70,32 +79,42 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
                 setUsername(e.target.value);
                 setError('');
               }}
-              className="bg-card"
+              className="bg-background border-border h-12 text-lg"
               autoFocus
               disabled={updatePlayer.isPending}
+              autoComplete="off"
             />
             {error && (
               <div className="flex items-center gap-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4" />
-                {error}
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{error}</span>
               </div>
             )}
             <p className="text-xs text-muted-foreground">
               Letters, numbers, and underscores only
             </p>
           </div>
+          
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+            <Shield className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              You must set a username before you can create or join wagers. This cannot be changed later without contacting support.
+            </p>
+          </div>
+          
           <Button 
             type="submit" 
-            className="w-full" 
+            variant="neon"
+            className="w-full h-12 text-lg font-gaming" 
             disabled={updatePlayer.isPending || !username.trim()}
           >
             {updatePlayer.isPending ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                 Setting up...
               </>
             ) : (
-              'Continue'
+              'Enter the Arena'
             )}
           </Button>
         </form>
