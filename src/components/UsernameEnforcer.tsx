@@ -49,9 +49,21 @@ export function UsernameEnforcer({ children }: UsernameEnforcerProps) {
     setShowModal(false);
   };
 
+  // Determine if user needs to set username (connected but no username set)
+  const needsUsername = connected && player && !player.username;
+
   return (
     <>
-      {children}
+      {/* Render children but with overlay if username not set */}
+      <div className={needsUsername ? 'pointer-events-none select-none' : ''}>
+        {children}
+      </div>
+      
+      {/* Blocking overlay when username required */}
+      {needsUsername && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40" />
+      )}
+      
       <UsernameSetupModal open={showModal} onSuccess={handleUsernameSet} />
     </>
   );
@@ -66,5 +78,6 @@ export function useIsProfileComplete() {
     isComplete: connected && player?.username ? true : false,
     isLoading: isLoading,
     username: player?.username,
+    needsSetup: connected && player && !player.username,
   };
 }

@@ -2,18 +2,20 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { Search, MapPin, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet } from 'lucide-react';
+import { Search, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
-import { useOpenWagers, useLiveWagers, useRecentWinners, Wager } from '@/hooks/useWagers';
+import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, Wager } from '@/hooks/useWagers';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useQuickMatch } from '@/hooks/useQuickMatch';
+import { useIsProfileComplete } from '@/components/UsernameEnforcer';
+import { CreateWagerModal } from '@/components/CreateWagerModal';
 import { staggerContainer, staggerItem } from '@/components/PageTransition';
-
+import { toast } from 'sonner';
 const getGameData = (game: string) => {
   switch (game) {
     case 'chess': return GAMES.CHESS;
@@ -23,7 +25,7 @@ const getGameData = (game: string) => {
   }
 };
 
-function OpenWagerCard({ wager }: { wager: Wager }) {
+function OpenWagerCard({ wager, onJoin, isJoining }: { wager: Wager; onJoin: (id: string) => void; isJoining?: boolean }) {
   const game = getGameData(wager.game);
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
   
@@ -51,8 +53,14 @@ function OpenWagerCard({ wager }: { wager: Wager }) {
                 {formatSol(wager.stake_lamports)} SOL
               </div>
             </div>
-            <Button variant="neon" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-              Accept
+            <Button 
+              variant="neon" 
+              size="sm" 
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => onJoin(wager.id)}
+              disabled={isJoining}
+            >
+              {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept'}
             </Button>
           </div>
         </div>
@@ -115,8 +123,9 @@ function EmptyState({ title, description }: { title: string; description: string
 }
 
 export default function Arena() {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
   const [searchQuery, setSearchQuery] = useState('');
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   
   const { data: openWagers, isLoading: openLoading } = useOpenWagers();
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
@@ -124,11 +133,37 @@ export default function Arena() {
   const { data: player } = usePlayer();
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance();
   const quickMatch = useQuickMatch();
+  const joinWager = useJoinWager();
+  const { isComplete: profileComplete, needsSetup } = useIsProfileComplete();
 
   const handleQuickMatch = () => {
+    if (needsSetup) {
+      toast.error('Please set up your username first');
+      return;
+    }
     quickMatch.mutate(undefined);
   };
 
+  const handleCreateWager = () => {
+    if (needsSetup) {
+      toast.error('Please set up your username first');
+      return;
+    }
+    setCreateModalOpen(true);
+  };
+
+  const handleJoinWager = async (wagerId: string) => {
+    if (needsSetup) {
+      toast.error('Please set up your username first');
+      return;
+    }
+    try {
+      await joinWager.mutateAsync({ wagerId });
+      toast.success('Wager joined successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to join wager');
+    }
+  };
   if (!connected) {
     return (
       <div className="py-8 pb-16">
@@ -169,7 +204,7 @@ export default function Arena() {
           </div>
           <div className="flex gap-3">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button variant="neon" className="group">
+              <Button variant="neon" className="group" onClick={handleCreateWager}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Wager
               </Button>
@@ -272,7 +307,11 @@ export default function Arena() {
                 >
                   {openWagers.map((wager) => (
                     <motion.div key={wager.id} variants={staggerItem}>
-                      <OpenWagerCard wager={wager} />
+                      <OpenWagerCard 
+                        wager={wager} 
+                        onJoin={handleJoinWager}
+                        isJoining={joinWager.isPending}
+                      />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -378,6 +417,11 @@ export default function Arena() {
           </motion.div>
         </div>
       </div>
+      
+      <CreateWagerModal 
+        open={createModalOpen} 
+        onOpenChange={setCreateModalOpen} 
+      />
     </div>
   );
 }
