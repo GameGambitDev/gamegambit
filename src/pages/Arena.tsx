@@ -16,6 +16,7 @@ import { useIsProfileComplete } from '@/components/UsernameEnforcer';
 import { CreateWagerModal } from '@/components/CreateWagerModal';
 import { WagerDetailsModal } from '@/components/WagerDetailsModal';
 import { QuickMatchModal } from '@/components/QuickMatchModal';
+import { PlayerLink } from '@/components/PlayerLink';
 import { staggerContainer, staggerItem } from '@/components/PageTransition';
 import { toast } from 'sonner';
 const getGameData = (game: string) => {
@@ -57,7 +58,11 @@ function OpenWagerCard({
             <div className="text-3xl">{game.icon}</div>
             <div>
               <div className="font-gaming text-sm mb-1">
-                {creatorUsername || truncateAddress(wager.player_a_wallet)}
+                <PlayerLink 
+                  walletAddress={wager.player_a_wallet}
+                  username={creatorUsername}
+                  className="font-gaming"
+                />
                 {isOwner && <span className="ml-2 text-xs text-primary">(You)</span>}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">

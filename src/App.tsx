@@ -33,6 +33,7 @@ const App = () => (
                 <Route path="/my-wagers" element={<MyWagers />} />
                 <Route path="/leaderboard" element={<Leaderboard />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/profile/:walletAddress" element={<Profile />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
