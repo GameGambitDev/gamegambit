@@ -543,6 +543,201 @@ serve(async (req) => {
       });
     }
 
+    // CHECK GAME COMPLETE (polls Lichess API to detect game end)
+    if (action === 'checkGameComplete') {
+      const { wagerId } = data;
+
+      if (!wagerId) {
+        return new Response(JSON.stringify({ error: 'Wager ID required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Get the wager
+      const { data: wager, error: fetchError } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('id', wagerId)
+        .single();
+
+      if (fetchError || !wager) {
+        return new Response(JSON.stringify({ error: 'Wager not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Only check games that are in voting status
+      if (wager.status !== 'voting') {
+        return new Response(JSON.stringify({ 
+          gameComplete: false, 
+          message: 'Wager not in active game state' 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Only check for chess (Lichess) games for now
+      if (wager.game !== 'chess' || !wager.lichess_game_id) {
+        return new Response(JSON.stringify({ 
+          gameComplete: false, 
+          message: 'No Lichess game linked' 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        // Fetch game from Lichess API
+        const lichessResponse = await fetch(`https://lichess.org/api/game/${wager.lichess_game_id}`);
+        
+        if (!lichessResponse.ok) {
+          console.log(`[secure-wager] Lichess API error: ${lichessResponse.status}`);
+          return new Response(JSON.stringify({ 
+            gameComplete: false, 
+            message: 'Could not fetch game from Lichess' 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const game = await lichessResponse.json();
+        console.log(`[secure-wager] Lichess game status: ${game.status}`);
+
+        // Check if game is finished
+        const finishedStatuses = ['mate', 'resign', 'outoftime', 'draw', 'stalemate', 'timeout', 'cheat', 'noStart', 'aborted'];
+        const isFinished = finishedStatuses.includes(game.status);
+
+        if (!isFinished) {
+          return new Response(JSON.stringify({ 
+            gameComplete: false, 
+            status: game.status,
+            message: 'Game still in progress' 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Get player Lichess usernames
+        const { data: playerAData } = await supabase
+          .from('players')
+          .select('lichess_username')
+          .eq('wallet_address', wager.player_a_wallet)
+          .single();
+
+        const { data: playerBData } = await supabase
+          .from('players')
+          .select('lichess_username')
+          .eq('wallet_address', wager.player_b_wallet)
+          .single();
+
+        const playerAUsername = playerAData?.lichess_username?.toLowerCase();
+        const playerBUsername = playerBData?.lichess_username?.toLowerCase();
+        const whiteUser = game.players?.white?.user?.name?.toLowerCase();
+        const blackUser = game.players?.black?.user?.name?.toLowerCase();
+
+        // Determine winner wallet
+        let winnerWallet: string | null = null;
+        let resultType: 'playerA' | 'playerB' | 'draw' | 'unknown' = 'unknown';
+
+        if (game.status === 'draw' || game.status === 'stalemate') {
+          resultType = 'draw';
+        } else if (game.winner === 'white') {
+          if (whiteUser === playerAUsername) {
+            winnerWallet = wager.player_a_wallet;
+            resultType = 'playerA';
+          } else if (whiteUser === playerBUsername) {
+            winnerWallet = wager.player_b_wallet;
+            resultType = 'playerB';
+          }
+        } else if (game.winner === 'black') {
+          if (blackUser === playerAUsername) {
+            winnerWallet = wager.player_a_wallet;
+            resultType = 'playerA';
+          } else if (blackUser === playerBUsername) {
+            winnerWallet = wager.player_b_wallet;
+            resultType = 'playerB';
+          }
+        }
+
+        // If we could determine the winner, auto-resolve the wager
+        if (resultType !== 'unknown') {
+          const { data: updatedWager, error: updateError } = await supabase
+            .from('wagers')
+            .update({ 
+              status: 'resolved',
+              winner_wallet: winnerWallet,
+              resolved_at: new Date().toISOString()
+            })
+            .eq('id', wagerId)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.error('[secure-wager] Auto-resolve error:', updateError);
+          } else {
+            console.log(`[secure-wager] Wager ${wagerId} auto-resolved. Winner: ${resultType}`);
+            
+            // Update player stats
+            if (winnerWallet) {
+              // Update winner stats
+              const { error: winnerError } = await supabase.rpc('increment_player_wins', { 
+                p_wallet: winnerWallet,
+                p_earnings: wager.stake_lamports * 2
+              });
+              if (winnerError) {
+                console.log('[secure-wager] Note: Could not update winner stats (RPC may not exist)');
+              }
+
+              // Update loser stats
+              const loserWallet = winnerWallet === wager.player_a_wallet 
+                ? wager.player_b_wallet 
+                : wager.player_a_wallet;
+              const { error: loserError } = await supabase.rpc('increment_player_losses', {
+                p_wallet: loserWallet,
+                p_wagered: wager.stake_lamports
+              });
+              if (loserError) {
+                console.log('[secure-wager] Note: Could not update loser stats (RPC may not exist)');
+              }
+            }
+          }
+
+          return new Response(JSON.stringify({ 
+            gameComplete: true,
+            status: game.status,
+            winner: game.winner,
+            resultType,
+            winnerWallet,
+            wager: updatedWager
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Game finished but couldn't determine winner (usernames don't match)
+        return new Response(JSON.stringify({ 
+          gameComplete: true,
+          status: game.status,
+          winner: game.winner,
+          resultType: 'unknown',
+          message: 'Game complete but could not verify players. Manual vote required.'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+
+      } catch (lichessError) {
+        console.error('[secure-wager] Lichess API error:', lichessError);
+        return new Response(JSON.stringify({ 
+          gameComplete: false, 
+          message: 'Error checking Lichess game' 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     return new Response(JSON.stringify({ error: 'Invalid action' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

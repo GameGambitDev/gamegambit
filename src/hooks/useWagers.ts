@@ -376,3 +376,39 @@ export function useWagerById(wagerId: string | null) {
     refetchInterval: 2000, // Poll every 2 seconds for ready state updates
   });
 }
+
+// Check if game is complete via Lichess API
+export function useCheckGameComplete() {
+  const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
+
+  return useMutation({
+    mutationFn: async ({ wagerId }: { wagerId: string }) => {
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) {
+        throw new Error('Wallet verification required.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('secure-wager', {
+        body: { action: 'checkGameComplete', wagerId },
+        headers: { 'x-wallet-session': sessionToken },
+      });
+      
+      if (error) throw error;
+      return data as {
+        gameComplete: boolean;
+        status?: string;
+        winner?: string;
+        winnerWallet?: string;
+        resultType?: 'playerA' | 'playerB' | 'draw' | 'unknown';
+        message?: string;
+        wager?: Wager;
+      };
+    },
+    onSuccess: (data) => {
+      if (data.gameComplete) {
+        queryClient.invalidateQueries({ queryKey: ['wagers'] });
+      }
+    },
+  });
+}

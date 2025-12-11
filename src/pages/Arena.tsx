@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { Search, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Search, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet, Eye, Pencil, Trash2, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ import { WagerDetailsModal } from '@/components/WagerDetailsModal';
 import { QuickMatchModal } from '@/components/QuickMatchModal';
 import { ReadyRoomModal } from '@/components/ReadyRoomModal';
 import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal';
+import { LiveGameModal } from '@/components/LiveGameModal';
 import { PlayerLink } from '@/components/PlayerLink';
 import { staggerContainer, staggerItem } from '@/components/PageTransition';
 import { toast } from 'sonner';
@@ -114,14 +115,33 @@ function OpenWagerCard({
   );
 }
 
-function LiveMatchCard({ wager, onEnterReadyRoom, currentWallet }: { wager: Wager; onEnterReadyRoom?: (wagerId: string) => void; currentWallet?: string }) {
+function LiveMatchCard({ 
+  wager, 
+  onEnterReadyRoom, 
+  onWatchGame,
+  currentWallet 
+}: { 
+  wager: Wager; 
+  onEnterReadyRoom?: (wagerId: string) => void; 
+  onWatchGame?: (wager: Wager) => void;
+  currentWallet?: string 
+}) {
   const game = getGameData(wager.game);
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
   const isParticipant = currentWallet === wager.player_a_wallet || currentWallet === wager.player_b_wallet;
   const canEnterReadyRoom = wager.status === 'joined' && isParticipant;
+  const isInProgress = wager.status === 'voting';
+  
+  const handleClick = () => {
+    if (canEnterReadyRoom) {
+      onEnterReadyRoom?.(wager.id);
+    } else if (isInProgress && isParticipant) {
+      onWatchGame?.(wager);
+    }
+  };
   
   return (
-    <Card variant="wager" className="cursor-pointer border-primary/20" onClick={() => canEnterReadyRoom && onEnterReadyRoom?.(wager.id)}>
+    <Card variant="wager" className="cursor-pointer border-primary/20" onClick={handleClick}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -149,6 +169,10 @@ function LiveMatchCard({ wager, onEnterReadyRoom, currentWallet }: { wager: Wage
             <div className="font-gaming text-accent">{formatSol(wager.stake_lamports * 2)} SOL</div>
             {canEnterReadyRoom ? (
               <Badge variant="joined" className="cursor-pointer">Enter Ready Room</Badge>
+            ) : isInProgress && isParticipant ? (
+              <Badge variant="voting" className="cursor-pointer flex items-center gap-1">
+                <Play className="h-3 w-3" /> Watch Game
+              </Badge>
             ) : (
               <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'}>
                 {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
@@ -184,6 +208,8 @@ export default function Arena() {
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null);
   const [editWager, setEditWager] = useState<Wager | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [liveGameWager, setLiveGameWager] = useState<Wager | null>(null);
+  const [liveGameModalOpen, setLiveGameModalOpen] = useState(false);
   
   const { data: openWagers, isLoading: openLoading } = useOpenWagers();
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
@@ -376,6 +402,12 @@ export default function Arena() {
       toast.error(err.message || 'Failed to join wager');
     }
   };
+
+  const handleWatchGame = (wager: Wager) => {
+    setLiveGameWager(wager);
+    setLiveGameModalOpen(true);
+  };
+
   if (!connected) {
     return (
       <div className="py-8 pb-16">
@@ -488,7 +520,12 @@ export default function Arena() {
                 >
                   {filteredLiveWagers.map((wager) => (
                     <motion.div key={wager.id} variants={staggerItem}>
-                      <LiveMatchCard wager={wager} />
+                      <LiveMatchCard 
+                        wager={wager}
+                        onEnterReadyRoom={(id) => setReadyRoomWagerId(id)}
+                        onWatchGame={handleWatchGame}
+                        currentWallet={walletAddress}
+                      />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -694,6 +731,16 @@ export default function Arena() {
         onSave={handleSaveEditWager}
         isSaving={editWagerMutation.isPending}
         canEditGameId={editWager?.status === 'created'}
+      />
+      
+      <LiveGameModal
+        wager={liveGameWager}
+        open={liveGameModalOpen}
+        onOpenChange={(open) => {
+          setLiveGameModalOpen(open);
+          if (!open) setLiveGameWager(null);
+        }}
+        currentWallet={walletAddress}
       />
     </div>
   );
