@@ -114,7 +114,7 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
                 Setting up...
               </>
             ) : (
-              'Enter the Arena'
+              'Set Username'
             )}
           </Button>
         </form>
