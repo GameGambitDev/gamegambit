@@ -154,7 +154,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      update_loser_stats: {
+        Args: { p_stake: number; p_wallet: string }
+        Returns: undefined
+      }
+      update_winner_stats: {
+        Args: { p_earnings: number; p_stake: number; p_wallet: string }
+        Returns: undefined
+      }
     }
     Enums: {
       game_type: "chess" | "codm" | "pubg"

@@ -663,6 +663,8 @@ serve(async (req) => {
 
         // If we could determine the winner, auto-resolve the wager
         if (resultType !== 'unknown') {
+          console.log(`[secure-wager] Resolving wager ${wagerId}. Result: ${resultType}, Winner: ${winnerWallet}`);
+          
           const { data: updatedWager, error: updateError } = await supabase
             .from('wagers')
             .update({ 
@@ -676,31 +678,47 @@ serve(async (req) => {
 
           if (updateError) {
             console.error('[secure-wager] Auto-resolve error:', updateError);
-          } else {
-            console.log(`[secure-wager] Wager ${wagerId} auto-resolved. Winner: ${resultType}`);
-            
-            // Update player stats
-            if (winnerWallet) {
-              // Update winner stats
-              const { error: winnerError } = await supabase.rpc('increment_player_wins', { 
-                p_wallet: winnerWallet,
-                p_earnings: wager.stake_lamports * 2
-              });
-              if (winnerError) {
-                console.log('[secure-wager] Note: Could not update winner stats (RPC may not exist)');
-              }
+            return new Response(JSON.stringify({ 
+              gameComplete: true,
+              status: game.status,
+              winner: game.winner,
+              resultType,
+              winnerWallet,
+              error: 'Failed to update wager status',
+              errorDetails: updateError.message
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
+          console.log(`[secure-wager] Wager ${wagerId} auto-resolved. Winner: ${resultType}`);
+          
+          // Update player stats using RPC functions
+          if (winnerWallet) {
+            // Update winner stats
+            const { error: winnerError } = await supabase.rpc('update_winner_stats', { 
+              p_wallet: winnerWallet,
+              p_earnings: wager.stake_lamports * 2,
+              p_stake: wager.stake_lamports
+            });
+            if (winnerError) {
+              console.log('[secure-wager] Winner stats update error:', winnerError.message);
+            } else {
+              console.log(`[secure-wager] Winner stats updated for ${winnerWallet}`);
+            }
 
-              // Update loser stats
-              const loserWallet = winnerWallet === wager.player_a_wallet 
-                ? wager.player_b_wallet 
-                : wager.player_a_wallet;
-              const { error: loserError } = await supabase.rpc('increment_player_losses', {
-                p_wallet: loserWallet,
-                p_wagered: wager.stake_lamports
-              });
-              if (loserError) {
-                console.log('[secure-wager] Note: Could not update loser stats (RPC may not exist)');
-              }
+            // Update loser stats
+            const loserWallet = winnerWallet === wager.player_a_wallet 
+              ? wager.player_b_wallet 
+              : wager.player_a_wallet;
+            const { error: loserError } = await supabase.rpc('update_loser_stats', {
+              p_wallet: loserWallet,
+              p_stake: wager.stake_lamports
+            });
+            if (loserError) {
+              console.log('[secure-wager] Loser stats update error:', loserError.message);
+            } else {
+              console.log(`[secure-wager] Loser stats updated for ${loserWallet}`);
             }
           }
 
