@@ -5,6 +5,7 @@ import { Clock, ExternalLink, Swords, Trophy, User } from 'lucide-react';
 import { Wager } from '@/hooks/useWagers';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
+import { PlayerLink } from '@/components/PlayerLink';
 
 interface WagerDetailsModalProps {
   wager: Wager | null;
@@ -85,9 +86,11 @@ export function WagerDetailsModal({
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Challenger</p>
-                  <p className="font-medium">
-                    {playerA?.username || truncateAddress(wager.player_a_wallet)}
-                  </p>
+                  <PlayerLink 
+                    walletAddress={wager.player_a_wallet}
+                    username={playerA?.username}
+                    className="font-medium"
+                  />
                 </div>
               </div>
               {playerA && (
@@ -105,9 +108,11 @@ export function WagerDetailsModal({
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Opponent</p>
-                    <p className="font-medium">
-                      {playerB?.username || truncateAddress(wager.player_b_wallet)}
-                    </p>
+                    <PlayerLink 
+                      walletAddress={wager.player_b_wallet}
+                      username={playerB?.username}
+                      className="font-medium"
+                    />
                   </div>
                 </div>
                 {playerB && (
