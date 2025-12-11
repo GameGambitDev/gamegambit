@@ -23,8 +23,9 @@ async function validateSessionToken(token: string): Promise<string | null> {
       return null;
     }
 
+    // Must include the service key in hash computation (matching verify-wallet)
     const encoder = new TextEncoder();
-    const data = encoder.encode(payloadStr);
+    const data = encoder.encode(payloadStr + supabaseServiceKey);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
