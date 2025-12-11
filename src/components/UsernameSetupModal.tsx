@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, User, AlertCircle, Shield } from 'lucide-react';
 import { useUpdatePlayer } from '@/hooks/usePlayer';
 import { toast } from 'sonner';
+import { triggerCelebration } from '@/lib/confetti';
 
 interface UsernameSetupModalProps {
   open: boolean;
@@ -36,6 +37,7 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
 
     try {
       await updatePlayer.mutateAsync({ username: username.trim() });
+      triggerCelebration();
       toast.success('Username set successfully! Welcome to the arena!');
       onSuccess();
     } catch (err: any) {

@@ -125,3 +125,43 @@ export function useLeaderboard(sortBy: 'earnings' | 'wins' | 'streak' = 'earning
     },
   });
 }
+
+// Search players by username or wallet address
+export function useSearchPlayers(searchQuery: string) {
+  return useQuery({
+    queryKey: ['players', 'search', searchQuery],
+    queryFn: async () => {
+      if (!searchQuery || searchQuery.length < 2) return [];
+      
+      const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .or(`username.ilike.%${searchQuery}%,wallet_address.ilike.%${searchQuery}%`)
+        .limit(20);
+      
+      if (error) throw error;
+      return data as Player[];
+    },
+    enabled: searchQuery.length >= 2,
+  });
+}
+
+// Get player by wallet address
+export function usePlayerByWallet(walletAddress: string | null) {
+  return useQuery({
+    queryKey: ['player', walletAddress],
+    queryFn: async () => {
+      if (!walletAddress) return null;
+      
+      const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .eq('wallet_address', walletAddress)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') throw error;
+      return data as Player | null;
+    },
+    enabled: !!walletAddress,
+  });
+}

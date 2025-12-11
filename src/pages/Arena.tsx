@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, Wager } from '@/hooks/useWagers';
-import { usePlayer } from '@/hooks/usePlayer';
+import { usePlayer, useSearchPlayers } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useQuickMatch } from '@/hooks/useQuickMatch';
 import { useIsProfileComplete } from '@/components/UsernameEnforcer';
@@ -135,6 +135,42 @@ export default function Arena() {
   const quickMatch = useQuickMatch();
   const joinWager = useJoinWager();
   const { isComplete: profileComplete, needsSetup } = useIsProfileComplete();
+  
+  // Search for players by username
+  const { data: searchedPlayers } = useSearchPlayers(searchQuery);
+  
+  // Filter wagers based on search query
+  const filteredOpenWagers = useMemo(() => {
+    if (!openWagers) return [];
+    if (!searchQuery.trim()) return openWagers;
+    
+    const query = searchQuery.toLowerCase();
+    const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || [];
+    
+    return openWagers.filter(wager => {
+      // Match by wallet address directly
+      if (wager.player_a_wallet.toLowerCase().includes(query)) return true;
+      // Match by searched player wallets
+      if (matchedWallets.includes(wager.player_a_wallet.toLowerCase())) return true;
+      return false;
+    });
+  }, [openWagers, searchQuery, searchedPlayers]);
+  
+  const filteredLiveWagers = useMemo(() => {
+    if (!liveWagers) return [];
+    if (!searchQuery.trim()) return liveWagers;
+    
+    const query = searchQuery.toLowerCase();
+    const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || [];
+    
+    return liveWagers.filter(wager => {
+      if (wager.player_a_wallet.toLowerCase().includes(query)) return true;
+      if (wager.player_b_wallet?.toLowerCase().includes(query)) return true;
+      if (matchedWallets.includes(wager.player_a_wallet.toLowerCase())) return true;
+      if (wager.player_b_wallet && matchedWallets.includes(wager.player_b_wallet.toLowerCase())) return true;
+      return false;
+    });
+  }, [liveWagers, searchQuery, searchedPlayers]);
 
   const handleQuickMatch = () => {
     if (needsSetup) {
@@ -267,14 +303,14 @@ export default function Arena() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              ) : liveWagers && liveWagers.length > 0 ? (
+              ) : filteredLiveWagers.length > 0 ? (
                 <motion.div 
                   variants={staggerContainer}
                   initial="initial"
                   animate="animate"
                   className="space-y-3"
                 >
-                  {liveWagers.map((wager) => (
+                  {filteredLiveWagers.map((wager) => (
                     <motion.div key={wager.id} variants={staggerItem}>
                       <LiveMatchCard wager={wager} />
                     </motion.div>
@@ -282,7 +318,9 @@ export default function Arena() {
                 </motion.div>
               ) : (
                 <Card variant="gaming" className="p-6">
-                  <p className="text-center text-muted-foreground text-sm">No live matches right now</p>
+                  <p className="text-center text-muted-foreground text-sm">
+                    {searchQuery ? 'No matches found for your search' : 'No live matches right now'}
+                  </p>
                 </Card>
               )}
             </motion.div>
@@ -298,14 +336,14 @@ export default function Arena() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              ) : openWagers && openWagers.length > 0 ? (
+              ) : filteredOpenWagers.length > 0 ? (
                 <motion.div 
                   variants={staggerContainer}
                   initial="initial"
                   animate="animate"
                   className="space-y-3"
                 >
-                  {openWagers.map((wager) => (
+                  {filteredOpenWagers.map((wager) => (
                     <motion.div key={wager.id} variants={staggerItem}>
                       <OpenWagerCard 
                         wager={wager} 
@@ -317,8 +355,8 @@ export default function Arena() {
                 </motion.div>
               ) : (
                 <EmptyState 
-                  title="No open wagers" 
-                  description="Be the first to create a wager and challenge opponents!" 
+                  title={searchQuery ? 'No wagers found' : 'No open wagers'} 
+                  description={searchQuery ? 'Try searching with a different username or wallet address' : 'Be the first to create a wager and challenge opponents!'} 
                 />
               )}
             </motion.div>

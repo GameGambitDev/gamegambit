@@ -1,13 +1,13 @@
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { motion } from 'framer-motion';
-import { Gamepad2, Menu, X, Bell, User } from 'lucide-react';
+import { Gamepad2, Menu, X, User } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { truncateAddress } from '@/lib/constants';
+import { NotificationsDropdown } from '@/components/NotificationsDropdown';
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard' },
@@ -66,10 +66,7 @@ export function Header() {
           <div className="flex items-center gap-3">
             {connected && (
               <>
-                <Button variant="ghost" size="icon" className="relative">
-                  <Bell className="h-5 w-5" />
-                  <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-destructive animate-pulse" />
-                </Button>
+                <NotificationsDropdown />
                 <Link to="/profile">
                   <Button variant="glass" size="sm" className="hidden sm:flex">
                     <User className="h-4 w-4 mr-2" />
