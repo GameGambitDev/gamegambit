@@ -76,7 +76,7 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg border-primary/30 bg-card">
+      <DialogContent className="sm:max-w-lg border-primary/30 bg-card max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/20">
@@ -163,14 +163,14 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
               </Label>
               <Input
                 id="lichessGameId"
-                placeholder="e.g., abc12345"
+                placeholder="e.g., AbCdEfGh"
                 value={lichessGameId}
                 onChange={(e) => setLichessGameId(e.target.value)}
                 className="bg-background border-border"
                 disabled={createWager.isPending}
               />
               <p className="text-xs text-muted-foreground">
-                Link your Lichess game for automatic result verification
+                Get ID from your Lichess game URL: <span className="text-primary">lichess.org/</span><span className="text-primary font-medium">AbCdEfGh</span>
               </p>
             </div>
           )}
