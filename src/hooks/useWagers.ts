@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
@@ -66,6 +67,31 @@ export function useOpenWagers() {
 
 // Fetch live wagers (status = 'joined' or 'voting')
 export function useLiveWagers() {
+  const queryClient = useQueryClient();
+  
+  useEffect(() => {
+    // Subscribe to realtime changes on wagers table
+    const channel = supabase
+      .channel('live-wagers-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wagers'
+        },
+        () => {
+          // Invalidate queries when any wager changes
+          queryClient.invalidateQueries({ queryKey: ['wagers'] });
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+  
   return useQuery({
     queryKey: ['wagers', 'live'],
     queryFn: async () => {
@@ -78,6 +104,7 @@ export function useLiveWagers() {
       if (error) throw error;
       return data as Wager[];
     },
+    refetchInterval: 5000, // Refetch every 5 seconds
   });
 }
 

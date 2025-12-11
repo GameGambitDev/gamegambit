@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ExternalLink, Trophy, Loader2, RefreshCw, Clock } from 'lucide-react';
+import { ExternalLink, Trophy, Loader2, RefreshCw, Clock, CheckCircle } from 'lucide-react';
 import { Wager, useCheckGameComplete } from '@/hooks/useWagers';
 import { GAMES, formatSol } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
@@ -11,6 +11,7 @@ import { useLichessGame } from '@/hooks/useLichess';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface LiveGameModalProps {
   wager: Wager | null;
@@ -36,7 +37,11 @@ const getGameLink = (game: string, gameId: string | null) => {
   }
 };
 
-const getStatusDisplay = (status: string | undefined) => {
+const getStatusDisplay = (status: string | undefined, wagerStatus?: string) => {
+  // If wager is resolved, show resolved status
+  if (wagerStatus === 'resolved') {
+    return { label: 'Match Complete', color: 'bg-success' };
+  }
   switch (status) {
     case 'started': return { label: 'In Progress', color: 'bg-primary' };
     case 'mate': return { label: 'Checkmate', color: 'bg-success' };
@@ -54,6 +59,7 @@ export function LiveGameModal({
   onOpenChange, 
   currentWallet
 }: LiveGameModalProps) {
+  const queryClient = useQueryClient();
   const { data: playerA } = usePlayerByWallet(wager?.player_a_wallet || null);
   const { data: playerB } = usePlayerByWallet(wager?.player_b_wallet || null);
   const { data: lichessGame, refetch: refetchGame } = useLichessGame(wager?.lichess_game_id);
@@ -65,10 +71,32 @@ export function LiveGameModal({
     winner?: string;
     winnerWallet?: string;
   } | null>(null);
+  const [hasShownResult, setHasShownResult] = useState(false);
 
   const isPlayerA = currentWallet === wager?.player_a_wallet;
   const isPlayerB = currentWallet === wager?.player_b_wallet;
   const isParticipant = isPlayerA || isPlayerB;
+  
+  // Check if wager is already resolved
+  const isWagerResolved = wager?.status === 'resolved';
+
+  // Reset state when wager changes
+  useEffect(() => {
+    if (wager?.id) {
+      setGameResult(null);
+      setHasShownResult(false);
+    }
+  }, [wager?.id]);
+
+  // Set initial game result if wager is already resolved
+  useEffect(() => {
+    if (isWagerResolved && wager?.winner_wallet && !gameResult) {
+      setGameResult({
+        complete: true,
+        winnerWallet: wager.winner_wallet
+      });
+    }
+  }, [isWagerResolved, wager?.winner_wallet, gameResult]);
 
   // Poll for game completion every 5 seconds
   useEffect(() => {
@@ -88,18 +116,25 @@ export function LiveGameModal({
             winnerWallet: result.winnerWallet
           });
           
-          // Fire confetti if current user won
-          if (result.winnerWallet === currentWallet) {
-            confetti({
-              particleCount: 100,
-              spread: 70,
-              origin: { y: 0.6 }
-            });
-            toast.success('Congratulations! You won the match!');
-          } else if (result.resultType === 'draw') {
-            toast.info('The game ended in a draw');
-          } else if (result.winnerWallet && isParticipant) {
-            toast.info('Game over. Better luck next time!');
+          // Invalidate queries to refresh wager list
+          queryClient.invalidateQueries({ queryKey: ['wagers'] });
+          queryClient.invalidateQueries({ queryKey: ['players'] });
+          
+          // Show toast only once
+          if (!hasShownResult) {
+            setHasShownResult(true);
+            if (result.winnerWallet === currentWallet) {
+              confetti({
+                particleCount: 100,
+                spread: 70,
+                origin: { y: 0.6 }
+              });
+              toast.success('Congratulations! You won the match!');
+            } else if (result.resultType === 'draw') {
+              toast.info('The game ended in a draw');
+            } else if (result.winnerWallet && isParticipant) {
+              toast.info('Game over. Better luck next time!');
+            }
           }
         }
       } catch (error) {
@@ -112,7 +147,7 @@ export function LiveGameModal({
     checkGame();
     const interval = setInterval(checkGame, 5000);
     return () => clearInterval(interval);
-  }, [open, wager?.id, wager?.status, currentWallet, isParticipant]);
+  }, [open, wager?.id, wager?.status, currentWallet, isParticipant, hasShownResult, queryClient]);
 
   const handleManualCheck = useCallback(async () => {
     if (!wager) return;
@@ -128,6 +163,9 @@ export function LiveGameModal({
           winner: result.winner,
           winnerWallet: result.winnerWallet
         });
+        // Invalidate queries to refresh wager list
+        queryClient.invalidateQueries({ queryKey: ['wagers'] });
+        queryClient.invalidateQueries({ queryKey: ['players'] });
         toast.success('Game result detected!');
       } else {
         toast.info('Game still in progress');
@@ -137,13 +175,13 @@ export function LiveGameModal({
     } finally {
       setIsChecking(false);
     }
-  }, [wager, refetchGame, checkGameComplete]);
+  }, [wager, refetchGame, checkGameComplete, queryClient]);
 
   if (!wager) return null;
 
   const game = getGameData(wager.game);
   const gameLink = getGameLink(wager.game, wager.lichess_game_id);
-  const statusDisplay = getStatusDisplay(lichessGame?.status);
+  const statusDisplay = getStatusDisplay(lichessGame?.status, wager.status);
   const isGameFinished = gameResult?.complete || wager.status === 'resolved';
 
   return (
@@ -177,7 +215,7 @@ export function LiveGameModal({
 
         <div className="space-y-6 mt-4">
           {/* Winner Display */}
-          {isGameFinished && gameResult?.winnerWallet && (
+          {isGameFinished && (gameResult?.winnerWallet || wager.winner_wallet) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -186,8 +224,8 @@ export function LiveGameModal({
               <Trophy className="h-12 w-12 text-primary mx-auto mb-3" />
               <p className="text-sm text-muted-foreground mb-1">Winner</p>
               <PlayerLink 
-                walletAddress={gameResult.winnerWallet}
-                username={gameResult.winnerWallet === wager.player_a_wallet ? playerA?.username : playerB?.username}
+                walletAddress={(gameResult?.winnerWallet || wager.winner_wallet)!}
+                username={(gameResult?.winnerWallet || wager.winner_wallet) === wager.player_a_wallet ? playerA?.username : playerB?.username}
                 className="text-xl font-gaming font-bold text-primary"
               />
               <p className="text-lg font-bold text-success mt-2">
@@ -197,7 +235,7 @@ export function LiveGameModal({
           )}
 
           {/* Draw Display */}
-          {isGameFinished && !gameResult?.winnerWallet && gameResult?.winner === undefined && (
+          {isGameFinished && !gameResult?.winnerWallet && !wager.winner_wallet && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -219,7 +257,7 @@ export function LiveGameModal({
           {/* Players */}
           <div className="grid grid-cols-2 gap-4">
             <div className={`p-4 rounded-lg border ${
-              gameResult?.winnerWallet === wager.player_a_wallet 
+              (gameResult?.winnerWallet || wager.winner_wallet) === wager.player_a_wallet 
                 ? 'bg-success/10 border-success/30' 
                 : 'bg-muted/30 border-border'
             }`}>
@@ -237,7 +275,7 @@ export function LiveGameModal({
               )}
             </div>
             <div className={`p-4 rounded-lg border ${
-              gameResult?.winnerWallet === wager.player_b_wallet 
+              (gameResult?.winnerWallet || wager.winner_wallet) === wager.player_b_wallet 
                 ? 'bg-success/10 border-success/30' 
                 : 'bg-muted/30 border-border'
             }`}>
