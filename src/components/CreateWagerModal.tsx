@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, AlertCircle, Swords } from 'lucide-react';
+import { Loader2, AlertCircle, Swords, Search, User, X } from 'lucide-react';
 import { useCreateWager, GameType } from '@/hooks/useWagers';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { GAMES, formatSol } from '@/lib/constants';
+import { useSearchPlayers, Player } from '@/hooks/usePlayer';
+import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -29,9 +30,13 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
   const [lichessGameId, setLichessGameId] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
   const [error, setError] = useState('');
+  const [opponentSearch, setOpponentSearch] = useState('');
+  const [selectedOpponent, setSelectedOpponent] = useState<Player | null>(null);
+  const [isPublic, setIsPublic] = useState(true);
   
   const createWager = useCreateWager();
   const { data: balance } = useWalletBalance();
+  const { data: searchResults, isLoading: searchLoading } = useSearchPlayers(opponentSearch);
 
   const stakeLamports = Math.floor(parseFloat(stakeAmount || '0') * 1_000_000_000);
   const balanceLamports = (balance || 0) * 1_000_000_000;
@@ -61,17 +66,34 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
         stake_lamports: stakeLamports,
         lichess_game_id: selectedGame === 'chess' && lichessGameId ? lichessGameId : undefined,
         stream_url: streamUrl || undefined,
-        is_public: true,
+        is_public: isPublic && !selectedOpponent,
+        // Note: Challenge specific player would require backend support
       });
-      toast.success('Wager created! Waiting for an opponent...');
+      toast.success(selectedOpponent 
+        ? `Challenge sent to ${selectedOpponent.username || truncateAddress(selectedOpponent.wallet_address)}!` 
+        : 'Wager created! Waiting for an opponent...');
       onOpenChange(false);
       // Reset form
       setStakeAmount('0.1');
       setLichessGameId('');
       setStreamUrl('');
+      setSelectedOpponent(null);
+      setOpponentSearch('');
+      setIsPublic(true);
     } catch (err: any) {
       setError(err.message || 'Failed to create wager');
     }
+  };
+
+  const handleSelectOpponent = (player: Player) => {
+    setSelectedOpponent(player);
+    setOpponentSearch('');
+    setIsPublic(false);
+  };
+
+  const handleClearOpponent = () => {
+    setSelectedOpponent(null);
+    setIsPublic(true);
   };
 
   return (
@@ -85,7 +107,7 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
             <div>
               <DialogTitle className="text-xl font-gaming">Create Wager</DialogTitle>
               <DialogDescription>
-                Set your stake and wait for a challenger
+                Challenge a specific player or wait for any challenger
               </DialogDescription>
             </div>
           </div>
@@ -113,6 +135,74 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Challenge Specific Player */}
+          <div className="space-y-2">
+            <Label>Challenge Player <span className="text-muted-foreground">(optional)</span></Label>
+            {selectedOpponent ? (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-full bg-primary/20">
+                    <User className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-medium">{selectedOpponent.username || 'Anonymous'}</p>
+                    <p className="text-xs text-muted-foreground">{truncateAddress(selectedOpponent.wallet_address)}</p>
+                  </div>
+                </div>
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={handleClearOpponent}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by username or wallet..."
+                  value={opponentSearch}
+                  onChange={(e) => setOpponentSearch(e.target.value)}
+                  className="pl-10 bg-background border-border"
+                  disabled={createWager.isPending}
+                />
+                {opponentSearch.length >= 2 && (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    {searchLoading ? (
+                      <div className="p-3 text-center text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                      </div>
+                    ) : searchResults && searchResults.length > 0 ? (
+                      searchResults.map((player) => (
+                        <button
+                          key={player.id}
+                          type="button"
+                          onClick={() => handleSelectOpponent(player)}
+                          className="w-full p-3 text-left hover:bg-primary/10 flex items-center gap-3 transition-colors"
+                        >
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">{player.username || 'Anonymous'}</p>
+                            <p className="text-xs text-muted-foreground">{truncateAddress(player.wallet_address)}</p>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-3 text-center text-muted-foreground text-sm">
+                        No players found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Leave empty to create an open wager anyone can join
+            </p>
           </div>
 
           {/* Stake Amount */}
@@ -182,7 +272,7 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
             </Label>
             <Input
               id="streamUrl"
-              placeholder="https://twitch.tv/..."
+              placeholder="https://twitch.tv/yourusername"
               value={streamUrl}
               onChange={(e) => setStreamUrl(e.target.value)}
               className="bg-background border-border"
@@ -209,6 +299,14 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
                 +{formatSol(stakeLamports)} SOL
               </span>
             </div>
+            {selectedOpponent && (
+              <div className="flex justify-between items-center mt-2">
+                <span className="text-muted-foreground">Challenging</span>
+                <span className="font-gaming text-primary">
+                  {selectedOpponent.username || truncateAddress(selectedOpponent.wallet_address)}
+                </span>
+              </div>
+            )}
           </div>
           
           <Button 
@@ -222,6 +320,8 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                 Creating Wager...
               </>
+            ) : selectedOpponent ? (
+              'Send Challenge'
             ) : (
               'Create Wager'
             )}

@@ -2,18 +2,20 @@ import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { Search, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet } from 'lucide-react';
+import { Search, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet, Eye, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
-import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, Wager } from '@/hooks/useWagers';
-import { usePlayer, useSearchPlayers } from '@/hooks/usePlayer';
+import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, Wager, GameType } from '@/hooks/useWagers';
+import { usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useQuickMatch } from '@/hooks/useQuickMatch';
 import { useIsProfileComplete } from '@/components/UsernameEnforcer';
 import { CreateWagerModal } from '@/components/CreateWagerModal';
+import { WagerDetailsModal } from '@/components/WagerDetailsModal';
+import { QuickMatchModal } from '@/components/QuickMatchModal';
 import { staggerContainer, staggerItem } from '@/components/PageTransition';
 import { toast } from 'sonner';
 const getGameData = (game: string) => {
@@ -25,19 +27,38 @@ const getGameData = (game: string) => {
   }
 };
 
-function OpenWagerCard({ wager, onJoin, isJoining }: { wager: Wager; onJoin: (id: string) => void; isJoining?: boolean }) {
+function OpenWagerCard({ 
+  wager, 
+  onJoin, 
+  onViewDetails,
+  onEdit,
+  onDelete,
+  isJoining,
+  isOwner,
+  creatorUsername
+}: { 
+  wager: Wager; 
+  onJoin: (id: string) => void; 
+  onViewDetails: (wager: Wager) => void;
+  onEdit?: (wager: Wager) => void;
+  onDelete?: (wager: Wager) => void;
+  isJoining?: boolean;
+  isOwner?: boolean;
+  creatorUsername?: string | null;
+}) {
   const game = getGameData(wager.game);
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
   
   return (
-    <Card variant="wager" className="group cursor-pointer">
+    <Card variant="wager" className="group cursor-pointer" onClick={() => onViewDetails(wager)}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="text-3xl">{game.icon}</div>
             <div>
               <div className="font-gaming text-sm mb-1">
-                {truncateAddress(wager.player_a_wallet)}
+                {creatorUsername || truncateAddress(wager.player_a_wallet)}
+                {isOwner && <span className="ml-2 text-xs text-primary">(You)</span>}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>{game.name}</span>
@@ -47,21 +68,38 @@ function OpenWagerCard({ wager, onJoin, isJoining }: { wager: Wager; onJoin: (id
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="text-right">
               <div className="font-gaming text-lg font-bold text-accent">
                 {formatSol(wager.stake_lamports)} SOL
               </div>
             </div>
-            <Button 
-              variant="neon" 
-              size="sm" 
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => onJoin(wager.id)}
-              disabled={isJoining}
-            >
-              {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept'}
-            </Button>
+            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+              {isOwner ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => onEdit?.(wager)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={() => onDelete?.(wager)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => onViewDetails(wager)}>
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    variant="neon" 
+                    size="sm" 
+                    onClick={() => onJoin(wager.id)}
+                    disabled={isJoining}
+                  >
+                    {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept'}
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -124,8 +162,12 @@ function EmptyState({ title, description }: { title: string; description: string
 
 export default function Arena() {
   const { connected, publicKey } = useWallet();
+  const walletAddress = publicKey?.toBase58();
   const [searchQuery, setSearchQuery] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [quickMatchModalOpen, setQuickMatchModalOpen] = useState(false);
+  const [selectedWager, setSelectedWager] = useState<Wager | null>(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   
   const { data: openWagers, isLoading: openLoading } = useOpenWagers();
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
@@ -139,7 +181,33 @@ export default function Arena() {
   // Search for players by username
   const { data: searchedPlayers } = useSearchPlayers(searchQuery);
   
-  // Filter wagers based on search query
+  // Get all unique wallet addresses from wagers for username display
+  const wagerWalletAddresses = useMemo(() => {
+    const addresses = new Set<string>();
+    openWagers?.forEach(w => {
+      addresses.add(w.player_a_wallet);
+      if (w.player_b_wallet) addresses.add(w.player_b_wallet);
+    });
+    liveWagers?.forEach(w => {
+      addresses.add(w.player_a_wallet);
+      if (w.player_b_wallet) addresses.add(w.player_b_wallet);
+    });
+    return Array.from(addresses);
+  }, [openWagers, liveWagers]);
+  
+  const { data: wagerPlayers } = usePlayersByWallets(wagerWalletAddresses);
+  
+  // Build a map of wallet addresses to usernames for display
+  const playerUsernameMap = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    wagerPlayers?.forEach(p => {
+      map[p.wallet_address.toLowerCase()] = p.username;
+    });
+    searchedPlayers?.forEach(p => {
+      map[p.wallet_address.toLowerCase()] = p.username;
+    });
+    return map;
+  }, [wagerPlayers, searchedPlayers]);
   const filteredOpenWagers = useMemo(() => {
     if (!openWagers) return [];
     if (!searchQuery.trim()) return openWagers;
@@ -177,7 +245,26 @@ export default function Arena() {
       toast.error('Please set up your username first');
       return;
     }
-    quickMatch.mutate(undefined);
+    setQuickMatchModalOpen(true);
+  };
+
+  const handleQuickMatchSubmit = (game?: GameType) => {
+    quickMatch.mutate(game, {
+      onSuccess: () => setQuickMatchModalOpen(false),
+    });
+  };
+
+  const handleViewDetails = (wager: Wager) => {
+    setSelectedWager(wager);
+    setDetailsModalOpen(true);
+  };
+
+  const handleEditWager = (wager: Wager) => {
+    toast.info('Edit feature coming soon!');
+  };
+
+  const handleDeleteWager = (wager: Wager) => {
+    toast.info('Delete feature coming soon!');
   };
 
   const handleCreateWager = () => {
@@ -343,15 +430,24 @@ export default function Arena() {
                   animate="animate"
                   className="space-y-3"
                 >
-                  {filteredOpenWagers.map((wager) => (
-                    <motion.div key={wager.id} variants={staggerItem}>
-                      <OpenWagerCard 
-                        wager={wager} 
-                        onJoin={handleJoinWager}
-                        isJoining={joinWager.isPending}
-                      />
-                    </motion.div>
-                  ))}
+                  {filteredOpenWagers.map((wager) => {
+                    const isOwner = walletAddress === wager.player_a_wallet;
+                    const creatorUsername = playerUsernameMap[wager.player_a_wallet.toLowerCase()];
+                    return (
+                      <motion.div key={wager.id} variants={staggerItem}>
+                        <OpenWagerCard 
+                          wager={wager} 
+                          onJoin={handleJoinWager}
+                          onViewDetails={handleViewDetails}
+                          onEdit={handleEditWager}
+                          onDelete={handleDeleteWager}
+                          isJoining={joinWager.isPending}
+                          isOwner={isOwner}
+                          creatorUsername={creatorUsername}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </motion.div>
               ) : (
                 <EmptyState 
@@ -459,6 +555,30 @@ export default function Arena() {
       <CreateWagerModal 
         open={createModalOpen} 
         onOpenChange={setCreateModalOpen} 
+      />
+      
+      <QuickMatchModal
+        open={quickMatchModalOpen}
+        onOpenChange={setQuickMatchModalOpen}
+        onMatch={handleQuickMatchSubmit}
+        isPending={quickMatch.isPending}
+      />
+      
+      <WagerDetailsModal
+        wager={selectedWager}
+        open={detailsModalOpen}
+        onOpenChange={setDetailsModalOpen}
+        onJoin={() => {
+          if (selectedWager) {
+            handleJoinWager(selectedWager.id);
+            setDetailsModalOpen(false);
+          }
+        }}
+        onEdit={() => selectedWager && handleEditWager(selectedWager)}
+        onDelete={() => selectedWager && handleDeleteWager(selectedWager)}
+        isOwner={selectedWager?.player_a_wallet === walletAddress}
+        canJoin={selectedWager?.player_a_wallet !== walletAddress}
+        isJoining={joinWager.isPending}
       />
     </div>
   );
