@@ -7,17 +7,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Simple in-memory nonce store (in production, use Redis or database)
-const nonceStore = new Map<string, { nonce: string; timestamp: number }>();
 const NONCE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const SECRET_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'fallback-secret';
 
-function cleanExpiredNonces() {
-  const now = Date.now();
-  for (const [key, value] of nonceStore.entries()) {
-    if (now - value.timestamp > NONCE_EXPIRY_MS) {
-      nonceStore.delete(key);
-    }
-  }
+// Generate HMAC-based nonce (stateless)
+async function generateNonce(walletAddress: string, timestamp: number): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`${walletAddress}:${timestamp}:${SECRET_KEY}`);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
+}
+
+// Verify the nonce by regenerating it
+async function verifyNonce(walletAddress: string, timestamp: number, nonce: string): Promise<boolean> {
+  const expectedNonce = await generateNonce(walletAddress, timestamp);
+  return expectedNonce === nonce;
 }
 
 serve(async (req) => {
@@ -27,7 +32,7 @@ serve(async (req) => {
   }
 
   try {
-    const { action, walletAddress, signature, nonce, message } = await req.json();
+    const { action, walletAddress, signature, message } = await req.json();
     console.log(`[verify-wallet] Action: ${action}, Wallet: ${walletAddress}`);
 
     // Generate nonce for wallet
@@ -39,15 +44,15 @@ serve(async (req) => {
         });
       }
 
-      cleanExpiredNonces();
-      const generatedNonce = crypto.randomUUID();
-      const messageToSign = `Sign this message to verify your wallet ownership.\n\nNonce: ${generatedNonce}\nTimestamp: ${Date.now()}`;
+      const timestamp = Date.now();
+      const nonce = await generateNonce(walletAddress, timestamp);
+      const messageToSign = `Sign this message to verify your wallet ownership.\n\nNonce: ${nonce}\nTimestamp: ${timestamp}`;
       
-      nonceStore.set(walletAddress, { nonce: generatedNonce, timestamp: Date.now() });
-      console.log(`[verify-wallet] Generated nonce for ${walletAddress}`);
+      console.log(`[verify-wallet] Generated nonce for ${walletAddress}, timestamp: ${timestamp}`);
 
       return new Response(JSON.stringify({ 
-        nonce: generatedNonce,
+        nonce,
+        timestamp,
         message: messageToSign 
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -63,30 +68,35 @@ serve(async (req) => {
         });
       }
 
-      // Check if nonce exists and is valid
-      const storedData = nonceStore.get(walletAddress);
-      if (!storedData) {
-        console.log(`[verify-wallet] No nonce found for ${walletAddress}`);
-        return new Response(JSON.stringify({ error: 'Nonce not found or expired. Please request a new nonce.' }), {
+      // Extract timestamp and nonce from message
+      const timestampMatch = message.match(/Timestamp: (\d+)/);
+      const nonceMatch = message.match(/Nonce: ([a-f0-9]+)/);
+      
+      if (!timestampMatch || !nonceMatch) {
+        console.log(`[verify-wallet] Invalid message format`);
+        return new Response(JSON.stringify({ error: 'Invalid message format' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+
+      const timestamp = parseInt(timestampMatch[1]);
+      const nonce = nonceMatch[1];
 
       // Check nonce expiry
-      if (Date.now() - storedData.timestamp > NONCE_EXPIRY_MS) {
-        nonceStore.delete(walletAddress);
+      if (Date.now() - timestamp > NONCE_EXPIRY_MS) {
         console.log(`[verify-wallet] Nonce expired for ${walletAddress}`);
-        return new Response(JSON.stringify({ error: 'Nonce expired. Please request a new nonce.' }), {
+        return new Response(JSON.stringify({ error: 'Nonce expired. Please try again.' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      // Verify the message contains our nonce
-      if (!message.includes(storedData.nonce)) {
-        console.log(`[verify-wallet] Nonce mismatch for ${walletAddress}`);
-        return new Response(JSON.stringify({ error: 'Invalid nonce in message' }), {
+      // Verify the nonce is valid (regenerate and compare)
+      const isValidNonce = await verifyNonce(walletAddress, timestamp, nonce);
+      if (!isValidNonce) {
+        console.log(`[verify-wallet] Invalid nonce for ${walletAddress}`);
+        return new Response(JSON.stringify({ error: 'Invalid nonce' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -108,11 +118,8 @@ serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-
-        // Clear the used nonce
-        nonceStore.delete(walletAddress);
         
-        // Generate a session token (simple JWT-like token for this session)
+        // Generate a session token
         const sessionToken = await generateSessionToken(walletAddress);
         
         console.log(`[verify-wallet] Wallet verified successfully: ${walletAddress}`);
@@ -153,10 +160,9 @@ async function generateSessionToken(walletAddress: string): Promise<string> {
     iat: Date.now(),
   };
   
-  // Simple base64 encoding for session token (in production, use proper JWT with secret)
   const tokenData = JSON.stringify(payload);
   const encoder = new TextEncoder();
-  const data = encoder.encode(tokenData);
+  const data = encoder.encode(tokenData + SECRET_KEY);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
