@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -10,13 +11,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GAMES, truncateAddress, formatSol } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
-import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer';
+import { usePlayer, useCreatePlayer, useUpdatePlayer, usePlayerByWallet } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useLichessUser } from '@/hooks/useLichess';
 import { usernameSchema, validateWithError } from '@/lib/validation';
+
 export default function Profile() {
+  const { walletAddress: urlWalletAddress } = useParams<{ walletAddress?: string }>();
   const { connected, publicKey } = useWallet();
-  const { data: player, isLoading } = usePlayer();
+  const currentUserWallet = publicKey?.toBase58();
+  
+  // Determine if viewing own profile or another user's
+  const isOwnProfile = !urlWalletAddress || urlWalletAddress === currentUserWallet;
+  const viewingWallet = urlWalletAddress || currentUserWallet;
+  
+  // Fetch player data based on whose profile we're viewing
+  const { data: ownPlayer, isLoading: ownLoading } = usePlayer();
+  const { data: otherPlayer, isLoading: otherLoading } = usePlayerByWallet(isOwnProfile ? null : urlWalletAddress || null);
+  
+  const player = isOwnProfile ? ownPlayer : otherPlayer;
+  const isLoading = isOwnProfile ? ownLoading : otherLoading;
+  
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance();
   const createPlayer = useCreatePlayer();
   const updatePlayer = useUpdatePlayer();
@@ -31,22 +46,22 @@ export default function Profile() {
   const [pubgName, setPubgName] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
 
-  // Auto-create player profile if doesn't exist
+  // Auto-create player profile if doesn't exist (only for own profile)
   useEffect(() => {
-    if (connected && !isLoading && !player && publicKey) {
+    if (isOwnProfile && connected && !isLoading && !player && publicKey) {
       createPlayer.mutate();
     }
-  }, [connected, isLoading, player, publicKey]);
+  }, [connected, isLoading, player, publicKey, isOwnProfile]);
 
-  // Load existing usernames
+  // Load existing usernames (only for own profile editing)
   useEffect(() => {
-    if (player) {
+    if (isOwnProfile && player) {
       setPlatformUsername(player.username || '');
       setLichessUsername(player.lichess_username || '');
       setCodmUsername(player.codm_username || '');
       setPubgName(player.pubg_username || '');
     }
-  }, [player]);
+  }, [player, isOwnProfile]);
 
   const linkedAccounts = [
     { game: GAMES.CHESS, linked: !!player?.lichess_username, username: player?.lichess_username },
@@ -55,8 +70,8 @@ export default function Profile() {
   ];
 
   const copyAddress = () => {
-    if (publicKey) {
-      navigator.clipboard.writeText(publicKey.toBase58());
+    if (viewingWallet) {
+      navigator.clipboard.writeText(viewingWallet);
       setCopiedAddress(true);
       setTimeout(() => setCopiedAddress(false), 2000);
       toast({ title: 'Address copied!' });
@@ -135,7 +150,8 @@ export default function Profile() {
     ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
     : 0;
 
-  if (!connected) {
+  // Only require wallet connection for own profile
+  if (!connected && isOwnProfile) {
     return (
       <div className="py-8 pb-16">
         <div className="container px-4">
@@ -151,6 +167,27 @@ export default function Profile() {
             </div>
             <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-lg [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-8 [&_.wallet-adapter-button]:hover:!shadow-neon">
               <WalletMultiButton />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show not found for non-existent players
+  if (!isLoading && !player && !isOwnProfile) {
+    return (
+      <div className="py-8 pb-16">
+        <div className="container px-4">
+          <div className="max-w-md mx-auto text-center py-20">
+            <div className="mb-8">
+              <div className="w-20 h-20 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-6">
+                <User className="h-10 w-10 text-muted-foreground" />
+              </div>
+              <h1 className="text-3xl font-bold mb-4">Player Not Found</h1>
+              <p className="text-muted-foreground mb-8">
+                This player hasn't joined the platform yet.
+              </p>
             </div>
           </div>
         </div>
@@ -188,22 +225,27 @@ export default function Profile() {
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <h1 className="text-2xl font-bold font-gaming">
-                    {player?.username || (publicKey && truncateAddress(publicKey.toBase58(), 6))}
+                    {player?.username || (viewingWallet && truncateAddress(viewingWallet, 6))}
                   </h1>
-                  {player?.username && (
+                  {player?.username && viewingWallet && (
                     <span className="text-sm text-muted-foreground">
-                      ({publicKey && truncateAddress(publicKey.toBase58(), 4)})
+                      ({truncateAddress(viewingWallet, 4)})
                     </span>
+                  )}
+                  {!isOwnProfile && (
+                    <Badge variant="outline" className="ml-2">Viewing Profile</Badge>
                   )}
                   <Button variant="ghost" size="icon" onClick={copyAddress}>
                     {copiedAddress ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Wallet className="h-4 w-4 text-primary" />
-                    {balanceLoading ? '...' : `${walletBalance?.toFixed(4) || '0'} SOL`}
-                  </span>
+                  {isOwnProfile && (
+                    <span className="flex items-center gap-1">
+                      <Wallet className="h-4 w-4 text-primary" />
+                      {balanceLoading ? '...' : `${walletBalance?.toFixed(4) || '0'} SOL`}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1">
                     <Trophy className="h-4 w-4 text-accent" />
                     {player?.total_wins || 0} Wins
