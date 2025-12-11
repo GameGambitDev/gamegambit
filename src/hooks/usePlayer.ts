@@ -157,11 +157,30 @@ export function usePlayerByWallet(walletAddress: string | null) {
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
-        .single();
+        .maybeSingle();
       
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
       return data as Player | null;
     },
     enabled: !!walletAddress,
+  });
+}
+
+// Get multiple players by wallet addresses
+export function usePlayersByWallets(walletAddresses: string[]) {
+  return useQuery({
+    queryKey: ['players', 'byWallets', walletAddresses],
+    queryFn: async () => {
+      if (!walletAddresses.length) return [];
+      
+      const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .in('wallet_address', walletAddresses);
+      
+      if (error) throw error;
+      return data as Player[];
+    },
+    enabled: walletAddresses.length > 0,
   });
 }
