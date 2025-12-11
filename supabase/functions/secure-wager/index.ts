@@ -267,6 +267,282 @@ serve(async (req) => {
       });
     }
 
+    // EDIT WAGER
+    if (action === 'edit') {
+      const { wagerId, stake_lamports, lichess_game_id, stream_url, is_public } = data;
+
+      if (!wagerId) {
+        return new Response(JSON.stringify({ error: 'Wager ID required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Get the wager
+      const { data: wager, error: fetchError } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('id', wagerId)
+        .single();
+
+      if (fetchError || !wager) {
+        return new Response(JSON.stringify({ error: 'Wager not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Only owner can edit
+      if (wager.player_a_wallet !== walletAddress) {
+        return new Response(JSON.stringify({ error: 'Only the wager owner can edit' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const updateData: Record<string, any> = {};
+      
+      // Only allow certain edits based on status
+      if (wager.status === 'created') {
+        if (stake_lamports !== undefined) updateData.stake_lamports = stake_lamports;
+        if (lichess_game_id !== undefined) updateData.lichess_game_id = lichess_game_id || null;
+        if (is_public !== undefined) updateData.is_public = is_public;
+      }
+      
+      // Stream URL can always be edited
+      if (stream_url !== undefined) updateData.stream_url = stream_url || null;
+
+      const { data: updatedWager, error: updateError } = await supabase
+        .from('wagers')
+        .update(updateData)
+        .eq('id', wagerId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[secure-wager] Edit error:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to edit wager' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[secure-wager] Wager ${wagerId} edited by verified wallet: ${walletAddress}`);
+      return new Response(JSON.stringify({ wager: updatedWager }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // DELETE WAGER
+    if (action === 'delete') {
+      const { wagerId } = data;
+
+      if (!wagerId) {
+        return new Response(JSON.stringify({ error: 'Wager ID required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Get the wager
+      const { data: wager, error: fetchError } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('id', wagerId)
+        .single();
+
+      if (fetchError || !wager) {
+        return new Response(JSON.stringify({ error: 'Wager not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Only owner can delete
+      if (wager.player_a_wallet !== walletAddress) {
+        return new Response(JSON.stringify({ error: 'Only the wager owner can delete' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Can only delete if in 'created' status (no opponent joined yet)
+      if (wager.status !== 'created') {
+        return new Response(JSON.stringify({ error: 'Cannot delete a wager that has been accepted' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { error: deleteError } = await supabase
+        .from('wagers')
+        .delete()
+        .eq('id', wagerId);
+
+      if (deleteError) {
+        console.error('[secure-wager] Delete error:', deleteError);
+        return new Response(JSON.stringify({ error: 'Failed to delete wager' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[secure-wager] Wager ${wagerId} deleted by verified wallet: ${walletAddress}`);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // SET READY STATUS
+    if (action === 'setReady') {
+      const { wagerId, ready } = data;
+
+      if (!wagerId || ready === undefined) {
+        return new Response(JSON.stringify({ error: 'Wager ID and ready status required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Get the wager
+      const { data: wager, error: fetchError } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('id', wagerId)
+        .single();
+
+      if (fetchError || !wager) {
+        return new Response(JSON.stringify({ error: 'Wager not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Only joined wagers can have ready status
+      if (wager.status !== 'joined') {
+        return new Response(JSON.stringify({ error: 'Wager must be in joined status' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const isPlayerA = wager.player_a_wallet === walletAddress;
+      const isPlayerB = wager.player_b_wallet === walletAddress;
+
+      if (!isPlayerA && !isPlayerB) {
+        return new Response(JSON.stringify({ error: 'You are not a participant' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const updateData: Record<string, any> = isPlayerA
+        ? { ready_player_a: ready }
+        : { ready_player_b: ready };
+
+      // Check if both will be ready after this update
+      const otherReady = isPlayerA ? wager.ready_player_b : wager.ready_player_a;
+      if (ready && otherReady) {
+        // Both ready, start countdown
+        updateData.countdown_started_at = new Date().toISOString();
+      } else {
+        // Someone not ready, clear countdown
+        updateData.countdown_started_at = null;
+      }
+
+      const { data: updatedWager, error: updateError } = await supabase
+        .from('wagers')
+        .update(updateData)
+        .eq('id', wagerId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[secure-wager] SetReady error:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to set ready status' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[secure-wager] Ready status set for wager ${wagerId} by wallet: ${walletAddress}`);
+      return new Response(JSON.stringify({ wager: updatedWager }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // START GAME (when countdown completes)
+    if (action === 'startGame') {
+      const { wagerId } = data;
+
+      if (!wagerId) {
+        return new Response(JSON.stringify({ error: 'Wager ID required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Get the wager
+      const { data: wager, error: fetchError } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('id', wagerId)
+        .single();
+
+      if (fetchError || !wager) {
+        return new Response(JSON.stringify({ error: 'Wager not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Verify both players are ready
+      if (!wager.ready_player_a || !wager.ready_player_b) {
+        return new Response(JSON.stringify({ error: 'Both players must be ready' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Verify countdown has passed
+      if (!wager.countdown_started_at) {
+        return new Response(JSON.stringify({ error: 'Countdown not started' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const countdownStart = new Date(wager.countdown_started_at).getTime();
+      const now = Date.now();
+      if (now - countdownStart < 10000) { // 10 seconds
+        return new Response(JSON.stringify({ error: 'Countdown not complete' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Update status to voting (game in progress)
+      const { data: updatedWager, error: updateError } = await supabase
+        .from('wagers')
+        .update({ status: 'voting' })
+        .eq('id', wagerId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[secure-wager] StartGame error:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to start game' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[secure-wager] Game started for wager ${wagerId}`);
+      return new Response(JSON.stringify({ wager: updatedWager }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     return new Response(JSON.stringify({ error: 'Invalid action' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
-import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, Wager, GameType } from '@/hooks/useWagers';
+import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useStartGame, useWagerById, Wager, GameType } from '@/hooks/useWagers';
 import { usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useQuickMatch } from '@/hooks/useQuickMatch';
@@ -16,6 +16,8 @@ import { useIsProfileComplete } from '@/components/UsernameEnforcer';
 import { CreateWagerModal } from '@/components/CreateWagerModal';
 import { WagerDetailsModal } from '@/components/WagerDetailsModal';
 import { QuickMatchModal } from '@/components/QuickMatchModal';
+import { ReadyRoomModal } from '@/components/ReadyRoomModal';
+import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal';
 import { PlayerLink } from '@/components/PlayerLink';
 import { staggerContainer, staggerItem } from '@/components/PageTransition';
 import { toast } from 'sonner';
@@ -112,12 +114,14 @@ function OpenWagerCard({
   );
 }
 
-function LiveMatchCard({ wager }: { wager: Wager }) {
+function LiveMatchCard({ wager, onEnterReadyRoom, currentWallet }: { wager: Wager; onEnterReadyRoom?: (wagerId: string) => void; currentWallet?: string }) {
   const game = getGameData(wager.game);
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
+  const isParticipant = currentWallet === wager.player_a_wallet || currentWallet === wager.player_b_wallet;
+  const canEnterReadyRoom = wager.status === 'joined' && isParticipant;
   
   return (
-    <Card variant="wager" className="cursor-pointer border-primary/20">
+    <Card variant="wager" className="cursor-pointer border-primary/20" onClick={() => canEnterReadyRoom && onEnterReadyRoom?.(wager.id)}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -143,9 +147,13 @@ function LiveMatchCard({ wager }: { wager: Wager }) {
           </div>
           <div className="flex items-center gap-3">
             <div className="font-gaming text-accent">{formatSol(wager.stake_lamports * 2)} SOL</div>
-            <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'}>
-              {wager.status === 'voting' ? 'Voting' : 'Live'}
-            </Badge>
+            {canEnterReadyRoom ? (
+              <Badge variant="joined" className="cursor-pointer">Enter Ready Room</Badge>
+            ) : (
+              <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'}>
+                {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
+              </Badge>
+            )}
           </div>
         </div>
       </CardContent>
@@ -173,14 +181,22 @@ export default function Arena() {
   const [quickMatchModalOpen, setQuickMatchModalOpen] = useState(false);
   const [selectedWager, setSelectedWager] = useState<Wager | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null);
+  const [editWager, setEditWager] = useState<Wager | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   
   const { data: openWagers, isLoading: openLoading } = useOpenWagers();
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers();
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5);
   const { data: player } = usePlayer();
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance();
+  const { data: readyRoomWager } = useWagerById(readyRoomWagerId);
   const quickMatch = useQuickMatch();
   const joinWager = useJoinWager();
+  const editWagerMutation = useEditWager();
+  const deleteWagerMutation = useDeleteWager();
+  const setReadyMutation = useSetReady();
+  const startGameMutation = useStartGame();
   const { isComplete: profileComplete, needsSetup } = useIsProfileComplete();
   
   // Search for players by username
@@ -265,12 +281,78 @@ export default function Arena() {
   };
 
   const handleEditWager = (wager: Wager) => {
-    toast.info('Edit feature coming soon!');
+    setEditWager(wager);
+    setEditModalOpen(true);
   };
 
-  const handleDeleteWager = (wager: Wager) => {
-    toast.info('Delete feature coming soon!');
+  const handleDeleteWager = async (wager: Wager) => {
+    if (!confirm('Are you sure you want to delete this wager?')) return;
+    try {
+      await deleteWagerMutation.mutateAsync({ wagerId: wager.id });
+      toast.success('Wager deleted successfully');
+      setDetailsModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete wager');
+    }
   };
+
+  const handleSaveEditWager = async (updates: EditWagerData) => {
+    if (!editWager) return;
+    try {
+      await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates });
+      toast.success('Wager updated successfully');
+      setEditModalOpen(false);
+      setEditWager(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update wager');
+    }
+  };
+
+  const handleSetReady = async (ready: boolean) => {
+    if (!readyRoomWagerId) return;
+    try {
+      await setReadyMutation.mutateAsync({ wagerId: readyRoomWagerId, ready });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to set ready status');
+    }
+  };
+
+  // Effect to handle game start when countdown completes
+  useEffect(() => {
+    if (readyRoomWager?.ready_player_a && readyRoomWager?.ready_player_b && readyRoomWager?.countdown_started_at) {
+      const startTime = new Date(readyRoomWager.countdown_started_at).getTime();
+      const timeUntilStart = (startTime + 10000) - Date.now();
+      
+      if (timeUntilStart <= 0) {
+        // Countdown already complete, start game
+        startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
+          onSuccess: () => {
+            toast.success('Game started! Good luck!');
+            setReadyRoomWagerId(null);
+          },
+          onError: (err: any) => {
+            toast.error(err.message || 'Failed to start game');
+          }
+        });
+      } else {
+        // Set timeout for when countdown completes
+        const timer = setTimeout(() => {
+          startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
+            onSuccess: () => {
+              toast.success('Game started! Good luck!');
+              setReadyRoomWagerId(null);
+            },
+            onError: (err: any) => {
+              toast.error(err.message || 'Failed to start game');
+            }
+          });
+        }, timeUntilStart);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [readyRoomWager?.ready_player_a, readyRoomWager?.ready_player_b, readyRoomWager?.countdown_started_at]);
+
 
   const handleCreateWager = () => {
     if (needsSetup) {
@@ -287,7 +369,9 @@ export default function Arena() {
     }
     try {
       await joinWager.mutateAsync({ wagerId });
-      toast.success('Wager joined successfully!');
+      toast.success('Wager joined! Entering ready room...');
+      setReadyRoomWagerId(wagerId);
+      setDetailsModalOpen(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to join wager');
     }
@@ -576,7 +660,6 @@ export default function Arena() {
         onJoin={() => {
           if (selectedWager) {
             handleJoinWager(selectedWager.id);
-            setDetailsModalOpen(false);
           }
         }}
         onEdit={() => selectedWager && handleEditWager(selectedWager)}
@@ -584,6 +667,33 @@ export default function Arena() {
         isOwner={selectedWager?.player_a_wallet === walletAddress}
         canJoin={selectedWager?.player_a_wallet !== walletAddress}
         isJoining={joinWager.isPending}
+      />
+      
+      <ReadyRoomModal
+        wager={readyRoomWager || null}
+        open={!!readyRoomWagerId}
+        onOpenChange={(open) => !open && setReadyRoomWagerId(null)}
+        onReady={handleSetReady}
+        onEditWager={() => {
+          if (readyRoomWager) {
+            setEditWager(readyRoomWager);
+            setEditModalOpen(true);
+          }
+        }}
+        isSettingReady={setReadyMutation.isPending}
+        currentWallet={walletAddress}
+      />
+      
+      <EditWagerModal
+        wager={editWager}
+        open={editModalOpen}
+        onOpenChange={(open) => {
+          setEditModalOpen(open);
+          if (!open) setEditWager(null);
+        }}
+        onSave={handleSaveEditWager}
+        isSaving={editWagerMutation.isPending}
+        canEditGameId={editWager?.status === 'created'}
       />
     </div>
   );

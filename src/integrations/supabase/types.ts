@@ -76,6 +76,7 @@ export type Database = {
       }
       wagers: {
         Row: {
+          countdown_started_at: string | null
           created_at: string
           game: Database["public"]["Enums"]["game_type"]
           id: string
@@ -84,6 +85,8 @@ export type Database = {
           match_id: number
           player_a_wallet: string
           player_b_wallet: string | null
+          ready_player_a: boolean | null
+          ready_player_b: boolean | null
           requires_moderator: boolean | null
           resolved_at: string | null
           retract_deadline: string | null
@@ -97,6 +100,7 @@ export type Database = {
           winner_wallet: string | null
         }
         Insert: {
+          countdown_started_at?: string | null
           created_at?: string
           game: Database["public"]["Enums"]["game_type"]
           id?: string
@@ -105,6 +109,8 @@ export type Database = {
           match_id: number
           player_a_wallet: string
           player_b_wallet?: string | null
+          ready_player_a?: boolean | null
+          ready_player_b?: boolean | null
           requires_moderator?: boolean | null
           resolved_at?: string | null
           retract_deadline?: string | null
@@ -118,6 +124,7 @@ export type Database = {
           winner_wallet?: string | null
         }
         Update: {
+          countdown_started_at?: string | null
           created_at?: string
           game?: Database["public"]["Enums"]["game_type"]
           id?: string
@@ -126,6 +133,8 @@ export type Database = {
           match_id?: number
           player_a_wallet?: string
           player_b_wallet?: string | null
+          ready_player_a?: boolean | null
+          ready_player_b?: boolean | null
           requires_moderator?: boolean | null
           resolved_at?: string | null
           retract_deadline?: string | null
