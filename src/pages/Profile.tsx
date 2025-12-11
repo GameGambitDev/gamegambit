@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { User, Trophy, Swords, Clock, CheckCircle, Link2, Copy, Check, Loader2, Wallet } from 'lucide-react';
+import { User, Trophy, Swords, Clock, CheckCircle, Link2, Copy, Check, Loader2, Wallet, Edit2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,8 @@ export default function Profile() {
   // Get Lichess user data when linked
   const { data: lichessUserData } = useLichessUser(player?.lichess_username);
   
+  const [platformUsername, setPlatformUsername] = useState('');
+  const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [lichessUsername, setLichessUsername] = useState('');
   const [codmUsername, setCodmUsername] = useState('');
   const [pubgName, setPubgName] = useState('');
@@ -39,6 +41,7 @@ export default function Profile() {
   // Load existing usernames
   useEffect(() => {
     if (player) {
+      setPlatformUsername(player.username || '');
       setLichessUsername(player.lichess_username || '');
       setCodmUsername(player.codm_username || '');
       setPubgName(player.pubg_username || '');
@@ -57,6 +60,29 @@ export default function Profile() {
       setCopiedAddress(true);
       setTimeout(() => setCopiedAddress(false), 2000);
       toast({ title: 'Address copied!' });
+    }
+  };
+
+  const handleUpdateUsername = async () => {
+    if (!platformUsername.trim()) {
+      toast({ title: 'Username cannot be empty', variant: 'destructive' });
+      return;
+    }
+    if (platformUsername.length < 3 || platformUsername.length > 20) {
+      toast({ title: 'Username must be 3-20 characters', variant: 'destructive' });
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(platformUsername)) {
+      toast({ title: 'Only letters, numbers, and underscores allowed', variant: 'destructive' });
+      return;
+    }
+    try {
+      await updatePlayer.mutateAsync({ username: platformUsername.trim() });
+      toast({ title: 'Username updated!' });
+      setIsEditingUsername(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update username';
+      toast({ title: message, variant: 'destructive' });
     }
   };
 
@@ -162,8 +188,13 @@ export default function Profile() {
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <h1 className="text-2xl font-bold font-gaming">
-                    {publicKey && truncateAddress(publicKey.toBase58(), 6)}
+                    {player?.username || (publicKey && truncateAddress(publicKey.toBase58(), 6))}
                   </h1>
+                  {player?.username && (
+                    <span className="text-sm text-muted-foreground">
+                      ({publicKey && truncateAddress(publicKey.toBase58(), 4)})
+                    </span>
+                  )}
                   <Button variant="ghost" size="icon" onClick={copyAddress}>
                     {copiedAddress ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                   </Button>
@@ -349,11 +380,81 @@ export default function Profile() {
             </Card>
           </motion.div>
 
-          {/* Link New Account Form */}
+          {/* Account Settings */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
+            className="lg:col-span-2"
+          >
+            <Card variant="gaming">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Edit2 className="h-5 w-5 text-primary" />
+                  Account Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="platform-username">Platform Username</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="platform-username"
+                      placeholder="Your platform username"
+                      value={platformUsername}
+                      onChange={(e) => setPlatformUsername(e.target.value)}
+                      className="bg-muted/50 max-w-xs"
+                      disabled={!isEditingUsername && !!player?.username}
+                    />
+                    {player?.username && !isEditingUsername ? (
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setIsEditingUsername(true)}
+                      >
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="neon" 
+                        disabled={!platformUsername.trim() || updatePlayer.isPending}
+                        onClick={handleUpdateUsername}
+                      >
+                        {updatePlayer.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Save className="h-4 w-4 mr-2" />
+                            Save
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {isEditingUsername && (
+                      <Button 
+                        variant="ghost" 
+                        onClick={() => {
+                          setIsEditingUsername(false);
+                          setPlatformUsername(player?.username || '');
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    3-20 characters. Letters, numbers, and underscores only.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Link New Account Form */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
             className="lg:col-span-2"
           >
             <Card variant="gaming">
