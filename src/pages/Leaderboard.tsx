@@ -52,38 +52,38 @@ function LeaderboardRow({ player, rank, sortBy }: { player: Player; rank: number
     
   return (
     <Card variant="wager" className={getRankStyle(rank)}>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-10 flex justify-center">
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <div className="w-8 sm:w-10 flex justify-center flex-shrink-0">
               {getRankIcon(rank)}
             </div>
-            <div>
-              <div className="font-gaming text-sm">{truncateAddress(player.wallet_address)}</div>
-              <div className="text-xs text-muted-foreground">
+            <div className="min-w-0">
+              <div className="font-gaming text-xs sm:text-sm truncate">{player.username || truncateAddress(player.wallet_address)}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground">
                 {player.total_wins}W - {player.total_losses}L
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="text-right">
+          <div className="flex items-center gap-2 sm:gap-6 flex-shrink-0">
+            <div className="text-right hidden sm:block">
               <div className="text-xs text-muted-foreground">Win Rate</div>
               <div className="font-gaming text-success">{winRate}%</div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-muted-foreground">
-                {sortBy === 'earnings' ? 'Earnings' : sortBy === 'wins' ? 'Wins' : 'Streak'}
+              <div className="text-[10px] sm:text-xs text-muted-foreground">
+                {sortBy === 'earnings' ? 'Earned' : sortBy === 'wins' ? 'Wins' : 'Streak'}
               </div>
-              <div className="font-gaming text-lg text-accent">
+              <div className="font-gaming text-sm sm:text-lg text-accent">
                 {sortBy === 'earnings' 
-                  ? `${formatSol(player.total_earnings)} SOL`
+                  ? `${formatSol(player.total_earnings)}`
                   : sortBy === 'wins' 
                     ? player.total_wins
                     : player.current_streak}
               </div>
             </div>
             {player.current_streak > 0 && (
-              <Badge variant="gold" className="flex items-center gap-1">
+              <Badge variant="gold" className="flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2">
                 <Flame className="h-3 w-3" />
                 {player.current_streak}
               </Badge>
@@ -99,11 +99,11 @@ function Podium({ players }: { players: Player[] }) {
   if (players.length < 3) return null;
   
   const top3 = [players[1], players[0], players[2]];
-  const heights = ['h-32', 'h-40', 'h-28'];
+  const heights = ['h-24 sm:h-32', 'h-32 sm:h-40', 'h-20 sm:h-28'];
   const positions = [2, 1, 3];
   
   return (
-    <div className="flex justify-center items-end gap-4 mb-12">
+    <div className="flex justify-center items-end gap-2 sm:gap-4 mb-8 sm:mb-12 px-4">
       {top3.map((player, index) => {
         if (!player) return null;
         const winRate = player.total_wins + player.total_losses > 0 
@@ -116,18 +116,19 @@ function Podium({ players }: { players: Player[] }) {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 + index * 0.1 }}
-            className="text-center"
+            className="text-center flex-1 max-w-[120px]"
           >
             <div className="mb-2">
               {getRankIcon(positions[index])}
             </div>
-            <div className="font-gaming text-sm mb-2">
-              {truncateAddress(player.wallet_address)}
+            <div className="font-gaming text-[10px] sm:text-sm mb-2 truncate">
+              {player.username || truncateAddress(player.wallet_address, 4)}
             </div>
-            <div className={`${heights[index]} w-24 rounded-t-lg bg-gradient-to-t from-card to-muted/50 border border-border/50 flex items-center justify-center`}>
-              <div className="text-center">
-                <div className="font-gaming text-lg text-accent">{formatSol(player.total_earnings)} SOL</div>
-                <div className="text-xs text-muted-foreground">{winRate}% WR</div>
+            <div className={`${heights[index]} w-full rounded-t-lg bg-gradient-to-t from-card to-muted/50 border border-border/50 flex items-center justify-center`}>
+              <div className="text-center px-1">
+                <div className="font-gaming text-sm sm:text-lg text-accent">{formatSol(player.total_earnings)}</div>
+                <div className="text-[10px] sm:text-xs text-muted-foreground">SOL</div>
+                <div className="text-[10px] sm:text-xs text-muted-foreground">{winRate}% WR</div>
               </div>
             </div>
           </motion.div>
@@ -143,13 +144,13 @@ export default function Leaderboard() {
   const { data: streakData, isLoading: streakLoading } = useLeaderboard('streak');
 
   return (
-    <div className="py-8 pb-16">
+    <div className="py-6 sm:py-8 pb-16">
       <div className="container px-4">
-        <div className="text-center mb-12">
+        <div className="text-center mb-8 sm:mb-12">
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-4xl font-bold mb-4"
+            className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4"
           >
             <span className="gradient-text-gold">Leaderboard</span>
           </motion.h1>
@@ -157,7 +158,7 @@ export default function Leaderboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-muted-foreground"
+            className="text-sm sm:text-base text-muted-foreground"
           >
             Top players ranked by earnings and win rate
           </motion.p>
@@ -168,18 +169,21 @@ export default function Leaderboard() {
 
         {/* Tabs */}
         <Tabs defaultValue="earnings" className="max-w-4xl mx-auto">
-          <TabsList className="bg-muted/50 mb-6 grid grid-cols-3 w-full max-w-md mx-auto">
-            <TabsTrigger value="earnings" className="font-gaming">
-              <TrendingUp className="h-4 w-4 mr-2" />
-              Earnings
+          <TabsList className="bg-muted/50 mb-4 sm:mb-6 grid grid-cols-3 w-full max-w-md mx-auto">
+            <TabsTrigger value="earnings" className="font-gaming text-xs sm:text-sm px-1 sm:px-3">
+              <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              <span className="hidden xs:inline">Earnings</span>
+              <span className="xs:hidden">$</span>
             </TabsTrigger>
-            <TabsTrigger value="wins" className="font-gaming">
-              <Trophy className="h-4 w-4 mr-2" />
-              Wins
+            <TabsTrigger value="wins" className="font-gaming text-xs sm:text-sm px-1 sm:px-3">
+              <Trophy className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              <span className="hidden xs:inline">Wins</span>
+              <span className="xs:hidden">W</span>
             </TabsTrigger>
-            <TabsTrigger value="streak" className="font-gaming">
-              <Flame className="h-4 w-4 mr-2" />
-              Streak
+            <TabsTrigger value="streak" className="font-gaming text-xs sm:text-sm px-1 sm:px-3">
+              <Flame className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              <span className="hidden xs:inline">Streak</span>
+              <span className="xs:hidden">🔥</span>
             </TabsTrigger>
           </TabsList>
 
