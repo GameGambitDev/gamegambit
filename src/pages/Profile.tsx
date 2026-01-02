@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { User, Trophy, Swords, Clock, CheckCircle, Link2, Copy, Check, Loader2, Wallet, Edit2, Save } from 'lucide-react';
+import { User, Trophy, Swords, Clock, Copy, Check, Loader2, Wallet, Edit2, Save, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +14,7 @@ import { toast } from '@/hooks/use-toast';
 import { usePlayer, useCreatePlayer, useUpdatePlayer, usePlayerByWallet } from '@/hooks/usePlayer';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useLichessUser } from '@/hooks/useLichess';
-import { usernameSchema, validateWithError } from '@/lib/validation';
+import { GameAccountCard } from '@/components/GameAccountCard';
 
 export default function Profile() {
   const { walletAddress: urlWalletAddress } = useParams<{ walletAddress?: string }>();
@@ -41,9 +41,6 @@ export default function Profile() {
   
   const [platformUsername, setPlatformUsername] = useState('');
   const [isEditingUsername, setIsEditingUsername] = useState(false);
-  const [lichessUsername, setLichessUsername] = useState('');
-  const [codmUsername, setCodmUsername] = useState('');
-  const [pubgName, setPubgName] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
 
   // Auto-create player profile if doesn't exist (only for own profile)
@@ -53,20 +50,17 @@ export default function Profile() {
     }
   }, [connected, isLoading, player, publicKey, isOwnProfile]);
 
-  // Load existing usernames (only for own profile editing)
+  // Load existing username (only for own profile editing)
   useEffect(() => {
     if (isOwnProfile && player) {
       setPlatformUsername(player.username || '');
-      setLichessUsername(player.lichess_username || '');
-      setCodmUsername(player.codm_username || '');
-      setPubgName(player.pubg_username || '');
     }
   }, [player, isOwnProfile]);
 
-  const linkedAccounts = [
-    { game: GAMES.CHESS, linked: !!player?.lichess_username, username: player?.lichess_username },
-    { game: GAMES.CODM, linked: !!player?.codm_username, username: player?.codm_username },
-    { game: GAMES.PUBG, linked: !!player?.pubg_username, username: player?.pubg_username },
+  const gameAccounts = [
+    { game: GAMES.CHESS, linkedUsername: player?.lichess_username || null, key: 'lichess_username' },
+    { game: GAMES.CODM, linkedUsername: player?.codm_username || null, key: 'codm_username' },
+    { game: GAMES.PUBG, linkedUsername: player?.pubg_username || null, key: 'pubg_username' },
   ];
 
   const copyAddress = () => {
@@ -101,48 +95,14 @@ export default function Profile() {
     }
   };
 
-  const handleLinkLichess = async () => {
-    const validation = validateWithError(usernameSchema, lichessUsername);
-    if (!validation.success) {
-      toast({ title: (validation as { success: false; error: string }).error, variant: 'destructive' });
-      return;
-    }
+  const handleLinkAccount = async (key: string, username: string) => {
     try {
-      await updatePlayer.mutateAsync({ lichess_username: (validation as { success: true; data: string }).data });
-      toast({ title: 'Lichess account linked!' });
+      await updatePlayer.mutateAsync({ [key]: username });
+      toast({ title: 'Account linked successfully!' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to link account';
       toast({ title: message, variant: 'destructive' });
-    }
-  };
-
-  const handleLinkCodm = async () => {
-    const validation = validateWithError(usernameSchema, codmUsername);
-    if (!validation.success) {
-      toast({ title: (validation as { success: false; error: string }).error, variant: 'destructive' });
-      return;
-    }
-    try {
-      await updatePlayer.mutateAsync({ codm_username: (validation as { success: true; data: string }).data });
-      toast({ title: 'Call of Duty account linked!' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to link account';
-      toast({ title: message, variant: 'destructive' });
-    }
-  };
-
-  const handleLinkPubg = async () => {
-    const validation = validateWithError(usernameSchema, pubgName);
-    if (!validation.success) {
-      toast({ title: (validation as { success: false; error: string }).error, variant: 'destructive' });
-      return;
-    }
-    try {
-      await updatePlayer.mutateAsync({ pubg_username: (validation as { success: true; data: string }).data });
-      toast({ title: 'PUBG account linked!' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to link account';
-      toast({ title: message, variant: 'destructive' });
+      throw error;
     }
   };
 
@@ -281,31 +241,21 @@ export default function Profile() {
                   Linked Game Accounts
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {linkedAccounts.map((account, index) => (
+              <CardContent className="space-y-3">
+                {gameAccounts.map((account, index) => (
                   <motion.div
                     key={account.game.id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.15 + index * 0.05 }}
-                    whileHover={{ scale: 1.01 }}
-                    className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/50 transition-all hover:border-primary/30"
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{account.game.icon}</span>
-                      <div>
-                        <div className="font-medium">{account.game.name}</div>
-                        <div className="text-sm text-muted-foreground">{account.game.platform}</div>
-                      </div>
-                    </div>
-                    {account.linked ? (
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-success" />
-                        <span className="text-sm text-success">{account.username}</span>
-                      </div>
-                    ) : (
-                      <Badge variant="outline">Not Linked</Badge>
-                    )}
+                    <GameAccountCard
+                      game={account.game}
+                      linkedUsername={account.linkedUsername}
+                      onLink={(username) => handleLinkAccount(account.key, username)}
+                      isPending={updatePlayer.isPending}
+                      isOwnProfile={isOwnProfile}
+                    />
                   </motion.div>
                 ))}
               </CardContent>
@@ -492,80 +442,6 @@ export default function Profile() {
             </Card>
           </motion.div>
 
-          {/* Link New Account Form */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.35 }}
-            className="lg:col-span-2"
-          >
-            <Card variant="gaming">
-              <CardHeader>
-                <CardTitle>Link a Game Account</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="lichess">Lichess Username</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="lichess"
-                        placeholder="Your Lichess username"
-                        value={lichessUsername}
-                        onChange={(e) => setLichessUsername(e.target.value)}
-                        className="bg-muted/50"
-                      />
-                      <Button 
-                        variant="outline" 
-                        disabled={!lichessUsername || updatePlayer.isPending}
-                        onClick={handleLinkLichess}
-                      >
-                        {updatePlayer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link'}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="codm">Call of Duty Username</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="codm"
-                        placeholder="Your CODM username"
-                        value={codmUsername}
-                        onChange={(e) => setCodmUsername(e.target.value)}
-                        className="bg-muted/50"
-                      />
-                      <Button 
-                        variant="outline" 
-                        disabled={!codmUsername || updatePlayer.isPending}
-                        onClick={handleLinkCodm}
-                      >
-                        {updatePlayer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link'}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="pubg">PUBG Name</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="pubg"
-                        placeholder="Your PUBG username"
-                        value={pubgName}
-                        onChange={(e) => setPubgName(e.target.value)}
-                        className="bg-muted/50"
-                      />
-                      <Button 
-                        variant="outline" 
-                        disabled={!pubgName || updatePlayer.isPending}
-                        onClick={handleLinkPubg}
-                      >
-                        {updatePlayer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link'}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
         </div>
       </div>
     </div>

@@ -101,20 +101,20 @@ export function ReadyRoomModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg border-primary/30 bg-card">
+      <DialogContent className="sm:max-w-lg border-primary/30 bg-card max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="text-4xl">{game.icon}</div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="text-3xl sm:text-4xl">{game.icon}</div>
               <div>
-                <DialogTitle className="text-xl font-gaming">Ready Room</DialogTitle>
+                <DialogTitle className="text-lg sm:text-xl font-gaming">Ready Room</DialogTitle>
                 <Badge variant="joined">Match Found</Badge>
               </div>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="space-y-6 mt-4">
+        <div className="space-y-4 sm:space-y-6 mt-4">
           {/* Countdown Timer */}
           <AnimatePresence>
             {bothReady && countdown !== null && (
@@ -124,9 +124,19 @@ export function ReadyRoomModal({
                 exit={{ opacity: 0, scale: 0.9 }}
                 className="text-center"
               >
-                <div className="relative w-24 h-24 mx-auto mb-3">
+                <div className="relative w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-3">
                   <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  <svg className="w-24 h-24 transform -rotate-90">
+                  <svg className="w-20 h-20 sm:w-24 sm:h-24 transform -rotate-90">
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="36"
+                      fill="none"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth="4"
+                      strokeDasharray={`${(countdown / COUNTDOWN_SECONDS) * 226.19} 226.19`}
+                      className="transition-all duration-100 sm:hidden"
+                    />
                     <circle
                       cx="48"
                       cy="48"
@@ -135,86 +145,86 @@ export function ReadyRoomModal({
                       stroke="hsl(var(--primary))"
                       strokeWidth="4"
                       strokeDasharray={`${(countdown / COUNTDOWN_SECONDS) * 276.46} 276.46`}
-                      className="transition-all duration-100"
+                      className="transition-all duration-100 hidden sm:block"
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-3xl font-gaming font-bold text-primary">{countdown}</span>
+                    <span className="text-2xl sm:text-3xl font-gaming font-bold text-primary">{countdown}</span>
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground">Game starting in...</p>
-                <p className="text-xs text-muted-foreground mt-1">Click "Not Ready" to cancel</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Game starting in...</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Click "Not Ready" to cancel</p>
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Stake Info */}
-          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 text-center">
-            <p className="text-sm text-muted-foreground mb-1">Total Pool</p>
-            <p className="text-2xl font-gaming font-bold text-primary">
+          <div className="p-3 sm:p-4 rounded-lg bg-primary/10 border border-primary/20 text-center">
+            <p className="text-xs sm:text-sm text-muted-foreground mb-1">Total Pool</p>
+            <p className="text-xl sm:text-2xl font-gaming font-bold text-primary">
               {formatSol(wager.stake_lamports * 2)} SOL
             </p>
           </div>
 
           {/* Players Ready Status */}
-          <div className="space-y-3">
+          <div className="space-y-2 sm:space-y-3">
             {/* Player A */}
-            <div className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${
+            <div className={`flex items-center justify-between p-3 sm:p-4 rounded-lg border-2 transition-colors ${
               wager.ready_player_a 
                 ? 'bg-success/10 border-success/30' 
                 : 'bg-muted/30 border-border'
             }`}>
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${wager.ready_player_a ? 'bg-success/20' : 'bg-muted'}`}>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className={`p-1.5 sm:p-2 rounded-full ${wager.ready_player_a ? 'bg-success/20' : 'bg-muted'}`}>
                   {wager.ready_player_a ? (
-                    <Check className="h-5 w-5 text-success" />
+                    <Check className="h-4 w-4 sm:h-5 sm:w-5 text-success" />
                   ) : (
-                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Challenger {isPlayerA && '(You)'}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">Challenger {isPlayerA && '(You)'}</p>
                   <PlayerLink 
                     walletAddress={wager.player_a_wallet}
                     username={playerA?.username}
-                    className="font-medium"
+                    className="font-medium text-xs sm:text-sm"
                   />
                 </div>
               </div>
-              <Badge variant={wager.ready_player_a ? 'success' : 'secondary'}>
+              <Badge variant={wager.ready_player_a ? 'success' : 'secondary'} className="text-[10px] sm:text-xs">
                 {wager.ready_player_a ? 'Ready' : 'Waiting'}
               </Badge>
             </div>
 
             {/* VS Divider */}
             <div className="flex items-center justify-center">
-              <Swords className="h-6 w-6 text-primary" />
+              <Swords className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             </div>
 
             {/* Player B */}
-            <div className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${
+            <div className={`flex items-center justify-between p-3 sm:p-4 rounded-lg border-2 transition-colors ${
               wager.ready_player_b 
                 ? 'bg-success/10 border-success/30' 
                 : 'bg-muted/30 border-border'
             }`}>
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${wager.ready_player_b ? 'bg-success/20' : 'bg-muted'}`}>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className={`p-1.5 sm:p-2 rounded-full ${wager.ready_player_b ? 'bg-success/20' : 'bg-muted'}`}>
                   {wager.ready_player_b ? (
-                    <Check className="h-5 w-5 text-success" />
+                    <Check className="h-4 w-4 sm:h-5 sm:w-5 text-success" />
                   ) : (
-                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Opponent {isPlayerB && '(You)'}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">Opponent {isPlayerB && '(You)'}</p>
                   <PlayerLink 
                     walletAddress={wager.player_b_wallet || ''}
                     username={playerB?.username}
-                    className="font-medium"
+                    className="font-medium text-xs sm:text-sm"
                   />
                 </div>
               </div>
-              <Badge variant={wager.ready_player_b ? 'success' : 'secondary'}>
+              <Badge variant={wager.ready_player_b ? 'success' : 'secondary'} className="text-[10px] sm:text-xs">
                 {wager.ready_player_b ? 'Ready' : 'Waiting'}
               </Badge>
             </div>
@@ -222,16 +232,16 @@ export function ReadyRoomModal({
 
           {/* Game Link */}
           {gameLink && (
-            <div className="p-3 rounded-lg bg-muted/30 border border-border">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Game Link</span>
+            <div className="p-2 sm:p-3 rounded-lg bg-muted/30 border border-border">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs sm:text-sm text-muted-foreground">Game Link</span>
                 <a 
                   href={gameLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary hover:underline flex items-center gap-1 text-sm font-medium"
+                  className="text-primary hover:underline flex items-center gap-1 text-xs sm:text-sm font-medium truncate max-w-[150px] sm:max-w-none"
                 >
-                  {wager.lichess_game_id} <ExternalLink className="h-3 w-3" />
+                  {wager.lichess_game_id} <ExternalLink className="h-3 w-3 flex-shrink-0" />
                 </a>
               </div>
             </div>
@@ -239,9 +249,9 @@ export function ReadyRoomModal({
 
           {/* Warning if no game link */}
           {!gameLink && wager.game === 'chess' && (
-            <div className="p-3 rounded-lg bg-warning/10 border border-warning/30 flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
-              <div className="text-sm">
+            <div className="p-2 sm:p-3 rounded-lg bg-warning/10 border border-warning/30 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+              <div className="text-xs sm:text-sm">
                 <p className="font-medium text-warning">No Lichess game linked</p>
                 <p className="text-muted-foreground">The challenger should add a game link before starting.</p>
               </div>
@@ -251,13 +261,13 @@ export function ReadyRoomModal({
           {/* Actions */}
           <div className="flex gap-2 pt-2">
             {isPlayerA && !bothReady && (
-              <Button variant="outline" className="flex-1" onClick={onEditWager}>
+              <Button variant="outline" className="flex-1 text-xs sm:text-sm" onClick={onEditWager}>
                 Edit Wager
               </Button>
             )}
             <Button 
               variant={localReady ? 'destructive' : 'neon'}
-              className="flex-1"
+              className="flex-1 text-xs sm:text-sm"
               onClick={handleReadyClick}
               disabled={isSettingReady}
             >
