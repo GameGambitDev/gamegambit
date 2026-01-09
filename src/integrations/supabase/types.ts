@@ -14,6 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
+      achievements: {
+        Row: {
+          achievement_type: string
+          achievement_value: number | null
+          created_at: string
+          id: string
+          nft_mint_address: string | null
+          player_wallet: string
+          unlocked_at: string | null
+        }
+        Insert: {
+          achievement_type: string
+          achievement_value?: number | null
+          created_at?: string
+          id?: string
+          nft_mint_address?: string | null
+          player_wallet: string
+          unlocked_at?: string | null
+        }
+        Update: {
+          achievement_type?: string
+          achievement_value?: number | null
+          created_at?: string
+          id?: string
+          nft_mint_address?: string | null
+          player_wallet?: string
+          unlocked_at?: string | null
+        }
+        Relationships: []
+      }
+      nfts: {
+        Row: {
+          attributes: Json | null
+          created_at: string
+          id: string
+          image_uri: string
+          lichess_game_id: string | null
+          match_id: number | null
+          metadata_uri: string
+          mint_address: string
+          minted_at: string | null
+          name: string
+          owner_wallet: string
+          stake_amount: number | null
+          tier: string
+          wager_id: string | null
+        }
+        Insert: {
+          attributes?: Json | null
+          created_at?: string
+          id?: string
+          image_uri: string
+          lichess_game_id?: string | null
+          match_id?: number | null
+          metadata_uri: string
+          mint_address: string
+          minted_at?: string | null
+          name: string
+          owner_wallet: string
+          stake_amount?: number | null
+          tier: string
+          wager_id?: string | null
+        }
+        Update: {
+          attributes?: Json | null
+          created_at?: string
+          id?: string
+          image_uri?: string
+          lichess_game_id?: string | null
+          match_id?: number | null
+          metadata_uri?: string
+          mint_address?: string
+          minted_at?: string | null
+          name?: string
+          owner_wallet?: string
+          stake_amount?: number | null
+          tier?: string
+          wager_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfts_wager_id_fkey"
+            columns: ["wager_id"]
+            isOneToOne: false
+            referencedRelation: "wagers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           ban_expires_at: string | null
