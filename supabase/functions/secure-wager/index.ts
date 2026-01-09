@@ -720,6 +720,30 @@ serve(async (req) => {
             } else {
               console.log(`[secure-wager] Loser stats updated for ${loserWallet}`);
             }
+
+            // Mint victory NFT for winner (background task)
+            try {
+              console.log(`[secure-wager] Minting NFT for winner ${winnerWallet}`);
+              const mintResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/mint-nft`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                },
+                body: JSON.stringify({
+                  wagerId: wager.id,
+                  winnerWallet: winnerWallet,
+                }),
+              });
+              const mintResult = await mintResponse.json();
+              if (mintResult.success) {
+                console.log(`[secure-wager] NFT minted successfully: ${mintResult.nft?.mintAddress}`);
+              } else {
+                console.log('[secure-wager] NFT minting failed:', mintResult.error);
+              }
+            } catch (mintError) {
+              console.error('[secure-wager] NFT minting error:', mintError);
+            }
           }
 
           return new Response(JSON.stringify({ 

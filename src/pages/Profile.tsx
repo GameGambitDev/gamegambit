@@ -15,6 +15,8 @@ import { usePlayer, useCreatePlayer, useUpdatePlayer, usePlayerByWallet } from '
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useLichessUser } from '@/hooks/useLichess';
 import { GameAccountCard } from '@/components/GameAccountCard';
+import { NFTGallery } from '@/components/NFTGallery';
+import { AchievementBadges } from '@/components/AchievementBadges';
 
 export default function Profile() {
   const { walletAddress: urlWalletAddress } = useParams<{ walletAddress?: string }>();
@@ -370,6 +372,12 @@ export default function Profile() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* NFT Trophy Collection */}
+            <NFTGallery walletAddress={viewingWallet || null} />
+
+            {/* Achievements */}
+            <AchievementBadges walletAddress={viewingWallet || null} />
           </motion.div>
 
           {/* Account Settings */}

@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.secure-wager]
 verify_jwt = false
+
+[functions.mint-nft]
+verify_jwt = false
