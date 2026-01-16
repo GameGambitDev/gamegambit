@@ -637,29 +637,44 @@ serve(async (req) => {
         const whiteUser = game.players?.white?.user?.name?.toLowerCase();
         const blackUser = game.players?.black?.user?.name?.toLowerCase();
 
+        console.log(`[secure-wager] Username matching - PlayerA: ${playerAUsername}, PlayerB: ${playerBUsername}, White: ${whiteUser}, Black: ${blackUser}, Winner: ${game.winner}`);
+
         // Determine winner wallet
         let winnerWallet: string | null = null;
         let resultType: 'playerA' | 'playerB' | 'draw' | 'unknown' = 'unknown';
 
+        // First, verify at least one player is in this game
+        const playerAIsWhite = whiteUser === playerAUsername;
+        const playerAIsBlack = blackUser === playerAUsername;
+        const playerBIsWhite = whiteUser === playerBUsername;
+        const playerBIsBlack = blackUser === playerBUsername;
+        
+        const playerAInGame = playerAIsWhite || playerAIsBlack;
+        const playerBInGame = playerBIsWhite || playerBIsBlack;
+        
+        console.log(`[secure-wager] Player matching - PlayerA in game: ${playerAInGame}, PlayerB in game: ${playerBInGame}`);
+
         if (game.status === 'draw' || game.status === 'stalemate') {
           resultType = 'draw';
         } else if (game.winner === 'white') {
-          if (whiteUser === playerAUsername) {
+          if (playerAIsWhite) {
             winnerWallet = wager.player_a_wallet;
             resultType = 'playerA';
-          } else if (whiteUser === playerBUsername) {
+          } else if (playerBIsWhite) {
             winnerWallet = wager.player_b_wallet;
             resultType = 'playerB';
           }
         } else if (game.winner === 'black') {
-          if (blackUser === playerAUsername) {
+          if (playerAIsBlack) {
             winnerWallet = wager.player_a_wallet;
             resultType = 'playerA';
-          } else if (blackUser === playerBUsername) {
+          } else if (playerBIsBlack) {
             winnerWallet = wager.player_b_wallet;
             resultType = 'playerB';
           }
         }
+        
+        console.log(`[secure-wager] Result determination - ResultType: ${resultType}, WinnerWallet: ${winnerWallet}`);
 
         // If we could determine the winner, auto-resolve the wager
         if (resultType !== 'unknown') {
