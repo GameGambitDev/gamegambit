@@ -243,7 +243,7 @@ export function LiveGameModal({
           )}
 
           {/* Embedded Chess Viewer */}
-          {embedUrl && wager.game === 'chess' && !gameFinished && (
+          {embedUrl && wager.game === 'chess' && !gameFinished && !checkIsGameFinished(lichessGame?.status || '') && (
             <div className="space-y-2">
               {showEmbed ? (
                 <div className="rounded-lg overflow-hidden border border-border">
@@ -340,7 +340,7 @@ export function LiveGameModal({
           )}
 
           {/* Polling indicator */}
-          {!gameFinished && (
+          {!gameFinished && !checkIsGameFinished(lichessGame?.status || '') && (
             <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-muted-foreground">
               <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
               <span>Auto-detecting game result...</span>
