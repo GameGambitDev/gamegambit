@@ -172,12 +172,15 @@ export function NFTGallery({ walletAddress, showFilters = true }: NFTGalleryProp
           </DialogHeader>
           {selectedNFT && (
             <div className="space-y-4">
-              <div className={`aspect-square rounded-lg overflow-hidden ${TIER_INFO[selectedNFT.tier].bgColor}`}>
-                <img
-                  src={TROPHY_URIS[selectedNFT.tier]}
-                  alt={selectedNFT.name}
-                  className="w-full h-full object-cover"
-                />
+              <div className={`rounded-lg overflow-hidden border border-border bg-muted/30 ${TIER_INFO[selectedNFT.tier].bgColor}`}>
+                <div className="p-3">
+                  <img
+                    src={TROPHY_URIS[selectedNFT.tier]}
+                    alt={selectedNFT.name}
+                    loading="lazy"
+                    className="mx-auto max-h-[40vh] w-auto object-contain"
+                  />
+                </div>
               </div>
               
               <div className="flex items-center justify-center gap-2">
