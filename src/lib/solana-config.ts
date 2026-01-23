@@ -22,7 +22,7 @@ export const WagerStatusOnChain = {
 } as const;
 
 // IDL instruction discriminators
-export const INSTRUCTION_DISCRIMINATORS = {
+export const INSTRUCTION_DISCRIMINATORS: Record<string, number[]> = {
   create_wager: [210, 82, 178, 75, 253, 34, 84, 120],
   join_wager: [119, 81, 120, 160, 80, 8, 75, 239],
   submit_vote: [115, 242, 100, 0, 49, 178, 242, 133],
@@ -31,7 +31,7 @@ export const INSTRUCTION_DISCRIMINATORS = {
   close_wager: [167, 240, 85, 147, 127, 50, 69, 203],
   initialize_player: [79, 249, 88, 177, 220, 62, 56, 128],
   ban_player: [20, 123, 183, 191, 29, 55, 244, 21],
-} as const;
+};
 
 // Explorer URL helpers
 export const getExplorerUrl = (type: 'tx' | 'address', value: string, cluster: 'devnet' | 'mainnet-beta' = 'devnet') => {
