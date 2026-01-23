@@ -163,6 +163,50 @@ export type Database = {
         }
         Relationships: []
       }
+      wager_transactions: {
+        Row: {
+          amount_lamports: number
+          created_at: string
+          error_message: string | null
+          id: string
+          status: string
+          tx_signature: string | null
+          tx_type: string
+          wager_id: string
+          wallet_address: string
+        }
+        Insert: {
+          amount_lamports: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          status?: string
+          tx_signature?: string | null
+          tx_type: string
+          wager_id: string
+          wallet_address: string
+        }
+        Update: {
+          amount_lamports?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          status?: string
+          tx_signature?: string | null
+          tx_type?: string
+          wager_id?: string
+          wallet_address?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wager_transactions_wager_id_fkey"
+            columns: ["wager_id"]
+            isOneToOne: false
+            referencedRelation: "wagers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wagers: {
         Row: {
           countdown_started_at: string | null
