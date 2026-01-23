@@ -708,35 +708,35 @@ serve(async (req) => {
           
           console.log(`[secure-wager] Wager ${wagerId} auto-resolved. Winner: ${resultType}`);
           
-          // Update player stats using RPC functions
+          // Call resolve-wager edge function to handle on-chain resolution
+          try {
+            console.log(`[secure-wager] Triggering on-chain resolution for wager ${wagerId}`);
+            const resolveResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/resolve-wager`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              },
+              body: JSON.stringify({
+                action: 'resolve_wager',
+                matchId: wager.match_id,
+                playerAWallet: wager.player_a_wallet,
+                winnerWallet: winnerWallet,
+                wagerId: wager.id,
+              }),
+            });
+            const resolveResult = await resolveResponse.json();
+            if (resolveResult.success) {
+              console.log(`[secure-wager] On-chain resolution successful: ${JSON.stringify(resolveResult)}`);
+            } else {
+              console.log('[secure-wager] On-chain resolution failed:', resolveResult.error);
+            }
+          } catch (resolveError) {
+            console.error('[secure-wager] On-chain resolution error:', resolveError);
+          }
+
+          // Mint victory NFT for winner (background task)
           if (winnerWallet) {
-            // Update winner stats
-            const { error: winnerError } = await supabase.rpc('update_winner_stats', { 
-              p_wallet: winnerWallet,
-              p_earnings: wager.stake_lamports * 2,
-              p_stake: wager.stake_lamports
-            });
-            if (winnerError) {
-              console.log('[secure-wager] Winner stats update error:', winnerError.message);
-            } else {
-              console.log(`[secure-wager] Winner stats updated for ${winnerWallet}`);
-            }
-
-            // Update loser stats
-            const loserWallet = winnerWallet === wager.player_a_wallet 
-              ? wager.player_b_wallet 
-              : wager.player_a_wallet;
-            const { error: loserError } = await supabase.rpc('update_loser_stats', {
-              p_wallet: loserWallet,
-              p_stake: wager.stake_lamports
-            });
-            if (loserError) {
-              console.log('[secure-wager] Loser stats update error:', loserError.message);
-            } else {
-              console.log(`[secure-wager] Loser stats updated for ${loserWallet}`);
-            }
-
-            // Mint victory NFT for winner (background task)
             try {
               console.log(`[secure-wager] Minting NFT for winner ${winnerWallet}`);
               const mintResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/mint-nft`, {

@@ -145,52 +145,64 @@ serve(async (req) => {
         // Full on-chain resolution requires proper Anchor client setup
         // which is complex in Deno environment
 
-        // Update wager in database
+        // Update wager in database (only if not already resolved)
         if (wagerId) {
-          const { error: updateError } = await supabase
+          // First check current status
+          const { data: currentWager } = await supabase
             .from('wagers')
-            .update({
-              status: 'resolved',
-              winner_wallet: winnerWallet,
-              resolved_at: new Date().toISOString()
-            })
-            .eq('id', wagerId);
-
-          if (updateError) {
-            console.error('❌ Database update error:', updateError);
-            throw updateError;
-          }
-
-          // Update player stats
-          const stakeQuery = await supabase
-            .from('wagers')
-            .select('stake_lamports, player_a_wallet, player_b_wallet')
+            .select('status, stake_lamports, player_a_wallet, player_b_wallet')
             .eq('id', wagerId)
             .single();
 
-          if (stakeQuery.data) {
-            const stake = stakeQuery.data.stake_lamports;
+          // Only update if not already resolved (secure-wager may have already updated it)
+          if (currentWager && currentWager.status !== 'resolved') {
+            const { error: updateError } = await supabase
+              .from('wagers')
+              .update({
+                status: 'resolved',
+                winner_wallet: winnerWallet,
+                resolved_at: new Date().toISOString()
+              })
+              .eq('id', wagerId);
+
+            if (updateError) {
+              console.error('❌ Database update error:', updateError);
+              throw updateError;
+            }
+          }
+
+          // Always update player stats (handles the payout calculation)
+          if (currentWager) {
+            const stake = currentWager.stake_lamports;
             const totalPot = stake * 2;
             const platformFee = Math.floor(totalPot * 0.1); // 10% fee
             const winnerPayout = totalPot - platformFee;
 
             // Update winner stats
-            await supabase.rpc('update_winner_stats', {
+            const { error: winnerError } = await supabase.rpc('update_winner_stats', {
               p_wallet: winnerWallet,
               p_stake: stake,
               p_earnings: winnerPayout
             });
+            
+            if (winnerError) {
+              console.log('⚠️ Winner stats update error (may already be updated):', winnerError.message);
+            }
 
             // Update loser stats
-            const loserWallet = winnerWallet === stakeQuery.data.player_a_wallet 
-              ? stakeQuery.data.player_b_wallet 
-              : stakeQuery.data.player_a_wallet;
+            const loserWallet = winnerWallet === currentWager.player_a_wallet 
+              ? currentWager.player_b_wallet 
+              : currentWager.player_a_wallet;
 
             if (loserWallet) {
-              await supabase.rpc('update_loser_stats', {
+              const { error: loserError } = await supabase.rpc('update_loser_stats', {
                 p_wallet: loserWallet,
                 p_stake: stake
               });
+              
+              if (loserError) {
+                console.log('⚠️ Loser stats update error (may already be updated):', loserError.message);
+              }
             }
 
             console.log('✅ Player stats updated');
