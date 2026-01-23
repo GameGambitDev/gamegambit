@@ -676,7 +676,7 @@ serve(async (req) => {
         
         console.log(`[secure-wager] Result determination - ResultType: ${resultType}, WinnerWallet: ${winnerWallet}`);
 
-        // If we could determine the winner, auto-resolve the wager
+        // If we could determine the result, auto-resolve the wager
         if (resultType !== 'unknown') {
           console.log(`[secure-wager] Resolving wager ${wagerId}. Result: ${resultType}, Winner: ${winnerWallet}`);
           
@@ -684,7 +684,7 @@ serve(async (req) => {
             .from('wagers')
             .update({ 
               status: 'resolved',
-              winner_wallet: winnerWallet,
+              winner_wallet: resultType === 'draw' ? null : winnerWallet,
               resolved_at: new Date().toISOString()
             })
             .eq('id', wagerId)
@@ -706,9 +706,9 @@ serve(async (req) => {
             });
           }
           
-          console.log(`[secure-wager] Wager ${wagerId} auto-resolved. Winner: ${resultType}`);
+          console.log(`[secure-wager] Wager ${wagerId} auto-resolved. Result: ${resultType}`);
           
-          // Call resolve-wager edge function to handle on-chain resolution
+          // Call resolve-wager edge function to handle on-chain resolution (or refund for draws)
           try {
             console.log(`[secure-wager] Triggering on-chain resolution for wager ${wagerId}`);
             const resolveResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/resolve-wager`, {
@@ -718,11 +718,13 @@ serve(async (req) => {
                 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
               },
               body: JSON.stringify({
-                action: 'resolve_wager',
+                action: resultType === 'draw' ? 'refund_draw' : 'resolve_wager',
                 matchId: wager.match_id,
                 playerAWallet: wager.player_a_wallet,
+                playerBWallet: wager.player_b_wallet,
                 winnerWallet: winnerWallet,
                 wagerId: wager.id,
+                stakeLamports: wager.stake_lamports,
               }),
             });
             const resolveResult = await resolveResponse.json();
@@ -735,8 +737,8 @@ serve(async (req) => {
             console.error('[secure-wager] On-chain resolution error:', resolveError);
           }
 
-          // Mint victory NFT for winner (background task)
-          if (winnerWallet) {
+          // Mint victory NFT for winner (only if not a draw)
+          if (winnerWallet && resultType !== 'draw') {
             try {
               console.log(`[secure-wager] Minting NFT for winner ${winnerWallet}`);
               const mintResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/mint-nft`, {
@@ -766,7 +768,8 @@ serve(async (req) => {
             status: game.status,
             winner: game.winner,
             resultType,
-            winnerWallet,
+            winnerWallet: resultType === 'draw' ? null : winnerWallet,
+            isDraw: resultType === 'draw',
             wager: updatedWager
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

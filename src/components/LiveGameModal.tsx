@@ -12,6 +12,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 import { useQueryClient } from '@tanstack/react-query';
+import { TransactionHistory } from '@/components/TransactionHistory';
 
 interface LiveGameModalProps {
   wager: Wager | null;
@@ -337,6 +338,11 @@ export function LiveGameModal({
             <div className="text-center text-xs sm:text-sm text-muted-foreground">
               {getGameStatusText(lichessGame.status, lichessGame.winner)}
             </div>
+          )}
+
+          {/* Transaction History */}
+          {gameFinished && (
+            <TransactionHistory wagerId={wager.id} maxHeight="200px" />
           )}
 
           {/* Polling indicator */}
