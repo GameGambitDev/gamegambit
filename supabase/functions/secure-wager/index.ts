@@ -634,8 +634,10 @@ serve(async (req) => {
 
         const playerAUsername = playerAData?.lichess_username?.toLowerCase();
         const playerBUsername = playerBData?.lichess_username?.toLowerCase();
-        const whiteUser = game.players?.white?.user?.name?.toLowerCase();
-        const blackUser = game.players?.black?.user?.name?.toLowerCase();
+        // Lichess API returns user.id as the reliable lowercase username field
+        // user.name may have different casing or be absent in some responses
+        const whiteUser = (game.players?.white?.user?.id || game.players?.white?.user?.name || '').toLowerCase();
+        const blackUser = (game.players?.black?.user?.id || game.players?.black?.user?.name || '').toLowerCase();
 
         console.log(`[secure-wager] Username matching - PlayerA: ${playerAUsername}, PlayerB: ${playerBUsername}, White: ${whiteUser}, Black: ${blackUser}, Winner: ${game.winner}`);
 
