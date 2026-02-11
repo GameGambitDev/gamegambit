@@ -1,73 +1,133 @@
-# Welcome to your Lovable project
+# ♟️ GameGambit
 
-## Project info
+**Wager. Play. Win.**
 
-**URL**: https://lovable.dev/projects/0afcb66f-9d1e-46a6-8b76-220b56b6775f
+GameGambit is a decentralized competitive gaming platform where players stake SOL on head-to-head matches and the winner takes the pot. Built on Solana with Lichess integration for provably fair chess wagers.
 
-## How can I edit this code?
+🌐 **Live:** [gamegambit.lovable.app](https://gamegambit.lovable.app)
 
-There are several ways of editing your application.
+---
 
-**Use Lovable**
+## 🎮 How It Works
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/0afcb66f-9d1e-46a6-8b76-220b56b6775f) and start prompting.
+1. **Connect Wallet** — Link your Solana wallet (Phantom, Solflare, etc.)
+2. **Create or Join a Wager** — Set your stake in SOL and pick your game
+3. **Play the Match** — Complete the game on Lichess (chess) or submit results for other titles
+4. **Get Paid** — Winner receives 90% of the pot; 10% platform fee
 
-Changes made via Lovable will be committed automatically to this repo.
+### Supported Games
 
-**Use your preferred IDE**
+| Game | Verification | Status |
+|------|-------------|--------|
+| ♟️ Chess (Lichess) | Auto-resolved via Lichess API | ✅ Live |
+| 🔫 PUBG Mobile | Player vote / moderator | 🔜 Coming Soon |
+| 🎯 Call of Duty Mobile | Player vote / moderator | 🔜 Coming Soon |
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+---
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## ✨ Features
 
-Follow these steps:
+- **On-Chain Escrow** — SOL stakes are held in a Solana program escrow until the match resolves
+- **Auto-Resolution** — Chess wagers resolve automatically when the Lichess game finishes
+- **Draw Handling** — Draws refund both players their full stake (no platform fee)
+- **Victory NFTs** — Winners receive a commemorative NFT for each victory
+- **Achievement Badges** — Unlock badges for milestones (win streaks, total earnings, etc.)
+- **Transaction History** — Full on-chain transaction log with Solana Explorer links
+- **Leaderboard** — Global rankings by wins, earnings, and streaks
+- **Quick Match** — Instantly find an opponent and start playing
+- **Live Game Viewer** — Watch Lichess games in real-time via embedded board
+
+---
+
+## 🏗️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React · TypeScript · Vite · Tailwind CSS · shadcn/ui · Framer Motion |
+| Blockchain | Solana (Devnet) · Anchor Program · `@solana/web3.js` · Wallet Adapter |
+| Backend | Lovable Cloud (Supabase) · Edge Functions · PostgreSQL |
+| Chess API | Lichess API (game verification, live streaming, user profiles) |
+
+### Solana Program
+
+- **Program ID:** `CPS82nShfYFBdJPLs4kLMYEUrTwvxieqSrkw6VYRopzx`
+- **Authority:** `45kmAptt386fRtXzjsbschuvhuEo77vRKA5eyYbH4XFs`
+- **Network:** Devnet
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+ ([install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating))
+- A Solana wallet browser extension (e.g. [Phantom](https://phantom.app))
+
+### Local Development
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
+# Clone the repo
 git clone <YOUR_GIT_URL>
+cd gamegambit
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Install dependencies
+npm install
 
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start dev server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Environment Variables
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+The following are configured automatically via Lovable Cloud:
 
-**Use GitHub Codespaces**
+| Variable | Description |
+|----------|-------------|
+| `VITE_SUPABASE_URL` | Backend API URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public API key |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Edge function secrets (configured in Lovable Cloud):
 
-## What technologies are used for this project?
+| Secret | Description |
+|--------|-------------|
+| `AUTHORITY_WALLET_SECRET` | Solana authority wallet keypair (JSON) |
+| `SOLANA_RPC_URL` | Solana RPC endpoint |
 
-This project is built with:
+---
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## 📁 Project Structure
 
-## How can I deploy this project?
+```
+src/
+├── components/          # UI components
+│   ├── landing/         # Landing page sections
+│   ├── layout/          # Header, Layout
+│   └── ui/              # shadcn/ui primitives
+├── contexts/            # WalletContext
+├── hooks/               # Custom hooks (wagers, Lichess, Solana, transactions)
+├── lib/                 # Utils, constants, Solana config
+├── pages/               # Route pages (Arena, Dashboard, Leaderboard, etc.)
+└── integrations/        # Supabase client & types
 
-Simply open [Lovable](https://lovable.dev/projects/0afcb66f-9d1e-46a6-8b76-220b56b6775f) and click on Share -> Publish.
+supabase/functions/
+├── resolve-wager/       # On-chain wager resolution, draw refunds, escrow logging
+├── secure-wager/        # Wager CRUD, Lichess game verification & auto-resolution
+├── secure-player/       # Player profile management
+├── mint-nft/            # Victory NFT minting
+└── verify-wallet/       # Wallet verification
+```
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## 🔒 Security
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- Authority wallet secret key is **never** exposed to the frontend
+- All wager mutations go through authenticated edge functions
+- Row Level Security (RLS) policies on all database tables
+- Wallet signature verification for sensitive operations
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+---
+
+## 📄 License
+
+This project is proprietary. All rights reserved.
