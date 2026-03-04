@@ -660,7 +660,6 @@ export default function ArenaPage() {
         onEdit={handleEditWager}
         onDelete={handleDeleteWager}
         isJoining={joinWager.isPending}
-        currentWallet={walletAddress}
       />
       
       <ReadyRoomModal
