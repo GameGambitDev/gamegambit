@@ -2,7 +2,6 @@ import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
-import nextPlugin from "eslint-config-next/core";
 
 export default tseslint.config(
   { ignores: ["dist", ".next", "node_modules"] },

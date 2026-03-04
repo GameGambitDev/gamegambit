@@ -1,145 +1,98 @@
 /**
- * API Route Example: Create Wager
- * Demonstrates proper type usage with IDL and database
+ * API Route: Wagers
+ * Create and fetch wagers with proper Supabase types
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/integrations/supabase/client'
-import {
-  CreateWagerInstructionArgs,
-  type Wager,
-  type Player,
-  GameGambitError,
-  ERROR_CODES,
-  lamportsToSol,
-} from '@/types'
-import {
-  validateWagerArgs,
-} from '@/lib/solana-program-utils'
+import type { Database } from '@/integrations/supabase/types'
+
+type WagerInsert = Database['public']['Tables']['wagers']['Insert']
 
 /**
  * POST /api/wagers
- * Create a new wager on-chain and sync to database
+ * Create a new wager
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { playerWallet, matchId, stakeAmount, lichessGameId, requiresModerator } = body
+    const { playerWallet, matchId, stakeLamports, game, lichessGameId, requiresModerator } = body
 
-    // Validate inputs
-    if (!playerWallet || typeof matchId !== 'number' || typeof stakeAmount !== 'number') {
-      throw new GameGambitError(
-        ERROR_CODES.INVALID_WALLET.code,
-        ERROR_CODES.INVALID_WALLET.statusCode,
-        'Invalid wallet or match parameters'
+    // Validate required fields
+    if (!playerWallet || typeof matchId !== 'number' || typeof stakeLamports !== 'number' || !game) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields' },
+        { status: 400 }
       )
     }
 
-    // Convert SOL to lamports for Solana
-    const stakeLamports = Math.round(stakeAmount * 1_000_000_000)
-
-    // Validate wager args
-    const wagerArgs: CreateWagerInstructionArgs = {
-      matchId,
-      stakeLamports,
-      lichessGameId: lichessGameId || '',
-      requiresModerator: requiresModerator || false,
-    }
-
-    if (!validateWagerArgs(wagerArgs)) {
-      throw new GameGambitError(
-        ERROR_CODES.INSUFFICIENT_FUNDS.code,
-        ERROR_CODES.INSUFFICIENT_FUNDS.statusCode,
-        'Stake amount is outside acceptable range'
-      )
-    }
-
-    // Check player exists and is not banned
     const supabase = createClient()
+
+    // Check if player exists
     const { data: player, error: playerError } = await supabase
       .from('players')
-      .select('wallet_address, is_banned, username')
+      .select('wallet_address, is_banned')
       .eq('wallet_address', playerWallet)
       .single()
 
     if (playerError || !player) {
-      throw new GameGambitError(
-        ERROR_CODES.INVALID_PLAYER.code,
-        ERROR_CODES.INVALID_PLAYER.statusCode,
-        'Player not found'
+      return NextResponse.json(
+        { success: false, error: 'Player not found' },
+        { status: 404 }
       )
     }
 
     if (player.is_banned) {
-      throw new GameGambitError(
-        ERROR_CODES.PLAYER_BANNED.code,
-        ERROR_CODES.PLAYER_BANNED.statusCode,
-        'Player is banned'
+      return NextResponse.json(
+        { success: false, error: 'Player is banned' },
+        { status: 403 }
       )
     }
 
-    // Create database record (will be updated after on-chain confirmation)
+    // Create wager with correct field names from Supabase schema
+    const wagerData: WagerInsert = {
+      player_a_wallet: playerWallet,
+      match_id: matchId,
+      stake_lamports: stakeLamports,
+      game: game as Database['public']['Enums']['game_type'],
+      status: 'created' as const,
+      lichess_game_id: lichessGameId || null,
+      requires_moderator: requiresModerator || false,
+    }
+
     const { data: newWager, error: wagerError } = await supabase
       .from('wagers')
-      .insert({
-        player_a_wallet: playerWallet,
-        match_id: matchId.toString(),
-        stake_amount: stakeAmount,
-        status: 'created',
-        lichess_game_id: lichessGameId,
-        requires_moderator: requiresModerator,
-        created_at: new Date().toISOString(),
-      })
+      .insert(wagerData)
       .select()
       .single()
 
     if (wagerError) {
-      throw new GameGambitError(
-        ERROR_CODES.DATABASE_ERROR.code,
-        ERROR_CODES.DATABASE_ERROR.statusCode,
-        'Failed to create wager'
+      console.error('Wager creation error:', wagerError)
+      return NextResponse.json(
+        { success: false, error: 'Failed to create wager' },
+        { status: 500 }
       )
     }
 
-    // Return response with wager data and Solana instruction data for client to sign
     return NextResponse.json(
       {
         success: true,
-        data: {
-          wagerId: newWager.id,
-          playerWallet,
-          stakeAmount,
-          stakeLamports,
-          matchId,
-          lichessGameId,
-          requiresModerator,
-          // Client will use this to build and sign the transaction
-          instructionData: {
-            programId: 'E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR',
-            matchId,
-            stakeLamports,
-            lichessGameId,
-            requiresModerator,
-          },
-        },
+        data: newWager,
       },
       { status: 201 }
     )
   } catch (error) {
-    if (error instanceof GameGambitError) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: error.statusCode }
-      )
-    }
-
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })
+    console.error('API error:', error)
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
 
 /**
  * GET /api/wagers
- * Fetch list of wagers with pagination
+ * Fetch wagers with optional filters
  */
 export async function GET(request: NextRequest) {
   try {
@@ -147,19 +100,22 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 100)
     const offset = parseInt(searchParams.get('offset') || '0')
     const playerWallet = searchParams.get('playerWallet')
+    const status = searchParams.get('status')
 
     const supabase = createClient()
 
     let query = supabase
       .from('wagers')
-      .select(`
-        *,
-        players!player_a_wallet(username, avatar),
-        player_b:players!player_b_wallet(username, avatar)
-      `)
+      .select('*')
 
     if (playerWallet) {
-      query = query.or(`player_a_wallet.eq.${playerWallet},player_b_wallet.eq.${playerWallet}`)
+      query = query.or(
+        `player_a_wallet.eq.${playerWallet},player_b_wallet.eq.${playerWallet}`
+      )
+    }
+
+    if (status) {
+      query = query.eq('status', status)
     }
 
     const { data: wagers, error } = await query
@@ -167,10 +123,10 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     if (error) {
-      throw new GameGambitError(
-        ERROR_CODES.DATABASE_ERROR.code,
-        ERROR_CODES.DATABASE_ERROR.statusCode,
-        'Failed to fetch wagers'
+      console.error('Fetch error:', error)
+      return NextResponse.json(
+        { success: false, error: 'Failed to fetch wagers' },
+        { status: 500 }
       )
     }
 
@@ -179,13 +135,10 @@ export async function GET(request: NextRequest) {
       data: wagers || [],
     })
   } catch (error) {
-    if (error instanceof GameGambitError) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: error.statusCode }
-      )
-    }
-
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })
+    console.error('API error:', error)
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
