@@ -115,7 +115,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      query = query.eq('status', status)
+      const validStatuses = ['created', 'joined', 'voting', 'retractable', 'disputed', 'resolved']
+      if (validStatuses.includes(status)) {
+        query = query.eq('status', status as any)
+      }
     }
 
     const { data: wagers, error } = await query
