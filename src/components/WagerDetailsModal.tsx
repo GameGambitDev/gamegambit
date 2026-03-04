@@ -12,8 +12,8 @@ interface WagerDetailsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onJoin?: (wagerId: string) => Promise<void> | void;
-  onEdit?: () => void;
-  onDelete?: () => void;
+  onEdit?: (wager: Wager) => void;
+  onDelete?: (wager: Wager) => void;
   isOwner?: boolean;
   canJoin?: boolean;
   isJoining?: boolean;
@@ -172,10 +172,10 @@ export function WagerDetailsModal({
           <div className="flex gap-2 pt-2">
             {isOwner && wager.status === 'created' ? (
               <>
-                <Button variant="outline" className="flex-1" onClick={onEdit}>
-                  Edit
-                </Button>
-                <Button variant="destructive" className="flex-1" onClick={onDelete}>
+            <Button variant="outline" className="flex-1" onClick={() => wager && onEdit?.(wager)}>
+              Edit
+            </Button>
+            <Button variant="destructive" className="flex-1" onClick={() => wager && onDelete?.(wager)}>
                   Delete
                 </Button>
               </>
