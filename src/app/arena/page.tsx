@@ -648,7 +648,7 @@ export default function ArenaPage() {
       <QuickMatchModal
         open={quickMatchModalOpen}
         onOpenChange={setQuickMatchModalOpen}
-        onSubmit={handleQuickMatchSubmit}
+        onMatch={handleQuickMatchSubmit}
         isPending={quickMatch.isPending}
       />
       
