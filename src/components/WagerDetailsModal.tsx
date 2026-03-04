@@ -11,7 +11,7 @@ interface WagerDetailsModalProps {
   wager: Wager | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onJoin?: () => void;
+  onJoin?: (wagerId: string) => Promise<void> | void;
   onEdit?: () => void;
   onDelete?: () => void;
   isOwner?: boolean;
@@ -180,14 +180,14 @@ export function WagerDetailsModal({
                 </Button>
               </>
             ) : canJoin && wager.status === 'created' ? (
-              <Button 
-                variant="neon" 
-                className="w-full" 
-                onClick={onJoin}
-                disabled={isJoining}
-              >
-                {isJoining ? 'Joining...' : 'Accept Challenge'}
-              </Button>
+            <Button 
+              variant="neon" 
+              className="w-full" 
+              onClick={() => wager && onJoin?.(wager.id)}
+              disabled={isJoining}
+            >
+              {isJoining ? 'Joining...' : 'Accept Challenge'}
+            </Button>
             ) : (
               <Button variant="outline" className="w-full" onClick={() => onOpenChange(false)}>
                 Close
