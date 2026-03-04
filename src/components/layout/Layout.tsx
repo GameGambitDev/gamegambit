@@ -2,7 +2,7 @@ import { ReactNode, Suspense } from 'react';
 import { Header } from './Header';
 import { Footer } from '@/components/landing/Footer';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useLocation } from 'react-router-dom';
+import { usePathname } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
 interface LayoutProps {
@@ -49,7 +49,7 @@ const pageVariants = {
 };
 
 export function Layout({ children }: LayoutProps) {
-  const location = useLocation();
+  const pathname = usePathname();
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -57,7 +57,7 @@ export function Layout({ children }: LayoutProps) {
       <Suspense fallback={<RouteLoader />}>
         <AnimatePresence mode="wait">
           <motion.main
-            key={location.pathname}
+            key={pathname}
             variants={pageVariants}
             initial="initial"
             animate="animate"
