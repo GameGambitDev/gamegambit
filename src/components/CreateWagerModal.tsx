@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 interface CreateWagerModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
 }
 
 const GAME_OPTIONS: { value: GameType; label: string; icon: string }[] = [
@@ -26,7 +27,7 @@ const STAKE_PRESETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
 
 type WagerMode = 'open' | 'challenge';
 
-export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) {
+export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerModalProps) {
   const [wagerMode, setWagerMode] = useState<WagerMode>('open');
   const [selectedGame, setSelectedGame] = useState<GameType>('chess');
   const [stakeAmount, setStakeAmount] = useState('0.1');
@@ -75,6 +76,7 @@ export function CreateWagerModal({ open, onOpenChange }: CreateWagerModalProps) 
         ? `Challenge sent to ${selectedOpponent.username || truncateAddress(selectedOpponent.wallet_address)}!` 
         : 'Wager created! Waiting for an opponent...');
       onOpenChange(false);
+      onSuccess?.();
       // Reset form
       setWagerMode('open');
       setStakeAmount('0.1');
