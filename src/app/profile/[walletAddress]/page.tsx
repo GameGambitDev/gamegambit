@@ -162,7 +162,7 @@ export default function ProfileByWalletPage({ params }: ProfilePageProps) {
                     <GameAccountCard
                       game={account.game}
                       linkedUsername={account.linkedUsername}
-                      onLink={() => {}}
+                      onLink={async (_username: string) => {}}
                       isPending={false}
                       isOwnProfile={false}
                     />
