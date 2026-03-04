@@ -1,8 +1,12 @@
-import type { Config } from "tailwindcss";
+import type { Config } from "tailwindcss"
 
 export default {
   darkMode: ["class"],
-  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
   prefix: "",
   theme: {
     container: {
@@ -14,8 +18,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        gaming: ['Orbitron', 'monospace'],
+        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+        gaming: ['var(--font-orbitron)', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -56,9 +60,11 @@ export default {
           foreground: "hsl(var(--card-foreground))",
         },
         neon: {
-          cyan: "hsl(var(--neon-glow))",
-          purple: "hsl(var(--neon-secondary))",
-          gold: "hsl(var(--gold))",
+          cyan: "hsl(var(--neon-cyan))",
+          magenta: "hsl(var(--neon-magenta))",
+          gold: "hsl(var(--neon-gold))",
+          blue: "hsl(var(--neon-blue))",
+          purple: "hsl(var(--neon-purple))",
         },
         live: "hsl(var(--live-red))",
       },
@@ -96,6 +102,25 @@ export default {
           "0%, 100%": { boxShadow: "0 0 10px hsl(var(--primary) / 0.4)" },
           "50%": { boxShadow: "0 0 30px hsl(var(--primary) / 0.8), 0 0 60px hsl(var(--primary) / 0.4)" },
         },
+        "glow-pulse": {
+          "0%, 100%": { 
+            boxShadow: "0 0 10px hsl(var(--primary) / 0.4)",
+            borderColor: "hsl(var(--primary) / 0.3)"
+          },
+          "50%": { 
+            boxShadow: "0 0 30px hsl(var(--primary) / 0.6), 0 0 60px hsl(var(--primary) / 0.3)",
+            borderColor: "hsl(var(--primary) / 0.6)"
+          },
+        },
+        "border-flow": {
+          "0%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+          "100%": { backgroundPosition: "0% 50%" },
+        },
+        shimmer: {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -105,14 +130,29 @@ export default {
         "fade-in": "fade-in 0.3s ease-out",
         "scale-in": "scale-in 0.2s ease-out",
         "pulse-neon": "pulse-neon 2s ease-in-out infinite",
+        "glow-pulse": "glow-pulse 2s ease-in-out infinite",
+        "border-flow": "border-flow 3s ease infinite",
+        shimmer: "shimmer 2s linear infinite",
       },
       boxShadow: {
         neon: "0 0 20px hsl(var(--primary) / 0.4)",
         "neon-lg": "0 0 40px hsl(var(--primary) / 0.3), 0 0 80px hsl(var(--primary) / 0.1)",
-        purple: "0 0 20px hsl(var(--secondary) / 0.4)",
+        "neon-intense": "0 0 30px hsl(var(--primary) / 0.6), 0 0 60px hsl(var(--primary) / 0.3), 0 0 90px hsl(var(--primary) / 0.1)",
+        magenta: "0 0 20px hsl(var(--secondary) / 0.4)",
         gold: "0 0 20px hsl(var(--accent) / 0.4)",
+        "inner-glow": "inset 0 0 20px hsl(var(--primary) / 0.2)",
+      },
+      backgroundImage: {
+        "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
+        "cyber-grid": `
+          linear-gradient(hsl(var(--primary) / 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, hsl(var(--primary) / 0.03) 1px, transparent 1px)
+        `,
+      },
+      backgroundSize: {
+        "cyber-grid": "50px 50px",
       },
     },
   },
   plugins: [require("tailwindcss-animate")],
-} satisfies Config;
+} satisfies Config
