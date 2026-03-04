@@ -1,0 +1,1005 @@
+{
+  "address": "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR",
+  "metadata": {
+    "name": "gamegambit",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Game Gambit — on-chain chess wager program"
+  },
+  "instructions": [
+    {
+      "name": "ban_player",
+      "discriminator": [
+        20,
+        123,
+        183,
+        191,
+        29,
+        55,
+        244,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "player_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_profile.player",
+                "account": "PlayerProfile"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authorizer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "ban_duration",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "close_wager",
+      "discriminator": [
+        167,
+        240,
+        85,
+        147,
+        127,
+        50,
+        69,
+        203
+      ],
+      "accounts": [
+        {
+          "name": "wager",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  103,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wager.player_a",
+                "account": "WagerAccount"
+              },
+              {
+                "kind": "account",
+                "path": "wager.match_id",
+                "account": "WagerAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_a",
+          "writable": true
+        },
+        {
+          "name": "player_b",
+          "writable": true
+        },
+        {
+          "name": "authorizer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_wager",
+      "discriminator": [
+        210,
+        82,
+        178,
+        75,
+        253,
+        34,
+        84,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "wager",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  103,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_a"
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_a_profile",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_a"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_a",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        },
+        {
+          "name": "stake_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "lichess_game_id",
+          "type": "string"
+        },
+        {
+          "name": "requires_moderator",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "initialize_player",
+      "discriminator": [
+        79,
+        249,
+        88,
+        177,
+        220,
+        62,
+        56,
+        128
+      ],
+      "accounts": [
+        {
+          "name": "player_profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "join_wager",
+      "discriminator": [
+        119,
+        81,
+        120,
+        160,
+        80,
+        8,
+        75,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "wager",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  103,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wager.player_a",
+                "account": "WagerAccount"
+              },
+              {
+                "kind": "account",
+                "path": "wager.match_id",
+                "account": "WagerAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_b_profile",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_b"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_b",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "stake_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "resolve_wager",
+      "discriminator": [
+        31,
+        179,
+        1,
+        228,
+        83,
+        224,
+        1,
+        123
+      ],
+      "accounts": [
+        {
+          "name": "wager",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  103,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wager.player_a",
+                "account": "WagerAccount"
+              },
+              {
+                "kind": "account",
+                "path": "wager.match_id",
+                "account": "WagerAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner",
+          "writable": true
+        },
+        {
+          "name": "authorizer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "platform_wallet",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "winner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "retract_vote",
+      "discriminator": [
+        227,
+        0,
+        85,
+        234,
+        243,
+        42,
+        133,
+        162
+      ],
+      "accounts": [
+        {
+          "name": "wager",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  103,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wager.player_a",
+                "account": "WagerAccount"
+              },
+              {
+                "kind": "account",
+                "path": "wager.match_id",
+                "account": "WagerAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "submit_vote",
+      "discriminator": [
+        115,
+        242,
+        100,
+        0,
+        49,
+        178,
+        242,
+        133
+      ],
+      "accounts": [
+        {
+          "name": "wager",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  103,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wager.player_a",
+                "account": "WagerAccount"
+              },
+              {
+                "kind": "account",
+                "path": "wager.match_id",
+                "account": "WagerAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "voted_winner",
+          "type": "pubkey"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "PlayerProfile",
+      "discriminator": [
+        82,
+        226,
+        99,
+        87,
+        164,
+        130,
+        181,
+        80
+      ]
+    },
+    {
+      "name": "WagerAccount",
+      "discriminator": [
+        43,
+        206,
+        233,
+        140,
+        104,
+        50,
+        20,
+        243
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "PlayerBanned",
+      "discriminator": [
+        164,
+        0,
+        117,
+        147,
+        4,
+        138,
+        149,
+        196
+      ]
+    },
+    {
+      "name": "VoteRetracted",
+      "discriminator": [
+        48,
+        194,
+        255,
+        216,
+        156,
+        13,
+        121,
+        241
+      ]
+    },
+    {
+      "name": "VoteSubmitted",
+      "discriminator": [
+        21,
+        54,
+        43,
+        190,
+        87,
+        214,
+        250,
+        218
+      ]
+    },
+    {
+      "name": "WagerClosed",
+      "discriminator": [
+        157,
+        212,
+        28,
+        112,
+        6,
+        143,
+        187,
+        185
+      ]
+    },
+    {
+      "name": "WagerCreated",
+      "discriminator": [
+        177,
+        41,
+        34,
+        111,
+        170,
+        96,
+        157,
+        62
+      ]
+    },
+    {
+      "name": "WagerJoined",
+      "discriminator": [
+        74,
+        213,
+        37,
+        114,
+        201,
+        144,
+        6,
+        12
+      ]
+    },
+    {
+      "name": "WagerResolved",
+      "discriminator": [
+        166,
+        83,
+        14,
+        127,
+        130,
+        175,
+        204,
+        13
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidStatus",
+      "msg": "Invalid wager status"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Unauthorized access"
+    },
+    {
+      "code": 6002,
+      "name": "RetractPeriodNotExpired",
+      "msg": "Retract period has not expired yet"
+    },
+    {
+      "code": 6003,
+      "name": "RetractExpired",
+      "msg": "Retract period expired"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidMatchId",
+      "msg": "Invalid match ID"
+    },
+    {
+      "code": 6006,
+      "name": "LichessGameIdTooLong",
+      "msg": "Lichess game ID too long"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidVote",
+      "msg": "Invalid vote"
+    },
+    {
+      "code": 6008,
+      "name": "AlreadyVoted",
+      "msg": "Already voted"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidWinner",
+      "msg": "Invalid winner"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidPlayer",
+      "msg": "Invalid player"
+    },
+    {
+      "code": 6011,
+      "name": "PlayerBanned",
+      "msg": "Player is banned"
+    },
+    {
+      "code": 6012,
+      "name": "WagerExpired",
+      "msg": "Wager has expired"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidPlatformWallet",
+      "msg": "Invalid platform wallet"
+    },
+    {
+      "code": 6014,
+      "name": "ArithmeticOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6015,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds in wager account"
+    }
+  ],
+  "types": [
+    {
+      "name": "PlayerBanned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_banned",
+            "type": "bool"
+          },
+          {
+            "name": "ban_expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerProfile",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_banned",
+            "type": "bool"
+          },
+          {
+            "name": "ban_expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "last_active",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteRetracted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wager_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteSubmitted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wager_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "voted_winner",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WagerAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "player_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "lichess_game_id",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "WagerStatus"
+              }
+            }
+          },
+          {
+            "name": "requires_moderator",
+            "type": "bool"
+          },
+          {
+            "name": "vote_player_a",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "vote_player_b",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "winner",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "vote_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "retract_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "resolved_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WagerClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wager_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "closed_by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WagerCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wager_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WagerJoined",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wager_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WagerResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wager_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_payout",
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WagerStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Created"
+          },
+          {
+            "name": "Joined"
+          },
+          {
+            "name": "Voting"
+          },
+          {
+            "name": "Retractable"
+          },
+          {
+            "name": "Disputed"
+          },
+          {
+            "name": "Closed"
+          },
+          {
+            "name": "Resolved"
+          }
+        ]
+      }
+    }
+  ]
+}

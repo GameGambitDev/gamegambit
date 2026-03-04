@@ -1,5 +1,7 @@
-import { Gamepad2, Twitter, MessageCircle, Github } from 'lucide-react';
-import { Link } from 'react-router-dom';
+'use client'
+
+import { Gamepad2, Twitter, MessageCircle, Github } from 'lucide-react'
+import Link from 'next/link'
 
 const footerLinks = {
   platform: [
@@ -8,7 +10,7 @@ const footerLinks = {
     { label: 'My Wagers', href: '/my-wagers' },
   ],
   resources: [
-    { label: 'How It Works', href: '#how-it-works' },
+    { label: 'How It Works', href: '/#how-it-works' },
     { label: 'FAQ', href: '/faq' },
     { label: 'Support', href: '/support' },
   ],
@@ -16,13 +18,13 @@ const footerLinks = {
     { label: 'Terms of Service', href: '/terms' },
     { label: 'Privacy Policy', href: '/privacy' },
   ],
-};
+}
 
 const socials = [
   { icon: Twitter, href: 'https://twitter.com', label: 'Twitter' },
   { icon: MessageCircle, href: 'https://discord.com', label: 'Discord' },
   { icon: Github, href: 'https://github.com', label: 'GitHub' },
-];
+]
 
 export function Footer() {
   return (
@@ -31,7 +33,7 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
           {/* Brand */}
           <div className="md:col-span-1">
-            <Link to="/" className="flex items-center gap-3 mb-4">
+            <Link href="/" className="flex items-center gap-3 mb-4">
               <Gamepad2 className="h-8 w-8 text-primary" />
               <span className="font-gaming text-xl font-bold">
                 <span className="text-foreground">Game</span>
@@ -66,7 +68,7 @@ export function Footer() {
               {footerLinks.platform.map((link) => (
                 <li key={link.label}>
                   <Link
-                    to={link.href}
+                    href={link.href}
                     className="text-sm text-muted-foreground hover:text-primary transition-colors"
                   >
                     {link.label}
@@ -85,7 +87,7 @@ export function Footer() {
               {footerLinks.resources.map((link) => (
                 <li key={link.label}>
                   <Link
-                    to={link.href}
+                    href={link.href}
                     className="text-sm text-muted-foreground hover:text-primary transition-colors"
                   >
                     {link.label}
@@ -104,7 +106,7 @@ export function Footer() {
               {footerLinks.legal.map((link) => (
                 <li key={link.label}>
                   <Link
-                    to={link.href}
+                    href={link.href}
                     className="text-sm text-muted-foreground hover:text-primary transition-colors"
                   >
                     {link.label}
@@ -128,5 +130,5 @@ export function Footer() {
         </div>
       </div>
     </footer>
-  );
+  )
 }
