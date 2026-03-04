@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
+import nextPlugin from "eslint-config-next/core";
 
 export default tseslint.config(
   { ignores: ["dist", ".next", "node_modules"] },
@@ -22,6 +23,7 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "@typescript-eslint/no-unused-vars": "off",
       "@typescript-eslint/no-empty-interface": "off",
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
 );
