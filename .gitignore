@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Lock files (use package.json as source of truth)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
 # Next.js
 .next
 out
