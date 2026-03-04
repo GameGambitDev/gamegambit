@@ -1,0 +1,12 @@
+# Bun configuration for Game Gambit Next.js project
+# Force Bun to regenerate lock files instead of using stale React Native lock files
+
+[install]
+# Allow peer dependencies to fail gracefully
+prefer-offline = false
+# Regenerate lock file on install
+save-lockfile = true
+
+# Trust all scripts during install
+[env]
+NODE_ENV = "production"
