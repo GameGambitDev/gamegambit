@@ -434,6 +434,7 @@ export const ERROR_CODES = {
   WAGER_NOT_FOUND: { code: 'WAGER_NOT_FOUND', statusCode: 404 },
   WAGER_ALREADY_JOINED: { code: 'WAGER_ALREADY_JOINED', statusCode: 409 },
   UNAUTHORIZED: { code: 'UNAUTHORIZED', statusCode: 401 },
+  INVALID_PLAYER: { code: 'INVALID_PLAYER', statusCode: 404 },
   PLAYER_BANNED: { code: 'PLAYER_BANNED', statusCode: 403 },
   DATABASE_ERROR: { code: 'DATABASE_ERROR', statusCode: 500 },
   SOLANA_ERROR: { code: 'SOLANA_ERROR', statusCode: 500 },
