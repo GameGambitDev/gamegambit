@@ -1,5 +1,7 @@
-import { motion } from 'framer-motion';
-import { Wallet, Search, MessageSquare, Lock, Vote, Trophy } from 'lucide-react';
+'use client'
+
+import { motion } from 'framer-motion'
+import { Wallet, Search, MessageSquare, Lock, Vote, Trophy } from 'lucide-react'
 
 const steps = [
   {
@@ -32,13 +34,14 @@ const steps = [
     title: 'Winner Takes All',
     description: 'Matching votes = instant payout. Disputes go to random moderators.',
   },
-];
+]
 
 export function HowItWorks() {
   return (
-    <section className="py-24 relative overflow-hidden">
+    <section id="how-it-works" className="py-24 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0 bg-gradient-to-b from-background via-card/30 to-background" />
+      <div className="absolute inset-0 cyber-grid opacity-10" />
       
       <div className="container relative z-10 px-4">
         {/* Header */}
@@ -47,16 +50,16 @@ export function HowItWorks() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-4xl font-bold mb-4"
+            className="text-4xl font-bold mb-4 font-gaming"
           >
-            How It <span className="gradient-text">Works</span>
+            How It <span className="gradient-text text-glow">Works</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.1 }}
-            className="text-lg text-muted-foreground max-w-2xl mx-auto"
+            className="text-lg text-muted-foreground max-w-2xl mx-auto text-balance"
           >
             From wallet connect to winner payout in minutes. 
             No middlemen, no fees, no trust required.
@@ -79,14 +82,14 @@ export function HowItWorks() {
                 <div className="hidden lg:block absolute top-12 left-[60%] w-full h-px bg-gradient-to-r from-primary/50 to-transparent" />
               )}
 
-              <div className="relative p-6 rounded-xl bg-card/50 border border-border/50 hover:border-primary/30 transition-all duration-300 h-full">
+              <div className="relative p-6 rounded-xl bg-card/50 border border-border/50 hover:border-primary/30 hover:shadow-neon transition-all duration-300 h-full backdrop-blur-sm">
                 {/* Step Number */}
-                <div className="absolute -top-3 -left-3 w-8 h-8 rounded-full bg-primary flex items-center justify-center font-gaming text-sm font-bold text-primary-foreground shadow-neon">
+                <div className="absolute -top-3 -left-3 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-neon-cyan flex items-center justify-center font-gaming text-sm font-bold text-primary-foreground shadow-neon">
                   {index + 1}
                 </div>
 
                 {/* Icon */}
-                <div className="mb-4 p-3 rounded-lg bg-primary/10 w-fit group-hover:bg-primary/20 transition-colors">
+                <div className="mb-4 p-3 rounded-lg bg-primary/10 w-fit group-hover:bg-primary/20 group-hover:shadow-neon transition-all">
                   <step.icon className="h-6 w-6 text-primary" />
                 </div>
 
@@ -108,7 +111,8 @@ export function HowItWorks() {
           className="mt-16 text-center"
         >
           <p className="text-lg text-muted-foreground mb-4">
-            This isn't play-to-earn. This is <span className="text-primary font-semibold">play-to-win</span>.
+            {"This isn't play-to-earn. This is "}
+            <span className="text-primary font-semibold text-glow">play-to-win</span>.
           </p>
           <p className="font-gaming text-xl text-foreground">
             Your move.
@@ -116,5 +120,5 @@ export function HowItWorks() {
         </motion.div>
       </div>
     </section>
-  );
+  )
 }

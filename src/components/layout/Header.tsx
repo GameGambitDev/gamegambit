@@ -1,32 +1,35 @@
-import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { motion } from 'framer-motion';
-import { Gamepad2, Menu, X, User } from 'lucide-react';
-import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { truncateAddress } from '@/lib/constants';
-import { NotificationsDropdown } from '@/components/NotificationsDropdown';
+'use client'
+
+import { useWallet } from '@solana/wallet-adapter-react'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { motion } from 'framer-motion'
+import { Gamepad2, Menu, X, User } from 'lucide-react'
+import { useState } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { truncateAddress } from '@/lib/constants'
+import { NotificationsDropdown } from '@/components/NotificationsDropdown'
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Arena', href: '/arena' },
   { label: 'My Wagers', href: '/my-wagers' },
   { label: 'Leaderboard', href: '/leaderboard' },
-];
+]
 
 export function Header() {
-  const { connected, publicKey } = useWallet();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const location = useLocation();
+  const { connected, publicKey } = useWallet()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const pathname = usePathname()
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 sm:gap-3 group">
+          <Link href="/" className="flex items-center gap-2 sm:gap-3 group">
             <motion.div
               whileHover={{ rotate: 15, scale: 1.1 }}
               transition={{ type: 'spring', stiffness: 400 }}
@@ -44,11 +47,11 @@ export function Header() {
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => {
-              const isActive = location.pathname === item.href;
+              const isActive = pathname === item.href
               return (
                 <Link
                   key={item.href}
-                  to={item.href}
+                  href={item.href}
                   className={cn(
                     "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300",
                     isActive
@@ -58,7 +61,7 @@ export function Header() {
                 >
                   {item.label}
                 </Link>
-              );
+              )
             })}
           </nav>
 
@@ -67,7 +70,7 @@ export function Header() {
             {connected && (
               <>
                 <NotificationsDropdown />
-                <Link to="/profile" className="hidden sm:block">
+                <Link href="/profile" className="hidden sm:block">
                   <Button variant="glass" size="sm">
                     <User className="h-4 w-4 mr-2" />
                     {publicKey && truncateAddress(publicKey.toBase58())}
@@ -77,7 +80,7 @@ export function Header() {
             )}
             
             {/* Custom styled wallet button */}
-            <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-lg [&_.wallet-adapter-button]:!h-9 [&_.wallet-adapter-button]:sm:!h-10 [&_.wallet-adapter-button]:!px-3 [&_.wallet-adapter-button]:sm:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all">
+            <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-9 [&_.wallet-adapter-button]:sm:!h-10 [&_.wallet-adapter-button]:!px-3 [&_.wallet-adapter-button]:sm:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all">
               <WalletMultiButton />
             </div>
 
@@ -105,11 +108,11 @@ export function Header() {
               {/* Profile link in mobile menu */}
               {connected && (
                 <Link
-                  to="/profile"
+                  href="/profile"
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
                     "px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center gap-3",
-                    location.pathname === '/profile'
+                    pathname === '/profile'
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   )}
@@ -125,11 +128,11 @@ export function Header() {
               )}
               
               {navItems.map((item) => {
-                const isActive = location.pathname === item.href;
+                const isActive = pathname === item.href
                 return (
                   <Link
                     key={item.href}
-                    to={item.href}
+                    href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
                       "px-4 py-3 rounded-lg text-sm font-medium transition-all",
@@ -140,7 +143,7 @@ export function Header() {
                   >
                     {item.label}
                   </Link>
-                );
+                )
               })}
             </nav>
           </motion.div>
@@ -150,5 +153,5 @@ export function Header() {
       {/* Live indicator */}
       <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
     </header>
-  );
+  )
 }

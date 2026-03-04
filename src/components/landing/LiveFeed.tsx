@@ -1,42 +1,44 @@
-import { motion } from 'framer-motion';
-import { ExternalLink, Trophy, Clock, Swords, Loader2 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
-import { useRecentWagers, Wager } from '@/hooks/useWagers';
-import { Link } from 'react-router-dom';
+'use client'
+
+import { motion } from 'framer-motion'
+import { ExternalLink, Trophy, Clock, Swords, Loader2 } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
+import { useRecentWagers, Wager } from '@/hooks/useWagers'
+import Link from 'next/link'
 
 const getGameData = (game: string) => {
   switch (game) {
-    case 'chess': return GAMES.CHESS;
-    case 'codm': return GAMES.CODM;
-    case 'pubg': return GAMES.PUBG;
-    default: return GAMES.CHESS;
+    case 'chess': return GAMES.CHESS
+    case 'codm': return GAMES.CODM
+    case 'pubg': return GAMES.PUBG
+    default: return GAMES.CHESS
   }
-};
+}
 
 const getStatusBadge = (status: string) => {
   switch (status) {
     case 'created':
-      return <Badge variant="created">Open</Badge>;
+      return <Badge variant="created">Open</Badge>
     case 'joined':
-      return <Badge variant="joined">Live</Badge>;
+      return <Badge variant="joined">Live</Badge>
     case 'voting':
-      return <Badge variant="voting">Voting</Badge>;
+      return <Badge variant="voting">Voting</Badge>
     case 'disputed':
-      return <Badge variant="disputed">Disputed</Badge>;
+      return <Badge variant="disputed">Disputed</Badge>
     case 'resolved':
-      return <Badge variant="resolved">Resolved</Badge>;
+      return <Badge variant="resolved">Resolved</Badge>
     default:
-      return <Badge variant="glass">{status}</Badge>;
+      return <Badge variant="glass">{status}</Badge>
   }
-};
+}
 
 function WagerCard({ wager, index }: { wager: Wager; index: number }) {
-  const game = getGameData(wager.game);
-  const isLive = wager.status === 'joined';
-  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000);
+  const game = getGameData(wager.game)
+  const isLive = wager.status === 'joined'
+  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
   
   return (
     <motion.div
@@ -114,7 +116,7 @@ function WagerCard({ wager, index }: { wager: Wager; index: number }) {
         </CardContent>
       </Card>
     </motion.div>
-  );
+  )
 }
 
 function EmptyFeed() {
@@ -125,16 +127,16 @@ function EmptyFeed() {
       </div>
       <h3 className="font-gaming text-lg mb-2">No wagers yet</h3>
       <p className="text-muted-foreground text-sm mb-4">Be the first to create a wager!</p>
-      <Link to="/arena">
+      <Link href="/arena">
         <Button variant="neon">Enter Arena</Button>
       </Link>
     </div>
-  );
+  )
 }
 
 export function LiveFeed() {
-  const { data: wagers, isLoading } = useRecentWagers(10);
-  const activeCount = wagers?.filter(w => ['created', 'joined', 'voting'].includes(w.status)).length || 0;
+  const { data: wagers, isLoading } = useRecentWagers(10)
+  const activeCount = wagers?.filter(w => ['created', 'joined', 'voting'].includes(w.status)).length || 0
 
   return (
     <section className="py-20 relative">
@@ -142,7 +144,7 @@ export function LiveFeed() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h2 className="text-3xl font-bold mb-2">
+            <h2 className="text-3xl font-bold mb-2 font-gaming">
               <span className="text-foreground">Live</span>{' '}
               <span className="gradient-text">Arena</span>
             </h2>
@@ -150,8 +152,8 @@ export function LiveFeed() {
               Watch matches unfold in real-time
             </p>
           </div>
-          <Link to="/arena">
-            <Button variant="outline" className="group">
+          <Link href="/arena">
+            <Button variant="outline" className="group hover:border-primary/50 hover:shadow-neon transition-all">
               View All
               <ExternalLink className="h-4 w-4 ml-2 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </Button>
@@ -175,7 +177,7 @@ export function LiveFeed() {
 
         {/* Live Count */}
         <div className="mt-8 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-card/50 border border-border/50">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-card/50 border border-border/50 backdrop-blur-sm">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
@@ -187,5 +189,5 @@ export function LiveFeed() {
         </div>
       </div>
     </section>
-  );
+  )
 }
