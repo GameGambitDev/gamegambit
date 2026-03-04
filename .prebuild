@@ -1,3 +1,0 @@
-#!/bin/bash
-# Force regenerate lock file for Next.js dependencies
-rm -f bun.lock package-lock.json yarn.lock pnpm-lock.yaml

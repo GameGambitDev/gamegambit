@@ -1,0 +1,4 @@
+package-lock.json export-ignore
+yarn.lock export-ignore
+pnpm-lock.yaml export-ignore
+bun.lockb export-ignore
