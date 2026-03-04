@@ -1,20 +1,22 @@
-import { Link } from 'react-router-dom';
-import { cn } from '@/lib/utils';
-import { truncateAddress } from '@/lib/constants';
+'use client'
+
+import Link from 'next/link'
+import { cn } from '@/lib/utils'
+import { truncateAddress } from '@/lib/constants'
 
 interface PlayerLinkProps {
-  walletAddress: string;
-  username?: string | null;
-  className?: string;
-  showFullAddress?: boolean;
+  walletAddress: string
+  username?: string | null
+  className?: string
+  showFullAddress?: boolean
 }
 
 export function PlayerLink({ walletAddress, username, className, showFullAddress }: PlayerLinkProps) {
-  const displayName = username || (showFullAddress ? walletAddress : truncateAddress(walletAddress));
+  const displayName = username || (showFullAddress ? walletAddress : truncateAddress(walletAddress))
   
   return (
     <Link 
-      to={`/profile/${walletAddress}`}
+      href={`/profile/${walletAddress}`}
       className={cn(
         "hover:text-primary hover:underline transition-colors cursor-pointer",
         className
@@ -23,5 +25,5 @@ export function PlayerLink({ walletAddress, username, className, showFullAddress
     >
       {displayName}
     </Link>
-  );
+  )
 }
