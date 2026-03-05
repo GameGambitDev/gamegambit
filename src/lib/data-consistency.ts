@@ -36,7 +36,7 @@ export async function updateWithOptimisticLock(
   while (attempt < maxRetries) {
     try {
       // Fetch current version
-      const { data: current, error: fetchError } = await client
+      const { data: current, error: fetchError } = await (client as any)
         .from(config.table)
         .select('*')
         .eq('id', config.id)
@@ -46,7 +46,7 @@ export async function updateWithOptimisticLock(
       if (!current) throw new Error('Record not found')
 
       // Attempt update only if version matches
-      const query = client
+      const query = (client as any)
         .from(config.table)
         .update({
           ...updates,
@@ -198,7 +198,7 @@ export async function eventualConsistencyUpdate(
 
   for (let i = 0; i < retryCount; i++) {
     try {
-      const { data, error } = await client
+      const { data, error } = await (client as any)
         .from(table)
         .update(updates)
         .eq('id', id)
@@ -266,7 +266,7 @@ export async function logTransaction(
   client: ReturnType<typeof createClient<Database>>,
   log: Omit<TransactionLog, 'id' | 'startTime'>
 ): Promise<string> {
-  const { data, error } = await client
+  const { data, error } = await (client as any)
     .from('transaction_logs')
     .insert({
       ...log,
@@ -284,7 +284,7 @@ export async function updateTransactionLog(
   logId: string,
   updates: Partial<TransactionLog>
 ): Promise<void> {
-  const { error } = await client
+  const { error } = await (client as any)
     .from('transaction_logs')
     .update({
       ...updates,
@@ -310,7 +310,7 @@ export async function addToDeadLetterQueue(
 ): Promise<string> {
   const { operation, payload, error, retryCount = 0 } = options
 
-  const { data, error: dbError } = await client
+  const { data, error: dbError } = await (client as any)
     .from('dead_letter_queue')
     .insert({
       operation,
@@ -332,7 +332,7 @@ export async function retryFromDeadLetterQueue(
   handler: (payload: any) => Promise<void>
 ): Promise<TransactionResult> {
   try {
-    const { data: queueItem, error: fetchError } = await client
+    const { data: queueItem, error: fetchError } = await (client as any)
       .from('dead_letter_queue')
       .select('*')
       .eq('id', queueId)
@@ -343,7 +343,7 @@ export async function retryFromDeadLetterQueue(
     await handler(queueItem.payload)
 
     // Mark as resolved
-    await client
+    await (client as any)
       .from('dead_letter_queue')
       .update({ status: 'resolved' })
       .eq('id', queueId)
@@ -371,7 +371,7 @@ export async function captureDataChange(
 ): Promise<void> {
   const { table, operation, recordId, before, after, changedBy } = options
 
-  await client.from('data_change_log').insert({
+  await (client as any).from('data_change_log').insert({
     table,
     operation,
     recordId,
