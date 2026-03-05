@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { truncateAddress } from '@/lib/constants'
 import { NotificationsDropdown } from '@/components/NotificationsDropdown'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard' },
@@ -67,6 +68,7 @@ export function Header() {
 
           {/* Right Side */}
           <div className="flex items-center gap-2 sm:gap-3">
+            <ThemeToggle />
             {connected && (
               <>
                 <NotificationsDropdown />
