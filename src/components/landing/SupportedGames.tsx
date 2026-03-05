@@ -84,7 +84,7 @@ export function SupportedGames() {
                   {/* Features */}
                   <div className="flex flex-wrap gap-2 mb-6">
                     {game.features.map(feature => (
-                      <Badge key={feature} variant="neon-border" className="text-xs">
+                      <Badge key={feature} variant="cyber" className="text-xs">
                         {feature}
                       </Badge>
                     ))}
@@ -108,7 +108,14 @@ export function SupportedGames() {
           viewport={{ once: true }}
           className="mt-12 text-center"
         >
-          <Badge variant="neon-border" className="px-4 py-2">
+          <Card className="bg-cyber-dark/50 border-cyber-cyan/30 backdrop-blur">
+            <CardContent className="flex flex-col items-center justify-center py-12 px-6">
+              <Gamepad2 className="h-12 w-12 text-cyber-magenta mb-4" />
+              <h3 className="text-xl font-bold text-balance mb-2">More Games Coming Soon</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                We're actively integrating additional gaming platforms
+              </p>
+              <Badge variant="cyber" className="px-4 py-2">
             More games coming soon: FIFA, Valorant, League of Legends
           </Badge>
         </motion.div>
