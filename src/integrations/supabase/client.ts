@@ -5,36 +5,22 @@ import type { Database } from './types';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Create client instance for browser/client-side use
-export const createClient = () => {
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    throw new Error(
-      'Missing Supabase credentials. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.'
-    );
-  }
-
-  return createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-    }
-  });
-};
-
 // Lazy initialize - don't create client at module load time
 let supabaseInstance: ReturnType<typeof createSupabaseClient<Database>> | null = null;
 
 export const getSupabaseClient = () => {
   if (!supabaseInstance) {
-    supabaseInstance = createClient();
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      throw new Error(
+        'Missing Supabase credentials. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.'
+      );
+    }
+    supabaseInstance = createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    });
   }
   return supabaseInstance;
 };
-
-// Keep for backward compatibility but only initialize on demand
-export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient<Database>>, {
-  get: (target, prop) => {
-    const client = getSupabaseClient();
-    return (client as any)[prop];
-  }
-});
