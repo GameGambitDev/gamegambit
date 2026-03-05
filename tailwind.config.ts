@@ -20,6 +20,8 @@ export default {
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
         gaming: ['var(--font-orbitron)', 'monospace'],
+        orbitron: ['Orbitron', 'monospace'],
+        inter: ['Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -103,11 +105,11 @@ export default {
           "50%": { boxShadow: "0 0 30px hsl(var(--primary) / 0.8), 0 0 60px hsl(var(--primary) / 0.4)" },
         },
         "glow-pulse": {
-          "0%, 100%": { 
+          "0%, 100%": {
             boxShadow: "0 0 10px hsl(var(--primary) / 0.4)",
             borderColor: "hsl(var(--primary) / 0.3)"
           },
-          "50%": { 
+          "50%": {
             boxShadow: "0 0 30px hsl(var(--primary) / 0.6), 0 0 60px hsl(var(--primary) / 0.3)",
             borderColor: "hsl(var(--primary) / 0.6)"
           },
