@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 
 const SESSION_STORAGE_KEY = 'wallet_session_token';
 
@@ -38,6 +38,7 @@ export function useWalletAuth() {
     const walletAddress = publicKey.toBase58();
 
     try {
+      const supabase = getSupabaseClient();
       // Step 1: Request nonce
       const { data: nonceData, error: nonceError } = await supabase.functions.invoke('verify-wallet', {
         body: { action: 'generate-nonce', walletAddress },
