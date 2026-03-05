@@ -2,19 +2,24 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 // Lazy initialize - don't create client at module load time
 let supabaseInstance: ReturnType<typeof createSupabaseClient<Database>> | null = null;
 
+/**
+ * Get the Supabase client instance.
+ * Lazily initializes on first call to avoid errors when env vars are missing.
+ */
 export const getSupabaseClient = () => {
   if (!supabaseInstance) {
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
     if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
       throw new Error(
         'Missing Supabase credentials. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.'
       );
     }
+
     supabaseInstance = createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: {
         persistSession: true,
@@ -22,8 +27,6 @@ export const getSupabaseClient = () => {
       }
     });
   }
+
   return supabaseInstance;
 };
-
-// No exports of createClient or supabase at module level to avoid instantiation on import
-
