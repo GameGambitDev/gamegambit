@@ -187,6 +187,7 @@ export function useCreateWager() {
       is_public?: boolean;
       stream_url?: string;
     }) => {
+      const supabase = getSupabaseClient();
       // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
@@ -215,6 +216,7 @@ export function useJoinWager() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string; playerBWallet?: string }) => {
+      const supabase = getSupabaseClient();
       // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
@@ -251,6 +253,7 @@ export function useSubmitVote() {
       votedWinner: string;
       isPlayerA?: boolean;
     }) => {
+      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required. Please sign the message to continue.');
@@ -290,6 +293,7 @@ export function useEditWager() {
       stream_url?: string;
       is_public?: boolean;
     }) => {
+      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required.');
@@ -317,6 +321,7 @@ export function useDeleteWager() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
+      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required.');
@@ -344,6 +349,7 @@ export function useSetReady() {
 
   return useMutation({
     mutationFn: async ({ wagerId, ready }: { wagerId: string; ready: boolean }) => {
+      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required.');
@@ -371,6 +377,7 @@ export function useStartGame() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
+      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required.');
@@ -419,6 +426,7 @@ export function useCheckGameComplete() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
+      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required.');
