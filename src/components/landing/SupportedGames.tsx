@@ -116,8 +116,10 @@ export function SupportedGames() {
                 We're actively integrating additional gaming platforms
               </p>
               <Badge variant="cyber" className="px-4 py-2">
-            More games coming soon: FIFA, Valorant, League of Legends
-          </Badge>
+                More games coming soon: FIFA, Valorant, League of Legends
+              </Badge>
+            </CardContent>
+          </Card>
         </motion.div>
       </div>
     </section>
