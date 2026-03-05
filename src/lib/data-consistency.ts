@@ -46,7 +46,7 @@ export async function updateWithOptimisticLock(
       if (!current) throw new Error('Record not found')
 
       // Attempt update only if version matches
-      const { data, error } = await client
+      const query = client
         .from(config.table)
         .update({
           ...updates,
@@ -56,6 +56,10 @@ export async function updateWithOptimisticLock(
         .eq('version', current.version)
         .select()
         .single()
+
+      const result = await query
+      const data = result.data
+      const error = result.error
 
       if (error) {
         if (error.code === 'PGRST116') {
