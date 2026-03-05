@@ -2,18 +2,28 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Create client instance for browser/client-side use
-export const createClient = () => {
-  return createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
+// Lazy initialize - don't create client at module load time
+let supabaseInstance: ReturnType<typeof createSupabaseClient<Database>> | null = null;
+
+export const getSupabaseClient = () => {
+  if (!supabaseInstance) {
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      throw new Error(
+        'Missing Supabase credentials. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.'
+      );
     }
-  });
+    supabaseInstance = createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    });
+  }
+  return supabaseInstance;
 };
 
-// Export default instance
-export const supabase = createClient();
+// No exports of createClient or supabase at module level to avoid instantiation on import
+

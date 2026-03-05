@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
 
@@ -32,7 +32,7 @@ export function usePlayer() {
     queryFn: async () => {
       if (!walletAddress) return null;
       
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
@@ -61,7 +61,7 @@ export function useCreatePlayer() {
         throw new Error('Wallet verification required. Please sign the message to continue.');
       }
 
-      const { data, error } = await supabase.functions.invoke('secure-player', {
+      const { data, error } = await getSupabaseClient().functions.invoke('secure-player', {
         body: { action: 'create' },
         headers: { 'x-wallet-session': sessionToken },
       });
@@ -92,7 +92,7 @@ export function useUpdatePlayer() {
         throw new Error('Wallet verification required. Please sign the message to continue.');
       }
 
-      const { data, error } = await supabase.functions.invoke('secure-player', {
+      const { data, error } = await getSupabaseClient().functions.invoke('secure-player', {
         body: { action: 'update', updates },
         headers: { 'x-wallet-session': sessionToken },
       });
@@ -114,7 +114,7 @@ export function useLeaderboard(sortBy: 'earnings' | 'wins' | 'streak' = 'earning
       const orderColumn = sortBy === 'earnings' ? 'total_earnings' : 
                           sortBy === 'wins' ? 'total_wins' : 'current_streak';
       
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .order(orderColumn, { ascending: false })
@@ -133,7 +133,7 @@ export function useSearchPlayers(searchQuery: string) {
     queryFn: async () => {
       if (!searchQuery || searchQuery.length < 2) return [];
       
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .or(`username.ilike.%${searchQuery}%,wallet_address.ilike.%${searchQuery}%`)
@@ -153,7 +153,7 @@ export function usePlayerByWallet(walletAddress: string | null) {
     queryFn: async () => {
       if (!walletAddress) return null;
       
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
@@ -173,7 +173,7 @@ export function usePlayersByWallets(walletAddresses: string[]) {
     queryFn: async () => {
       if (!walletAddresses.length) return [];
       
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .in('wallet_address', walletAddresses);

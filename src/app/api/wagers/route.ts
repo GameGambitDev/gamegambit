@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/integrations/supabase/client'
+import { getSupabaseClient } from '@/integrations/supabase/client'
 import type { Database } from '@/integrations/supabase/types'
 
 type WagerInsert = Database['public']['Tables']['wagers']['Insert']
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = getSupabaseClient()
 
     // Check if player exists
     const { data: player, error: playerError } = await supabase
