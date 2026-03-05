@@ -50,28 +50,6 @@ export function getInvalidationQueries(type: 'player' | 'wager', identifier: str
 }
 
 /**
- * MATERIALIZED VIEW REFRESH - Production scheduled job
- * Should be called by a cron job (e.g., Vercel Cron, Supabase Scheduled Functions)
- * NOT on every request - this is expensive and should run infrequently
- * 
- * Example usage (in a scheduled function):
- * - Supabase: Create a scheduled function that calls this hourly
- * - Vercel: Use vercel.json with crons
- * - Node: Use node-cron or similar
- */
-export async function refreshMaterializedViews(
-    client: ReturnType<typeof createClient<Database>>
-): Promise<void> {
-    try {
-        await client.rpc('refresh_materialized_views')
-        console.log('[database] Materialized views refreshed successfully')
-    } catch (error) {
-        console.error('[database] Failed to refresh materialized views:', error)
-        // Don't throw - this is a background task that shouldn't break the app
-    }
-}
-
-/**
  * PLAYER STATS - Quick access to essential player data
  * Useful for profile pages, leaderboards, etc.
  */
@@ -118,7 +96,6 @@ export async function getWagerStats(
 
     if (error) throw error
 
-    // Count by status
     const stats = {
         total: data.length,
         created: data.filter(w => w.status === 'created').length,

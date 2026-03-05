@@ -64,10 +64,9 @@ const store = new RateLimitStore()
  * Default rate limit key generator - uses IP address
  */
 function defaultKeyGenerator(req: NextRequest): string {
-  const ip = req.headers.get('x-forwarded-for') || 
-             req.headers.get('x-real-ip') || 
-             req.ip || 
-             'unknown'
+  const ip = req.headers.get('x-forwarded-for') ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
   return `ratelimit:${ip}`
 }
 
@@ -159,8 +158,8 @@ export const rateLimitConfig = {
  */
 export function userBasedKeyGenerator(req: NextRequest): string {
   const token = req.headers.get('authorization')?.split(' ')[1]
-  const ip = req.headers.get('x-forwarded-for') || req.ip || 'unknown'
-  
+  const ip = req.headers.get('x-forwarded-for') || 'unknown'
+
   if (token) {
     return `user:${token}`
   }
