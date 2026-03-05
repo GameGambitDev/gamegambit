@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ export function useQuickMatch() {
 
   return useMutation({
     mutationFn: async (game?: 'chess' | 'codm' | 'pubg' | undefined) => {
+      const supabase = getSupabaseClient();
       if (!publicKey) throw new Error('Wallet not connected');
       
       // Get verified session token
