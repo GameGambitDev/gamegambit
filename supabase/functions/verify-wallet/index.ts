@@ -4,6 +4,7 @@ import bs58 from "https://esm.sh/bs58@4.0.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -47,13 +48,13 @@ serve(async (req) => {
       const timestamp = Date.now();
       const nonce = await generateNonce(walletAddress, timestamp);
       const messageToSign = `Sign this message to verify your wallet ownership.\n\nNonce: ${nonce}\nTimestamp: ${timestamp}`;
-      
+
       console.log(`[verify-wallet] Generated nonce for ${walletAddress}, timestamp: ${timestamp}`);
 
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         nonce,
         timestamp,
-        message: messageToSign 
+        message: messageToSign
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -71,7 +72,7 @@ serve(async (req) => {
       // Extract timestamp and nonce from message
       const timestampMatch = message.match(/Timestamp: (\d+)/);
       const nonceMatch = message.match(/Nonce: ([a-f0-9]+)/);
-      
+
       if (!timestampMatch || !nonceMatch) {
         console.log(`[verify-wallet] Invalid message format`);
         return new Response(JSON.stringify({ error: 'Invalid message format' }), {
@@ -118,12 +119,12 @@ serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
+
         // Generate a session token
         const sessionToken = await generateSessionToken(walletAddress);
-        
+
         console.log(`[verify-wallet] Wallet verified successfully: ${walletAddress}`);
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           verified: true,
           walletAddress,
           sessionToken
@@ -159,13 +160,13 @@ async function generateSessionToken(walletAddress: string): Promise<string> {
     exp: Date.now() + (60 * 60 * 1000), // 1 hour expiry
     iat: Date.now(),
   };
-  
+
   const tokenData = JSON.stringify(payload);
   const encoder = new TextEncoder();
   const data = encoder.encode(tokenData + SECRET_KEY);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
+
   return btoa(tokenData) + '.' + hash;
 }

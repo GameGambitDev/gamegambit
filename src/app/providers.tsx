@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
+import { useAutoCreatePlayer } from '@/hooks/useAutoCreatePlayer'
 
 import '@solana/wallet-adapter-react-ui/styles.css'
 
@@ -27,6 +28,19 @@ interface ProvidersProps {
   children: ReactNode
 }
 
+// Separate component that uses hooks (must be inside WalletProvider)
+function AutoPlayerSetup() {
+  const { isCreating, error } = useAutoCreatePlayer();
+
+  if (error) {
+    console.error('Failed to create player:', error);
+    // Silently fail - user can still use the app
+  }
+
+  // This component doesn't render anything, just runs side effects
+  return null;
+}
+
 export function Providers({ children }: ProvidersProps) {
   const endpoint = useMemo(() => clusterApiUrl('devnet'), [])
   const wallets = useMemo(() => [], [])
@@ -37,6 +51,7 @@ export function Providers({ children }: ProvidersProps) {
         <WalletProvider wallets={wallets} autoConnect>
           <WalletModalProvider>
             <TooltipProvider>
+              <AutoPlayerSetup />
               {children}
               <Toaster />
               <Sonner />

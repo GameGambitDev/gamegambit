@@ -42,7 +42,7 @@ export function useWagers() {
         .from('wagers')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Wager[];
     },
@@ -60,41 +60,47 @@ export function useOpenWagers() {
         .select('*')
         .eq('status', 'created')
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Wager[];
     },
   });
 }
 
-// Fetch live wagers (status = 'joined' or 'voting')
+// Fetch live wagers (status = 'joined' or 'voting') - OPTIMIZED
 export function useLiveWagers() {
   const queryClient = useQueryClient();
-  
+
   useEffect(() => {
-    // Subscribe to realtime changes on wagers table
+    // Subscribe to realtime changes on ONLY live wagers
     const supabase = getSupabaseClient();
     const channel = supabase
       .channel('live-wagers-changes')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'UPDATE',  // Only listen to updates, not inserts/deletes
           schema: 'public',
-          table: 'wagers'
+          table: 'wagers',
+          filter: 'status=in.(joined,voting,disputed)' // Only live wagers
         },
-        () => {
-          // Invalidate queries when any wager changes
-          queryClient.invalidateQueries({ queryKey: ['wagers'] });
+        (payload) => {
+          // Update the specific wager that changed
+          queryClient.setQueryData(
+            ['wagers', payload.new.id],
+            payload.new
+          );
+          // Also invalidate the live wagers list
+          queryClient.invalidateQueries({ queryKey: ['wagers', 'live'] });
         }
       )
       .subscribe();
-    
+
     return () => {
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
-  
+
   return useQuery({
     queryKey: ['wagers', 'live'],
     queryFn: async () => {
@@ -104,11 +110,11 @@ export function useLiveWagers() {
         .select('*')
         .in('status', ['joined', 'voting', 'disputed'])
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Wager[];
     },
-    refetchInterval: 5000, // Refetch every 5 seconds
+    refetchInterval: 30000, // Reduced from 5s to 30s (subscription is primary)
   });
 }
 
@@ -122,13 +128,13 @@ export function useMyWagers() {
     queryFn: async () => {
       const supabase = getSupabaseClient();
       if (!walletAddress) return [];
-      
+
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
         .or(`player_a_wallet.eq.${walletAddress},player_b_wallet.eq.${walletAddress}`)
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Wager[];
     },
@@ -147,7 +153,7 @@ export function useRecentWagers(limit: number = 10) {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(limit);
-      
+
       if (error) throw error;
       return data as Wager[];
     },
@@ -167,7 +173,7 @@ export function useRecentWinners(limit: number = 5) {
         .not('winner_wallet', 'is', null)
         .order('resolved_at', { ascending: false })
         .limit(limit);
-      
+
       if (error) throw error;
       return data as Wager[];
     },
@@ -198,7 +204,7 @@ export function useCreateWager() {
         body: { action: 'create', ...wager },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.wager as Wager;
@@ -227,7 +233,7 @@ export function useJoinWager() {
         body: { action: 'join', wagerId },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.wager as Wager;
@@ -244,12 +250,12 @@ export function useSubmitVote() {
   const { getSessionToken } = useWalletAuth();
 
   return useMutation({
-    mutationFn: async ({ 
-      wagerId, 
+    mutationFn: async ({
+      wagerId,
       votedWinner,
-    }: { 
-      wagerId: string; 
-      voterWallet?: string; 
+    }: {
+      wagerId: string;
+      voterWallet?: string;
       votedWinner: string;
       isPlayerA?: boolean;
     }) => {
@@ -263,7 +269,7 @@ export function useSubmitVote() {
         body: { action: 'vote', wagerId, votedWinner },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.wager as Wager;
@@ -280,13 +286,13 @@ export function useEditWager() {
   const { getSessionToken } = useWalletAuth();
 
   return useMutation({
-    mutationFn: async ({ 
-      wagerId, 
+    mutationFn: async ({
+      wagerId,
       stake_lamports,
       lichess_game_id,
       stream_url,
       is_public,
-    }: { 
+    }: {
       wagerId: string;
       stake_lamports?: number;
       lichess_game_id?: string;
@@ -303,7 +309,7 @@ export function useEditWager() {
         body: { action: 'edit', wagerId, stake_lamports, lichess_game_id, stream_url, is_public },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.wager as Wager;
@@ -331,7 +337,7 @@ export function useDeleteWager() {
         body: { action: 'delete', wagerId },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
@@ -359,7 +365,7 @@ export function useSetReady() {
         body: { action: 'setReady', wagerId, ready },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.wager as Wager;
@@ -387,7 +393,7 @@ export function useStartGame() {
         body: { action: 'startGame', wagerId },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.wager as Wager;
@@ -410,7 +416,7 @@ export function useWagerById(wagerId: string | null) {
         .select('*')
         .eq('id', wagerId)
         .single();
-      
+
       if (error) throw error;
       return data as Wager;
     },
@@ -436,7 +442,7 @@ export function useCheckGameComplete() {
         body: { action: 'checkGameComplete', wagerId },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       return data as {
         gameComplete: boolean;

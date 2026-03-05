@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 
@@ -7,13 +7,17 @@ const SESSION_STORAGE_KEY = 'wallet_session_token';
 export function useWalletAuth() {
   const { publicKey, signMessage } = useWallet();
   const [isVerifying, setIsVerifying] = useState(false);
-  const [sessionToken, setSessionToken] = useState<string | null>(() => {
-    // Initialize from session storage
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Only read from sessionStorage after hydration
+  useEffect(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem(SESSION_STORAGE_KEY);
+      const stored = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      setSessionToken(stored);
+      setIsHydrated(true);
     }
-    return null;
-  });
+  }, []);
 
   const verifyWallet = useCallback(async (): Promise<string | null> => {
     if (!publicKey || !signMessage) {
@@ -71,7 +75,9 @@ export function useWalletAuth() {
       // Store session token
       const token = verifyData.sessionToken;
       setSessionToken(token);
-      sessionStorage.setItem(SESSION_STORAGE_KEY, token);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(SESSION_STORAGE_KEY, token);
+      }
 
       console.log('[useWalletAuth] Wallet verified successfully');
       return token;
@@ -86,7 +92,9 @@ export function useWalletAuth() {
 
   const clearSession = useCallback(() => {
     setSessionToken(null);
-    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    }
   }, []);
 
   const getSessionToken = useCallback(async (): Promise<string | null> => {
@@ -102,7 +110,7 @@ export function useWalletAuth() {
         // Token invalid
       }
     }
-    
+
     // Need to verify
     return await verifyWallet();
   }, [sessionToken, publicKey, verifyWallet]);
@@ -114,5 +122,6 @@ export function useWalletAuth() {
     clearSession,
     getSessionToken,
     isVerified: !!sessionToken,
+    isHydrated, // Important: let consumers know if we're ready
   };
 }
