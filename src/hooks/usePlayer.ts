@@ -32,7 +32,7 @@ export function usePlayer() {
     queryFn: async () => {
       if (!walletAddress) return null;
       
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
