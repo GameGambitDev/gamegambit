@@ -79,7 +79,7 @@ export async function getLeaderboard(
     if (cached) return cached
   }
 
-  const query = client.from('leaderboard_view').select('*')
+  const query = client.from('players').select('*')
 
   const { data, error, count } = await query
     .order(sortBy === 'earnings' ? 'earnings_rank' : 'wins_rank', { ascending: true })
@@ -157,7 +157,7 @@ export async function getActiveWagers(
     if (cached) return cached
   }
 
-  let query = client.from('active_wagers_view').select('*')
+  let query = client.from('wagers').select('*')
 
   if (game) {
     query = query.eq('game', game)
