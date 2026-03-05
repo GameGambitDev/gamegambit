@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 
 export interface NFT {
   id: string;
@@ -58,6 +58,7 @@ export function usePlayerNFTs(walletAddress: string | null) {
   return useQuery({
     queryKey: ['nfts', walletAddress],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       if (!walletAddress) return [];
       
       const { data, error } = await supabase
@@ -78,6 +79,7 @@ export function useAllNFTs(limit = 50) {
   return useQuery({
     queryKey: ['nfts', 'all', limit],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('nfts')
         .select('*')
@@ -95,6 +97,7 @@ export function usePlayerAchievements(walletAddress: string | null) {
   return useQuery({
     queryKey: ['achievements', walletAddress],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       if (!walletAddress) return [];
       
       const { data, error } = await supabase
