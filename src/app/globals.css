@@ -28,53 +28,70 @@
     /* Muted tones */
     --muted: 225 15% 12%;
     --muted-foreground: 225 10% 50%;
+    --border: 225 20% 10%;
 
-    /* Neon Gold - Accent */
-    --accent: 45 100% 55%;
+    /* Accent - Gold/Yellow */
+    --accent: 50 100% 55%;
     --accent-foreground: 225 15% 3%;
 
-    /* Status colors */
-    --destructive: 0 85% 55%;
-    --destructive-foreground: 180 100% 98%;
+    /* Success - Neon Green */
+    --success: 150 100% 50%;
 
-    --success: 145 80% 45%;
-    --success-foreground: 225 15% 3%;
+    /* Destructive - Red */
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
 
-    /* Borders and inputs */
-    --border: 225 15% 15%;
-    --input: 225 15% 10%;
+    /* Ring focus color */
     --ring: 180 100% 50%;
+    --radius: 0.5rem;
 
-    --radius: 0.75rem;
-
-    /* Extended Cyberpunk Palette */
-    --neon-cyan: 180 100% 50%;
-    --neon-magenta: 300 100% 60%;
-    --neon-gold: 45 100% 55%;
-    --neon-blue: 210 100% 60%;
-    --neon-purple: 270 100% 65%;
-    --live-red: 0 85% 55%;
-    
-    /* Gradient definitions */
-    --gradient-cyber: linear-gradient(135deg, hsl(180 100% 50%), hsl(210 100% 60%));
-    --gradient-magenta: linear-gradient(135deg, hsl(300 100% 60%), hsl(330 100% 55%));
-    --gradient-gold: linear-gradient(135deg, hsl(45 100% 55%), hsl(35 100% 45%));
-    --gradient-dark: linear-gradient(180deg, hsl(225 20% 6%), hsl(225 15% 3%));
-    --gradient-card: linear-gradient(145deg, hsl(225 20% 8%) 0%, hsl(225 15% 4%) 100%);
-    --gradient-border: linear-gradient(135deg, hsl(180 100% 50% / 0.5), hsl(300 100% 60% / 0.5));
-    
-    /* Enhanced shadows */
-    --shadow-neon: 0 0 20px hsl(180 100% 50% / 0.4);
-    --shadow-neon-lg: 0 0 40px hsl(180 100% 50% / 0.3), 0 0 80px hsl(180 100% 50% / 0.15);
-    --shadow-magenta: 0 0 20px hsl(300 100% 60% / 0.4);
-    --shadow-gold: 0 0 20px hsl(45 100% 55% / 0.4);
-    --shadow-inset: inset 0 1px 0 0 hsl(180 100% 98% / 0.05);
-    
-    /* Transitions */
-    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    /* Additional cyberpunk colors */
+    --cyber-cyan: 180 100% 50%;
+    --cyber-magenta: 300 100% 60%;
+    --cyber-gold: 50 100% 55%;
+    --cyber-green: 150 100% 50%;
   }
+
+  html.light {
+    --background: 0 0% 99%;
+    --foreground: 225 15% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 225 15% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 225 15% 10%;
+
+    --primary: 180 100% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 300 90% 55%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 225 15% 85%;
+    --muted-foreground: 225 10% 45%;
+    --border: 225 15% 88%;
+
+    --accent: 40 100% 50%;
+    --accent-foreground: 0 0% 100%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-orbitron font-bold;
+  }
+
+  p, span, li {
+    @apply font-inter;
+  }
+}
 }
 
 @layer base {
@@ -353,11 +370,7 @@
     animation: slide-up 0.4s ease-out;
   }
 
-  /* Fade in */
-  .animate-fade-in {
-    animation: fade-in 0.3s ease-out;
-  }
-}
+/* Fade in */
 
 /* Keyframes */
 @keyframes pulse-ring {
@@ -418,6 +431,134 @@
 @keyframes border-flow {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+@keyframes color-shift {
+  0% { color: hsl(var(--primary)); }
+  50% { color: hsl(var(--secondary)); }
+  100% { color: hsl(var(--primary)); }
+}
+
+@keyframes scan-lines {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 10px; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes flip-y {
+  0% { transform: rotateY(0); }
+  100% { transform: rotateY(180deg); }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* Enhanced animations for components */
+.animate-color-shift {
+  animation: color-shift 3s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+.animate-flip-y {
+  animation: flip-y 0.6s ease-in-out;
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s ease-in-out infinite;
+}
+
+/* Transition utilities */
+.transition-cyber {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.transition-smooth {
+  transition: all 0.4s ease-out;
+}
+
+.transition-glow {
+  transition: box-shadow 0.3s ease-out, color 0.3s ease-out;
+}
+
+/* Hover effects */
+.hover-glow {
+  @apply hover:shadow-lg hover:shadow-primary/50 transition-glow;
+}
+
+.hover-lift {
+  @apply hover:-translate-y-1 hover:shadow-2xl transition-smooth;
+}
+
+.hover-scale-up {
+  @apply hover:scale-105 transition-cyber;
+}
+
+/* Focus states */
+.focus-cyber {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background;
+}
+
+/* Text effects */
+.text-glow {
+  text-shadow: 0 0 10px hsl(var(--primary) / 0.8);
+}
+
+.text-glow-strong {
+  text-shadow: 0 0 10px hsl(var(--primary) / 0.8), 0 0 20px hsl(var(--primary) / 0.4);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass morphism */
+.glass {
+  @apply bg-card/50 backdrop-blur-xl border border-white/10;
+}
+
+.glass-dark {
+  @apply bg-background/40 backdrop-blur-md border border-white/5;
+}
+
+/* Neon border */
+.neon-border {
+  @apply border border-primary shadow-lg shadow-primary/50;
+}
+
+.neon-border-magenta {
+  @apply border border-secondary shadow-lg shadow-secondary/50;
+}
+
+/* Gradient text animation */
+.gradient-text-animate {
+  background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--secondary)), hsl(var(--primary)));
+  background-size: 200% auto;
+  animation: gradient-shift 3s linear infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Cyber grid background */
+.cyber-grid {
+  background-image: 
+    linear-gradient(hsl(var(--primary) / 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--primary) / 0.1) 1px, transparent 1px);
+  background-size: 50px 50px;
 }
 
 /* Wallet Adapter Styles Override */
