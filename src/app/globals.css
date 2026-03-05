@@ -99,8 +99,6 @@
     @apply font-inter text-foreground;
   }
 }
-  }
-}
 
 @layer base {
   * {

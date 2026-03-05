@@ -24,3 +24,6 @@ export const getSupabaseClient = () => {
   }
   return supabaseInstance;
 };
+
+// No exports of createClient or supabase at module level to avoid instantiation on import
+
