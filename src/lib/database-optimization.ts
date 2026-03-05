@@ -160,7 +160,7 @@ export async function getActiveWagers(
   let query = client.from('wagers').select('*')
 
   if (game) {
-    query = query.eq('game', game)
+    query = query.eq('game', game as 'chess' | 'codm' | 'pubg')
   }
 
   const { data, error, count } = await query

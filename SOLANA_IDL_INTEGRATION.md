@@ -9,7 +9,7 @@ This document explains how the Game Gambit frontend integrates with the Solana s
 
 ## Overview
 
-The Game Gambit program (`E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR`) is an on-chain chess wager system with:
+The Game Gambit program (`E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR`) is an on-chain wager system with:
 - **7 Instructions**: create_wager, join_wager, resolve_wager, close_wager, initialize_player, ban_player, submit_vote, retract_vote
 - **2 Account Types**: PlayerProfile, WagerAccount
 - **7 Events**: wager_created, wager_joined, wager_resolved, wager_closed, vote_submitted, vote_retracted, player_banned
