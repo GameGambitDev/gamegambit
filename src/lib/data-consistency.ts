@@ -101,7 +101,7 @@ export async function lockAndUpdate(
 
   try {
     // In Supabase, use transactions with FOR UPDATE
-    const { data, error } = await client.rpc('lock_and_update', {
+    const { data, error } = await (client as any).rpc('lock_and_update', {
       p_table: table,
       p_id: id,
       p_updates: updates,
@@ -166,7 +166,7 @@ export async function executeTransaction(
 ): Promise<TransactionResult> {
   try {
     // Supabase doesn't have native transactions in PostgREST, so we use stored procedures
-    const { data, error } = await client.rpc('execute_transaction', {
+    const { data, error } = await (client as any).rpc('execute_transaction', {
       p_operations: JSON.stringify(operations),
     })
 
@@ -234,7 +234,7 @@ export async function atomicIncrement(
   const { table, id, field, amount } = options
 
   try {
-    const { data, error } = await client.rpc('atomic_increment', {
+    const { data, error } = await (client as any).rpc('atomic_increment', {
       p_table: table,
       p_id: id,
       p_field: field,
