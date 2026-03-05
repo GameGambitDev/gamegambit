@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
 
@@ -61,7 +61,7 @@ export function useCreatePlayer() {
         throw new Error('Wallet verification required. Please sign the message to continue.');
       }
 
-      const { data, error } = await supabase.functions.invoke('secure-player', {
+      const { data, error } = await getSupabaseClient().functions.invoke('secure-player', {
         body: { action: 'create' },
         headers: { 'x-wallet-session': sessionToken },
       });
@@ -92,7 +92,7 @@ export function useUpdatePlayer() {
         throw new Error('Wallet verification required. Please sign the message to continue.');
       }
 
-      const { data, error } = await supabase.functions.invoke('secure-player', {
+      const { data, error } = await getSupabaseClient().functions.invoke('secure-player', {
         body: { action: 'update', updates },
         headers: { 'x-wallet-session': sessionToken },
       });
