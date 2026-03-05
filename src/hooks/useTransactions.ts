@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 
 export interface WagerTransaction {
@@ -19,6 +19,7 @@ export function useWagerTransactions(wagerId: string | null) {
   return useQuery({
     queryKey: ['wager-transactions', wagerId],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       if (!wagerId) return [];
       
       const { data, error } = await supabase
@@ -42,6 +43,7 @@ export function useMyTransactions(limit: number = 50) {
   return useQuery({
     queryKey: ['my-transactions', walletAddress, limit],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       if (!walletAddress) return [];
       
       const { data, error } = await supabase

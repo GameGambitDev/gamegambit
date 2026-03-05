@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
 
@@ -37,6 +37,7 @@ export function useWagers() {
   return useQuery({
     queryKey: ['wagers'],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
@@ -53,6 +54,7 @@ export function useOpenWagers() {
   return useQuery({
     queryKey: ['wagers', 'open'],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
@@ -71,6 +73,7 @@ export function useLiveWagers() {
   
   useEffect(() => {
     // Subscribe to realtime changes on wagers table
+    const supabase = getSupabaseClient();
     const channel = supabase
       .channel('live-wagers-changes')
       .on(
@@ -95,6 +98,7 @@ export function useLiveWagers() {
   return useQuery({
     queryKey: ['wagers', 'live'],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
@@ -116,6 +120,7 @@ export function useMyWagers() {
   return useQuery({
     queryKey: ['wagers', 'my', walletAddress],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       if (!walletAddress) return [];
       
       const { data, error } = await supabase
@@ -136,6 +141,7 @@ export function useRecentWagers(limit: number = 10) {
   return useQuery({
     queryKey: ['wagers', 'recent', limit],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
@@ -153,6 +159,7 @@ export function useRecentWinners(limit: number = 5) {
   return useQuery({
     queryKey: ['wagers', 'winners', limit],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
@@ -389,6 +396,7 @@ export function useWagerById(wagerId: string | null) {
   return useQuery({
     queryKey: ['wagers', wagerId],
     queryFn: async () => {
+      const supabase = getSupabaseClient();
       if (!wagerId) return null;
       const { data, error } = await supabase
         .from('wagers')
