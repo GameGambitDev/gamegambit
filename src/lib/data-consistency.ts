@@ -6,8 +6,10 @@ import { Database } from '@/integrations/supabase/types'
  * Handles concurrent updates, conflict resolution, and data integrity
  */
 
+type TableName = 'achievements' | 'nfts' | 'players' | 'wager_transactions' | 'wagers'
+
 export interface OptimisticLockConfig {
-  table: string
+  table: TableName
   id: string
   version: number
 }
@@ -85,7 +87,7 @@ export async function updateWithOptimisticLock(
 export async function lockAndUpdate(
   client: ReturnType<typeof createClient<Database>>,
   options: {
-    table: string
+    table: TableName
     id: string
     updates: Record<string, any>
     maxWait?: number // milliseconds
@@ -152,7 +154,7 @@ export async function resolveConflict(
 export async function executeTransaction(
   client: ReturnType<typeof createClient<Database>>,
   operations: Array<{
-    table: string
+    table: TableName
     operation: 'insert' | 'update' | 'delete'
     data: any
     match?: Record<string, any>
@@ -179,7 +181,7 @@ export async function executeTransaction(
 export async function eventualConsistencyUpdate(
   client: ReturnType<typeof createClient<Database>>,
   options: {
-    table: string
+    table: TableName
     id: string
     updates: Record<string, any>
     retryCount?: number
@@ -219,7 +221,7 @@ export async function eventualConsistencyUpdate(
 export async function atomicIncrement(
   client: ReturnType<typeof createClient<Database>>,
   options: {
-    table: string
+    table: TableName
     id: string
     field: string
     amount: number
@@ -355,7 +357,7 @@ export async function retryFromDeadLetterQueue(
 export async function captureDataChange(
   client: ReturnType<typeof createClient<Database>>,
   options: {
-    table: string
+    table: TableName
     operation: 'insert' | 'update' | 'delete'
     recordId: string
     before?: any
