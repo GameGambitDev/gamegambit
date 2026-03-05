@@ -8,7 +8,7 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL
 } from '@solana/web3.js';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWalletAuth } from './useWalletAuth';
 import { PROGRAM_ID, AUTHORITY_PUBKEY, DEFAULT_RPC_URL, INSTRUCTION_DISCRIMINATORS } from '@/lib/solana-config';
 import { toast } from 'sonner';
@@ -127,6 +127,7 @@ export function useCreateWagerOnChain() {
         throw new Error('Wallet not connected');
       }
 
+      const supabase = getSupabaseClient();
       const matchIdBigInt = BigInt(matchId);
       const stakeAmount = BigInt(stakeLamports);
       
@@ -218,6 +219,7 @@ export function useJoinWagerOnChain() {
         throw new Error('Wallet not connected');
       }
 
+      const supabase = getSupabaseClient();
       const playerA = new PublicKey(playerAWallet);
       const matchIdBigInt = BigInt(matchId);
       const stakeAmount = BigInt(stakeLamports);
