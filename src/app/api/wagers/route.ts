@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
     const playerWallet = searchParams.get('playerWallet')
     const status = searchParams.get('status')
 
-    const supabase = createClient()
+    const supabase = getSupabaseClient()
 
     let query = supabase
       .from('wagers')
