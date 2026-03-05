@@ -4,7 +4,8 @@
  */
 
 import { Connection, PublicKey, logs } from '@solana/web3.js'
-import { createClient } from '@/integrations/supabase/client'
+// Note: Supabase client should be used only when needed in server-side functions
+// Import getSupabaseClient lazily to avoid module-level instantiation
 
 // Event type definitions
 interface WagerCreatedEvent {
