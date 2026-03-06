@@ -31,14 +31,14 @@ export function usePlayer() {
     queryKey: ['player', walletAddress],
     queryFn: async () => {
       if (!walletAddress) return null;
-      
+
       const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
-        .single();
-      
-      if (error && error.code !== 'PGRST116') throw error;
+        .maybeSingle(); // CHANGED from .single()
+
+      if (error) throw error;
       return data as Player | null;
     },
     enabled: !!walletAddress,
@@ -54,7 +54,7 @@ export function useCreatePlayer() {
   return useMutation({
     mutationFn: async () => {
       if (!publicKey) throw new Error('Wallet not connected');
-      
+
       // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
@@ -65,7 +65,7 @@ export function useCreatePlayer() {
         body: { action: 'create' },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.player as Player;
@@ -85,7 +85,7 @@ export function useUpdatePlayer() {
   return useMutation({
     mutationFn: async (updates: Partial<Player>) => {
       if (!publicKey) throw new Error('Wallet not connected');
-      
+
       // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
@@ -96,7 +96,7 @@ export function useUpdatePlayer() {
         body: { action: 'update', updates },
         headers: { 'x-wallet-session': sessionToken },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data.player as Player;
@@ -111,15 +111,15 @@ export function useLeaderboard(sortBy: 'earnings' | 'wins' | 'streak' = 'earning
   return useQuery({
     queryKey: ['leaderboard', sortBy],
     queryFn: async () => {
-      const orderColumn = sortBy === 'earnings' ? 'total_earnings' : 
-                          sortBy === 'wins' ? 'total_wins' : 'current_streak';
-      
+      const orderColumn = sortBy === 'earnings' ? 'total_earnings' :
+        sortBy === 'wins' ? 'total_wins' : 'current_streak';
+
       const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .order(orderColumn, { ascending: false })
         .limit(50);
-      
+
       if (error) throw error;
       return data as Player[];
     },
@@ -132,13 +132,13 @@ export function useSearchPlayers(searchQuery: string) {
     queryKey: ['players', 'search', searchQuery],
     queryFn: async () => {
       if (!searchQuery || searchQuery.length < 2) return [];
-      
+
       const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .or(`username.ilike.%${searchQuery}%,wallet_address.ilike.%${searchQuery}%`)
         .limit(20);
-      
+
       if (error) throw error;
       return data as Player[];
     },
@@ -152,13 +152,13 @@ export function usePlayerByWallet(walletAddress: string | null) {
     queryKey: ['player', walletAddress],
     queryFn: async () => {
       if (!walletAddress) return null;
-      
+
       const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
         .maybeSingle();
-      
+
       if (error) throw error;
       return data as Player | null;
     },
@@ -172,12 +172,12 @@ export function usePlayersByWallets(walletAddresses: string[]) {
     queryKey: ['players', 'byWallets', walletAddresses],
     queryFn: async () => {
       if (!walletAddresses.length) return [];
-      
+
       const { data, error } = await getSupabaseClient()
         .from('players')
         .select('*')
         .in('wallet_address', walletAddresses);
-      
+
       if (error) throw error;
       return data as Player[];
     },
