@@ -19,75 +19,96 @@ const WalletMultiButton = dynamic(
 )
 
 const navItems = [
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Arena', href: '/arena' },
-  { label: 'My Wagers', href: '/my-wagers' },
-  { label: 'Leaderboard', href: '/leaderboard' },
+  { label: 'Dashboard', href: '/dashboard', icon: '📊' },
+  { label: 'Arena', href: '/arena', icon: '⚔️' },
+  { label: 'My Wagers', href: '/my-wagers', icon: '🎲' },
+  { label: 'Leaderboard', href: '/leaderboard', icon: '🏆' },
 ]
 
 export function Header() {
   const { connected, publicKey } = useWallet()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [hoveredIcon, setHoveredIcon] = useState<string | null>(null)
   const pathname = usePathname()
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 sm:gap-3 group">
+          {/* Logo - Responsive */}
+          <Link href="/" className="flex items-center gap-2 sm:gap-3 group flex-shrink-0">
             <motion.div
               whileHover={{ rotate: 15, scale: 1.1 }}
               transition={{ type: 'spring', stiffness: 400 }}
               className="relative"
             >
-              <Gamepad2 className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
+              <Gamepad2 className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-primary flex-shrink-0" />
               <div className="absolute inset-0 blur-lg bg-primary/50 -z-10" />
             </motion.div>
-            <span className="font-gaming text-lg sm:text-xl font-bold">
+            <span className="font-gaming font-bold hidden sm:inline text-sm sm:text-base md:text-lg lg:text-xl whitespace-nowrap">
               <span className="text-foreground">Game</span>
               <span className="text-primary text-glow">Gambit</span>
             </span>
           </Link>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation - Full width on lg, icons only on md */}
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href
               return (
-                <Link
+                <div
                   key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300",
-                    isActive
-                      ? "bg-primary/10 text-primary border-glow-subtle"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                  )}
+                  className="relative group"
+                  onMouseEnter={() => setHoveredIcon(item.href)}
+                  onMouseLeave={() => setHoveredIcon(null)}
                 >
-                  {item.label}
-                </Link>
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "px-2 py-2 rounded-lg text-sm font-medium transition-all duration-300 flex items-center gap-2",
+                      "lg:px-4",
+                      isActive
+                        ? "bg-primary/10 text-primary border-glow-subtle"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    )}
+                  >
+                    <span className="text-base">{item.icon}</span>
+                    <span className="hidden lg:inline">{item.label}</span>
+                  </Link>
+                  
+                  {/* Tooltip on md screens when hovering */}
+                  {hoveredIcon === item.href && (
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 bg-card border border-border rounded text-xs whitespace-nowrap text-foreground pointer-events-none z-50 lg:hidden">
+                      {item.label}
+                    </div>
+                  )}
+                </div>
               )
             })}
           </nav>
 
           {/* Right Side */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
             <ThemeToggle />
             {connected && (
               <>
                 <NotificationsDropdown />
                 <Link href="/profile" className="hidden sm:block">
-                  <Button variant="glass" size="sm">
-                    <User className="h-4 w-4 mr-2" />
-                    {publicKey && truncateAddress(publicKey.toBase58())}
+                  <Button variant="glass" size="sm" className="text-xs sm:text-sm">
+                    <User className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                    <span className="hidden md:inline">
+                      {publicKey && truncateAddress(publicKey.toBase58())}
+                    </span>
+                    <span className="md:hidden">
+                      {publicKey && truncateAddress(publicKey.toBase58(), 4)}
+                    </span>
                   </Button>
                 </Link>
               </>
             )}
-
+            
             {/* Custom styled wallet button */}
-            <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-9 [&_.wallet-adapter-button]:sm:!h-10 [&_.wallet-adapter-button]:!px-3 [&_.wallet-adapter-button]:sm:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all">
+            <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-8 [&_.wallet-adapter-button]:sm:!h-9 [&_.wallet-adapter-button]:md:!h-10 [&_.wallet-adapter-button]:!px-2 [&_.wallet-adapter-button]:sm:!px-3 [&_.wallet-adapter-button]:md:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all">
               <WalletMultiButton />
             </div>
 
@@ -95,10 +116,10 @@ export function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden h-9 w-9"
+              className="md:hidden h-8 w-8 sm:h-9 sm:w-9"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              {mobileMenuOpen ? <X className="h-4 w-4 sm:h-5 sm:w-5" /> : <Menu className="h-4 w-4 sm:h-5 sm:w-5" />}
             </Button>
           </div>
         </div>
@@ -109,16 +130,16 @@ export function Header() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden border-t border-border py-4"
+            className="md:hidden border-t border-border py-3"
           >
-            <nav className="flex flex-col gap-2">
+            <nav className="flex flex-col gap-1">
               {/* Profile link in mobile menu */}
               {connected && (
                 <Link
                   href="/profile"
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    "px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center gap-3",
+                    "px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-3",
                     pathname === '/profile'
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -133,7 +154,7 @@ export function Header() {
                   )}
                 </Link>
               )}
-
+              
               {navItems.map((item) => {
                 const isActive = pathname === item.href
                 return (
@@ -142,12 +163,13 @@ export function Header() {
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
-                      "px-4 py-3 rounded-lg text-sm font-medium transition-all",
+                      "px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted"
                     )}
                   >
+                    <span>{item.icon}</span>
                     {item.label}
                   </Link>
                 )

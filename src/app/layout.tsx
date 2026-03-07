@@ -53,7 +53,7 @@ export default function RootLayout({
           <UsernameEnforcer>
             <div className="min-h-screen bg-background flex flex-col">
               <Header />
-              <main className="flex-1 pt-16">
+              <main className="flex-1 pt-16 w-full overflow-x-hidden">
                 {children}
               </main>
               <Footer />
