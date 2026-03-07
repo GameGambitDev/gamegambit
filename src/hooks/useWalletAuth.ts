@@ -28,7 +28,6 @@ export function useWalletAuth() {
     if (sessionToken) {
       try {
         // If token exists and looks valid, return it
-        // (In production, you'd decode and check expiration)
         return sessionToken;
       } catch {
         // Token invalid, continue to re-verify
@@ -37,52 +36,69 @@ export function useWalletAuth() {
 
     setIsVerifying(true);
     const walletAddress = publicKey.toBase58();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     try {
-      // Generate a nonce (random message to sign)
-      const nonce = Buffer.from(
-        crypto.getRandomValues(new Uint8Array(32))
-      ).toString('hex');
-      const message = `Sign this message to verify your wallet: ${nonce}`;
-      const messageBuffer = Buffer.from(message);
-
-      // Step 1: Sign the message with wallet
-      console.log('[useWalletAuth] Signing message with wallet...');
-      const signature = await signMessage(messageBuffer);
-
-      // Step 2: Send signature to Supabase Edge Function for verification
-      console.log('[useWalletAuth] Verifying signature on server...');
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-      const response = await fetch(`${supabaseUrl}/functions/v1/verify-wallet`, {
+      // Step 1: Generate nonce from server
+      console.log('[useWalletAuth] Requesting nonce from server...');
+      const nonceResponse = await fetch(`${supabaseUrl}/functions/v1/verify-wallet`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${supabaseAnonKey}`,
         },
         body: JSON.stringify({
+          action: 'generate-nonce',
+          walletAddress,
+        }),
+      });
+
+      if (!nonceResponse.ok) {
+        const error = await nonceResponse.json().catch(() => ({ error: nonceResponse.statusText }));
+        console.error('[useWalletAuth] Nonce generation failed:', error);
+        throw new Error(error.error || 'Failed to generate nonce');
+      }
+
+      const nonceData = await nonceResponse.json();
+      const { message, nonce, timestamp } = nonceData;
+
+      // Step 2: Sign the nonce message with wallet
+      console.log('[useWalletAuth] Signing nonce message with wallet...');
+      const messageBuffer = Buffer.from(message);
+      const signature = await signMessage(messageBuffer);
+
+      // Step 3: Verify signature on server
+      console.log('[useWalletAuth] Verifying signature on server...');
+      const verifyResponse = await fetch(`${supabaseUrl}/functions/v1/verify-wallet`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+        },
+        body: JSON.stringify({
+          action: 'verify-signature',
           walletAddress,
           signature: Buffer.from(signature).toString('base64'),
           message,
         }),
       });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: response.statusText }));
+      if (!verifyResponse.ok) {
+        const error = await verifyResponse.json().catch(() => ({ error: verifyResponse.statusText }));
         console.error('[useWalletAuth] Verification failed:', error);
         throw new Error(error.error || 'Wallet verification failed');
       }
 
-      const data = await response.json();
+      const verifyData = await verifyResponse.json();
 
-      if (!data.success || !data.sessionToken) {
+      if (!verifyData.verified || !verifyData.sessionToken) {
         console.error('[useWalletAuth] No session token in response');
         throw new Error('Failed to generate session token');
       }
 
       // Store session token
-      const token = data.sessionToken;
+      const token = verifyData.sessionToken;
       setSessionToken(token);
       if (typeof window !== 'undefined') {
         sessionStorage.setItem(SESSION_STORAGE_KEY, token);
@@ -123,6 +139,6 @@ export function useWalletAuth() {
     clearSession,
     getSessionToken,
     isVerified: !!sessionToken,
-    isHydrated, // Important: let consumers know if we're ready
+    isHydrated,
   };
 }
