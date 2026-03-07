@@ -33,7 +33,37 @@ export interface Wager {
   countdown_started_at: string | null;
 }
 
-// Fetch all public wagers
+// ─── SECURE FETCH HELPER ─────────────────────────────────────────────────────
+// We use raw fetch instead of supabase.functions.invoke for all secure-wager
+// calls. The Supabase JS client can silently drop or override Content-Type when
+// custom headers are passed, causing Deno to fail to parse the JSON body (400).
+// Raw fetch gives us full control over every header and body serialization.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function invokeSecureWager<T>(
+  payload: Record<string, unknown>,
+  sessionToken: string
+): Promise<T> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'X-Session-Token': sessionToken,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const json = await res.json().catch(() => ({ error: res.statusText }));
+  if (!res.ok) throw new Error((json as { error?: string }).error || 'secure-wager request failed');
+  return json as T;
+}
+
+// ─── READ QUERIES ─────────────────────────────────────────────────────────────
+
 export function useWagers() {
   return useQuery({
     queryKey: ['wagers'],
@@ -43,14 +73,12 @@ export function useWagers() {
         .from('wagers')
         .select('*')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data as Wager[];
     },
   });
 }
 
-// Fetch open wagers (status = 'created')
 export function useOpenWagers() {
   return useQuery({
     queryKey: ['wagers', 'open'],
@@ -61,14 +89,12 @@ export function useOpenWagers() {
         .select('*')
         .eq('status', 'created')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data as Wager[];
     },
   });
 }
 
-// Fetch live wagers (status = 'joined' or 'voting') - OPTIMIZED
 export function useLiveWagers() {
   const queryClient = useQueryClient();
 
@@ -82,7 +108,7 @@ export function useLiveWagers() {
           event: 'UPDATE',
           schema: 'public',
           table: 'wagers',
-          filter: 'status=in.(joined,voting,disputed)'
+          filter: 'status=in.(joined,voting,disputed)',
         },
         (payload) => {
           queryClient.setQueryData(['wagers', payload.new.id], payload.new);
@@ -91,9 +117,7 @@ export function useLiveWagers() {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [queryClient]);
 
   return useQuery({
@@ -105,7 +129,6 @@ export function useLiveWagers() {
         .select('*')
         .in('status', ['joined', 'voting', 'disputed'])
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data as Wager[];
     },
@@ -113,7 +136,6 @@ export function useLiveWagers() {
   });
 }
 
-// Fetch user's wagers
 export function useMyWagers() {
   const { publicKey } = useWallet();
   const walletAddress = publicKey?.toBase58();
@@ -123,13 +145,11 @@ export function useMyWagers() {
     queryFn: async () => {
       const supabase = getSupabaseClient();
       if (!walletAddress) return [];
-
       const { data, error } = await supabase
         .from('wagers')
         .select('*')
         .or(`player_a_wallet.eq.${walletAddress},player_b_wallet.eq.${walletAddress}`)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data as Wager[];
     },
@@ -137,7 +157,6 @@ export function useMyWagers() {
   });
 }
 
-// Fetch recent resolved wagers (for feed)
 export function useRecentWagers(limit: number = 10) {
   return useQuery({
     queryKey: ['wagers', 'recent', limit],
@@ -148,14 +167,12 @@ export function useRecentWagers(limit: number = 10) {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(limit);
-
       if (error) throw error;
       return data as Wager[];
     },
   });
 }
 
-// Fetch recent winners (resolved wagers with winner)
 export function useRecentWinners(limit: number = 5) {
   return useQuery({
     queryKey: ['wagers', 'winners', limit],
@@ -168,23 +185,32 @@ export function useRecentWinners(limit: number = 5) {
         .not('winner_wallet', 'is', null)
         .order('resolved_at', { ascending: false })
         .limit(limit);
-
       if (error) throw error;
       return data as Wager[];
     },
   });
 }
 
-// ─── SECURE MUTATIONS ────────────────────────────────────────────────────────
-// All mutations below use supabase.functions.invoke with the session token
-// in X-Session-Token. We cannot use the Authorization header because
-// Supabase's JS client always overwrites it with the anon key before
-// the request reaches the edge function.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function makeSessionHeaders(sessionToken: string) {
-  return { 'X-Session-Token': sessionToken };
+export function useWagerById(wagerId: string | null) {
+  return useQuery({
+    queryKey: ['wagers', wagerId],
+    queryFn: async () => {
+      const supabase = getSupabaseClient();
+      if (!wagerId) return null;
+      const { data, error } = await supabase
+        .from('wagers')
+        .select('*')
+        .eq('id', wagerId)
+        .single();
+      if (error) throw error;
+      return data as Wager;
+    },
+    enabled: !!wagerId,
+    refetchInterval: 2000,
+  });
 }
+
+// ─── SECURE MUTATIONS ─────────────────────────────────────────────────────────
 
 export function useCreateWager() {
   const queryClient = useQueryClient();
@@ -198,22 +224,12 @@ export function useCreateWager() {
       is_public?: boolean;
       stream_url?: string;
     }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required. Please sign the message to continue.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'create', ...wager },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data.wager as Wager;
+      const data = await invokeSecureWager<{ wager: Wager }>({ action: 'create', ...wager }, sessionToken);
+      return data.wager;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -223,22 +239,12 @@ export function useJoinWager() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string; playerBWallet?: string }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required. Please sign the message to continue.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'join', wagerId },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data.wager as Wager;
+      const data = await invokeSecureWager<{ wager: Wager }>({ action: 'join', wagerId }, sessionToken);
+      return data.wager;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -256,22 +262,12 @@ export function useSubmitVote() {
       votedWinner: string;
       isPlayerA?: boolean;
     }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required. Please sign the message to continue.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'vote', wagerId, votedWinner },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data.wager as Wager;
+      const data = await invokeSecureWager<{ wager: Wager }>({ action: 'vote', wagerId, votedWinner }, sessionToken);
+      return data.wager;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -293,22 +289,15 @@ export function useEditWager() {
       stream_url?: string;
       is_public?: boolean;
     }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'edit', wagerId, stake_lamports, lichess_game_id, stream_url, is_public },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data.wager as Wager;
+      const data = await invokeSecureWager<{ wager: Wager }>(
+        { action: 'edit', wagerId, stake_lamports, lichess_game_id, stream_url, is_public },
+        sessionToken
+      );
+      return data.wager;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -318,22 +307,11 @@ export function useDeleteWager() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'delete', wagerId },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
+      return invokeSecureWager<{ success: boolean }>({ action: 'delete', wagerId }, sessionToken);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -343,22 +321,12 @@ export function useSetReady() {
 
   return useMutation({
     mutationFn: async ({ wagerId, ready }: { wagerId: string; ready: boolean }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'setReady', wagerId, ready },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data.wager as Wager;
+      const data = await invokeSecureWager<{ wager: Wager }>({ action: 'setReady', wagerId, ready }, sessionToken);
+      return data.wager;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -368,43 +336,12 @@ export function useStartGame() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'startGame', wagerId },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data.wager as Wager;
+      const data = await invokeSecureWager<{ wager: Wager }>({ action: 'startGame', wagerId }, sessionToken);
+      return data.wager;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wagers'] });
-    },
-  });
-}
-
-// Fetch a single wager by ID with realtime updates
-export function useWagerById(wagerId: string | null) {
-  return useQuery({
-    queryKey: ['wagers', wagerId],
-    queryFn: async () => {
-      const supabase = getSupabaseClient();
-      if (!wagerId) return null;
-      const { data, error } = await supabase
-        .from('wagers')
-        .select('*')
-        .eq('id', wagerId)
-        .single();
-
-      if (error) throw error;
-      return data as Wager;
-    },
-    enabled: !!wagerId,
-    refetchInterval: 2000,
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['wagers'] }); },
   });
 }
 
@@ -414,17 +351,9 @@ export function useCheckGameComplete() {
 
   return useMutation({
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
-      const supabase = getSupabaseClient();
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-
-      const { data, error } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'checkGameComplete', wagerId },
-        headers: makeSessionHeaders(sessionToken),
-      });
-
-      if (error) throw error;
-      return data as {
+      return invokeSecureWager<{
         gameComplete: boolean;
         status?: string;
         winner?: string;
@@ -432,7 +361,7 @@ export function useCheckGameComplete() {
         resultType?: 'playerA' | 'playerB' | 'draw' | 'unknown';
         message?: string;
         wager?: Wager;
-      };
+      }>({ action: 'checkGameComplete', wagerId }, sessionToken);
     },
     onSuccess: (data) => {
       if (data.gameComplete) {
