@@ -39,16 +39,16 @@ const getGameData = (game: string) => {
   }
 }
 
-function OpenWagerCard({ 
-  wager, 
-  onJoin, 
+function OpenWagerCard({
+  wager,
+  onJoin,
   onViewDetails,
   onEdit,
   onDelete,
   isJoining,
   isOwner,
   creatorUsername
-}: { 
+}: {
   wager: Wager
   onJoin: (id: string) => void
   onViewDetails: (wager: Wager) => void
@@ -60,7 +60,7 @@ function OpenWagerCard({
 }) {
   const game = getGameData(wager.game)
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
-  
+
   return (
     <Card variant="wager" className="group cursor-pointer hover:border-primary/40 transition-all duration-300" onClick={() => onViewDetails(wager)}>
       <CardContent className="p-4">
@@ -69,7 +69,7 @@ function OpenWagerCard({
             <div className="text-3xl">{game.icon}</div>
             <div>
               <div className="font-gaming text-sm mb-1">
-                <PlayerLink 
+                <PlayerLink
                   walletAddress={wager.player_a_wallet}
                   username={creatorUsername}
                   className="font-gaming"
@@ -105,9 +105,9 @@ function OpenWagerCard({
                   <Button variant="outline" size="sm" onClick={() => onViewDetails(wager)}>
                     <Eye className="h-4 w-4" />
                   </Button>
-                  <Button 
-                    variant="neon" 
-                    size="sm" 
+                  <Button
+                    variant="neon"
+                    size="sm"
                     onClick={() => onJoin(wager.id)}
                     disabled={isJoining}
                   >
@@ -123,31 +123,36 @@ function OpenWagerCard({
   )
 }
 
-function LiveMatchCard({ 
-  wager, 
-  onEnterReadyRoom, 
+function LiveMatchCard({
+  wager,
+  onEnterReadyRoom,
   onWatchGame,
-  currentWallet 
-}: { 
+  onViewDetails,
+  currentWallet
+}: {
   wager: Wager
   onEnterReadyRoom?: (wagerId: string) => void
   onWatchGame?: (wager: Wager) => void
-  currentWallet?: string 
+  onViewDetails?: (wager: Wager) => void
+  currentWallet?: string
 }) {
   const game = getGameData(wager.game)
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
   const isParticipant = currentWallet === wager.player_a_wallet || currentWallet === wager.player_b_wallet
+  const isResolved = wager.status === 'resolved' || (wager.status as string) === 'closed'
   const canEnterReadyRoom = wager.status === 'joined' && isParticipant
   const isInProgress = wager.status === 'voting'
-  
+
   const handleClick = () => {
-    if (canEnterReadyRoom) {
+    if (isResolved) {
+      onViewDetails?.(wager)
+    } else if (canEnterReadyRoom) {
       onEnterReadyRoom?.(wager.id)
-    } else if (isInProgress && isParticipant) {
+    } else if (isInProgress) {
       onWatchGame?.(wager)
     }
   }
-  
+
   return (
     <Card variant="wager" className="cursor-pointer border-primary/20 hover:border-primary/40 transition-all duration-300" onClick={handleClick}>
       <CardContent className="p-4">
@@ -155,10 +160,12 @@ function LiveMatchCard({
           <div className="flex items-center gap-4">
             <div className="relative">
               <div className="text-3xl">{game.icon}</div>
-              <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive" />
-              </span>
+              {!isResolved && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive" />
+                </span>
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -175,7 +182,11 @@ function LiveMatchCard({
           </div>
           <div className="flex items-center gap-3">
             <div className="font-gaming text-accent">{formatSol(wager.stake_lamports * 2)} SOL</div>
-            {canEnterReadyRoom ? (
+            {isResolved ? (
+              <Badge variant="outline" className="cursor-pointer">
+                {wager.winner_wallet ? '🏆 View Result' : '🤝 Draw'}
+              </Badge>
+            ) : canEnterReadyRoom ? (
               <Badge variant="joined" className="cursor-pointer">Enter Ready Room</Badge>
             ) : isInProgress && isParticipant ? (
               <Badge variant="voting" className="cursor-pointer flex items-center gap-1">
@@ -218,7 +229,7 @@ export default function ArenaPage() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [liveGameWager, setLiveGameWager] = useState<Wager | null>(null)
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
-  
+
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
@@ -232,9 +243,9 @@ export default function ArenaPage() {
   const setReadyMutation = useSetReady()
   const startGameMutation = useStartGame()
   const { isComplete: profileComplete, needsSetup } = useIsProfileComplete()
-  
+
   const { data: searchedPlayers } = useSearchPlayers(searchQuery)
-  
+
   const wagerWalletAddresses = useMemo(() => {
     const addresses = new Set<string>()
     openWagers?.forEach(w => {
@@ -247,9 +258,9 @@ export default function ArenaPage() {
     })
     return Array.from(addresses)
   }, [openWagers, liveWagers])
-  
+
   const { data: wagerPlayers } = usePlayersByWallets(wagerWalletAddresses)
-  
+
   const playerUsernameMap = useMemo(() => {
     const map: Record<string, string | null> = {}
     wagerPlayers?.forEach(p => {
@@ -264,24 +275,20 @@ export default function ArenaPage() {
   const filteredOpenWagers = useMemo(() => {
     if (!openWagers) return []
     if (!searchQuery.trim()) return openWagers
-    
     const query = searchQuery.toLowerCase()
     const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || []
-    
     return openWagers.filter(wager => {
       if (wager.player_a_wallet.toLowerCase().includes(query)) return true
       if (matchedWallets.includes(wager.player_a_wallet.toLowerCase())) return true
       return false
     })
   }, [openWagers, searchQuery, searchedPlayers])
-  
+
   const filteredLiveWagers = useMemo(() => {
     if (!liveWagers) return []
     if (!searchQuery.trim()) return liveWagers
-    
     const query = searchQuery.toLowerCase()
     const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || []
-    
     return liveWagers.filter(wager => {
       if (wager.player_a_wallet.toLowerCase().includes(query)) return true
       if (wager.player_b_wallet?.toLowerCase().includes(query)) return true
@@ -292,17 +299,12 @@ export default function ArenaPage() {
   }, [liveWagers, searchQuery, searchedPlayers])
 
   const handleQuickMatch = () => {
-    if (needsSetup) {
-      toast.error('Please set up your username first')
-      return
-    }
+    if (needsSetup) { toast.error('Please set up your username first'); return }
     setQuickMatchModalOpen(true)
   }
 
   const handleQuickMatchSubmit = (game?: GameType) => {
-    quickMatch.mutate(game, {
-      onSuccess: () => setQuickMatchModalOpen(false),
-    })
+    quickMatch.mutate(game, { onSuccess: () => setQuickMatchModalOpen(false) })
   }
 
   const handleViewDetails = (wager: Wager) => {
@@ -351,48 +353,25 @@ export default function ArenaPage() {
     if (readyRoomWager?.ready_player_a && readyRoomWager?.ready_player_b && readyRoomWager?.countdown_started_at) {
       const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
       const timeUntilStart = (startTime + 10000) - Date.now()
-      
-      if (timeUntilStart <= 0) {
+      const go = () => {
         startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
-          onSuccess: () => {
-            toast.success('Game started! Good luck!')
-            setReadyRoomWagerId(null)
-          },
-          onError: (err: any) => {
-            toast.error(err.message || 'Failed to start game')
-          }
+          onSuccess: () => { toast.success('Game started! Good luck!'); setReadyRoomWagerId(null) },
+          onError: (err: any) => toast.error(err.message || 'Failed to start game')
         })
-      } else {
-        const timer = setTimeout(() => {
-          startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
-            onSuccess: () => {
-              toast.success('Game started! Good luck!')
-              setReadyRoomWagerId(null)
-            },
-            onError: (err: any) => {
-              toast.error(err.message || 'Failed to start game')
-            }
-          })
-        }, timeUntilStart)
-        
-        return () => clearTimeout(timer)
       }
+      if (timeUntilStart <= 0) { go(); return }
+      const timer = setTimeout(go, timeUntilStart)
+      return () => clearTimeout(timer)
     }
   }, [readyRoomWager?.ready_player_a, readyRoomWager?.ready_player_b, readyRoomWager?.countdown_started_at])
 
   const handleCreateWager = () => {
-    if (needsSetup) {
-      toast.error('Please set up your username first')
-      return
-    }
+    if (needsSetup) { toast.error('Please set up your username first'); return }
     setCreateModalOpen(true)
   }
 
   const handleJoinWager = async (wagerId: string) => {
-    if (needsSetup) {
-      toast.error('Please set up your username first')
-      return
-    }
+    if (needsSetup) { toast.error('Please set up your username first'); return }
     try {
       await joinWager.mutateAsync({ wagerId })
       toast.success('Wager joined! Entering ready room...')
@@ -403,9 +382,14 @@ export default function ArenaPage() {
     }
   }
 
+  // Resolved games go to WagerDetailsModal; in-progress go to LiveGameModal
   const handleWatchGame = (wager: Wager) => {
-    setLiveGameWager(wager)
-    setLiveGameModalOpen(true)
+    if (wager.status === 'resolved' || (wager.status as string) === 'closed') {
+      handleViewDetails(wager)
+    } else {
+      setLiveGameWager(wager)
+      setLiveGameModalOpen(true)
+    }
   }
 
   if (!connected) {
@@ -434,8 +418,7 @@ export default function ArenaPage() {
   return (
     <div className="py-8 pb-16">
       <div className="container px-4">
-        {/* Top Actions */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8"
@@ -456,8 +439,7 @@ export default function ArenaPage() {
           </div>
         </motion.div>
 
-        {/* Search & Filters */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -473,8 +455,8 @@ export default function ArenaPage() {
             />
           </div>
           <div className="flex gap-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={handleQuickMatch}
               disabled={quickMatch.isPending}
               className="hover:border-primary/50 hover:shadow-neon transition-all"
@@ -493,7 +475,6 @@ export default function ArenaPage() {
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content - Open Wagers */}
           <div className="lg:col-span-2 space-y-6">
             {/* Live Matches */}
             <motion.div
@@ -509,7 +490,7 @@ export default function ArenaPage() {
                 <h2 className="font-gaming text-lg">Live Matches</h2>
                 <Badge variant="outline" className="ml-auto">{filteredLiveWagers.length}</Badge>
               </div>
-              
+
               {liveLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -518,11 +499,12 @@ export default function ArenaPage() {
                 <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                   {filteredLiveWagers.map((wager) => (
                     <motion.div key={wager.id} variants={staggerItem}>
-                      <LiveMatchCard 
-                        wager={wager} 
+                      <LiveMatchCard
+                        wager={wager}
                         currentWallet={walletAddress}
                         onEnterReadyRoom={setReadyRoomWagerId}
                         onWatchGame={handleWatchGame}
+                        onViewDetails={handleViewDetails}
                       />
                     </motion.div>
                   ))}
@@ -544,7 +526,7 @@ export default function ArenaPage() {
                 <h2 className="font-gaming text-lg">Open Wagers</h2>
                 <Badge variant="outline" className="ml-auto">{filteredOpenWagers.length}</Badge>
               </div>
-              
+
               {openLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -553,8 +535,8 @@ export default function ArenaPage() {
                 <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                   {filteredOpenWagers.map((wager) => (
                     <motion.div key={wager.id} variants={staggerItem}>
-                      <OpenWagerCard 
-                        wager={wager} 
+                      <OpenWagerCard
+                        wager={wager}
                         onJoin={handleJoinWager}
                         onViewDetails={handleViewDetails}
                         onEdit={handleEditWager}
@@ -567,9 +549,9 @@ export default function ArenaPage() {
                   ))}
                 </motion.div>
               ) : (
-                <EmptyState 
-                  title="No Open Wagers" 
-                  description="Be the first to create a wager and challenge others!" 
+                <EmptyState
+                  title="No Open Wagers"
+                  description="Be the first to create a wager and challenge others!"
                 />
               )}
             </motion.div>
@@ -577,7 +559,6 @@ export default function ArenaPage() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Wallet Info */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -598,7 +579,6 @@ export default function ArenaPage() {
               </Card>
             </motion.div>
 
-            {/* Recent Winners */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -618,7 +598,7 @@ export default function ArenaPage() {
                     </div>
                   ) : recentWinners && recentWinners.length > 0 ? (
                     <div className="space-y-3">
-                      {recentWinners.map((wager, index) => {
+                      {recentWinners.map((wager) => {
                         const game = getGameData(wager.game)
                         return (
                           <div key={wager.id} className="flex items-center justify-between text-sm">
@@ -643,20 +623,19 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      {/* Modals */}
-      <CreateWagerModal 
-        open={createModalOpen} 
+      <CreateWagerModal
+        open={createModalOpen}
         onOpenChange={setCreateModalOpen}
         onSuccess={() => setCreateModalOpen(false)}
       />
-      
+
       <QuickMatchModal
         open={quickMatchModalOpen}
         onOpenChange={setQuickMatchModalOpen}
         onMatch={handleQuickMatchSubmit}
         isPending={quickMatch.isPending}
       />
-      
+
       <WagerDetailsModal
         wager={selectedWager}
         open={detailsModalOpen}
@@ -666,7 +645,7 @@ export default function ArenaPage() {
         onDelete={handleDeleteWager}
         isJoining={joinWager.isPending}
       />
-      
+
       <ReadyRoomModal
         wager={readyRoomWager || null}
         open={!!readyRoomWagerId}
@@ -681,7 +660,7 @@ export default function ArenaPage() {
         isSettingReady={setReadyMutation.isPending}
         currentWallet={walletAddress}
       />
-      
+
       <EditWagerModal
         wager={editWager}
         open={editModalOpen}
@@ -693,7 +672,7 @@ export default function ArenaPage() {
         isSaving={editWagerMutation.isPending}
         canEditGameId={editWager?.status === 'created'}
       />
-      
+
       <LiveGameModal
         wager={liveGameWager}
         open={liveGameModalOpen}
