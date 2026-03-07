@@ -79,7 +79,7 @@ export function useWalletAuth() {
         body: JSON.stringify({
           action: 'verify-signature',
           walletAddress,
-          signature: Buffer.from(signature).toString('base64'),
+          signature: Array.from(signature),  // ← Changed from Buffer.from(signature).toString('base64')
           message,
         }),
       });
