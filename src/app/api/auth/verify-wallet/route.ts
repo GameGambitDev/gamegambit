@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const secret = process.env.WALLET_AUTH_SECRET;
-        if (!secret) throw new Error('WALLET_AUTH_SECRET env var not set');
+        const secret = process.env.AUTHORITY_WALLET_SECRET;
+        if (!secret) throw new Error('AUTHORITY_WALLET_SECRET env var not set');
 
         const payload = {
             wallet: walletAddress,
