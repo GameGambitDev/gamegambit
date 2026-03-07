@@ -50,12 +50,16 @@ export function useWalletAuth() {
       console.log('[useWalletAuth] Signing message with wallet...');
       const signature = await signMessage(messageBuffer);
 
-      // Step 2: Send signature to API for verification
+      // Step 2: Send signature to Supabase Edge Function for verification
       console.log('[useWalletAuth] Verifying signature on server...');
-      const response = await fetch('/api/auth/verify-wallet', {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/verify-wallet`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
         },
         body: JSON.stringify({
           walletAddress,
