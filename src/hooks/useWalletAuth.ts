@@ -9,7 +9,7 @@ export function useWalletAuth() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Only read from sessionStorage after hydration
+  // Hydrate initial token from sessionStorage (client-side only)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const stored = sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -22,16 +22,6 @@ export function useWalletAuth() {
     if (!publicKey || !signMessage) {
       console.error('[useWalletAuth] Wallet not connected or signing not available');
       return null;
-    }
-
-    // Check if we have a valid session
-    if (sessionToken) {
-      try {
-        // If token exists and looks valid, return it
-        return sessionToken;
-      } catch {
-        // Token invalid, continue to re-verify
-      }
     }
 
     setIsVerifying(true);
@@ -79,7 +69,7 @@ export function useWalletAuth() {
         body: JSON.stringify({
           action: 'verify-signature',
           walletAddress,
-          signature: Array.from(signature),  // ← Changed from Buffer.from(signature).toString('base64')
+          signature: Array.from(signature),
           message,
         }),
       });
@@ -113,7 +103,7 @@ export function useWalletAuth() {
     } finally {
       setIsVerifying(false);
     }
-  }, [publicKey, signMessage, sessionToken]);
+  }, [publicKey, signMessage]);
 
   const clearSession = useCallback(() => {
     setSessionToken(null);
@@ -123,14 +113,18 @@ export function useWalletAuth() {
   }, []);
 
   const getSessionToken = useCallback(async (): Promise<string | null> => {
-    // Return existing valid token or verify
-    if (sessionToken) {
-      return sessionToken;
+    if (typeof window === 'undefined') return null;
+
+    // Always read fresh from sessionStorage (prevents stale state issues)
+    const stored = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (stored) {
+      console.log('[useWalletAuth] Using cached session token from storage');
+      return stored;
     }
 
-    // Need to verify
+    console.log('[useWalletAuth] Session token not found in storage → verifying wallet');
     return await verifyWallet();
-  }, [sessionToken, verifyWallet]);
+  }, [verifyWallet]);
 
   return {
     isVerifying,
