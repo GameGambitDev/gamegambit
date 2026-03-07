@@ -107,6 +107,41 @@ async function sendAndConfirm(
   return signature;
 }
 
+// ── Shared: auto-initialize player profile if not yet on-chain ────────────────
+// create_wager and join_wager both require the player profile PDA to exist.
+// This sends initialize_player automatically if missing — one extra wallet popup
+// shown only on the player's very first wager ever.
+async function ensurePlayerProfile(
+  player: PublicKey,
+  signTransaction: (tx: Transaction) => Promise<Transaction>
+): Promise<void> {
+  const [profilePda] = derivePlayerProfilePda(player);
+  const existing = await connection.getAccountInfo(profilePda);
+  if (existing) return; // already initialized
+
+  const initIx = new TransactionInstruction({
+    programId: new PublicKey(PROGRAM_ID),
+    keys: [
+      { pubkey: profilePda, isSigner: false, isWritable: true },
+      { pubkey: player, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(INSTRUCTION_DISCRIMINATORS.initialize_player as number[]),
+  });
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const tx = new Transaction().add(initIx);
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = player;
+
+  toast.info("First-time setup: initializing your on-chain profile\u2026");
+  const signed = await signTransaction(tx);
+  const sig = await connection.sendRawTransaction(signed.serialize());
+  await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  toast.success("On-chain profile ready!");
+}
+
+
 // ── 1. Initialize player profile ──────────────────────────────────────────────
 
 export function useInitializePlayer() {
@@ -171,6 +206,9 @@ export function useCreateWagerOnChain() {
       requiresModerator?: boolean;
     }) => {
       if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+
+      // Auto-initialize on-chain profile if this is the player's first wager
+      await ensurePlayerProfile(publicKey, signTransaction);
 
       const matchIdBigInt = BigInt(matchId);
       const stakeAmount = BigInt(stakeLamports);
@@ -251,6 +289,9 @@ export function useJoinWagerOnChain() {
       wagerId: string;
     }) => {
       if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+
+      // Auto-initialize on-chain profile if this is player B's first wager
+      await ensurePlayerProfile(publicKey, signTransaction);
 
       const playerA = new PublicKey(playerAWallet);
       const matchIdBigInt = BigInt(matchId);
