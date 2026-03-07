@@ -91,35 +91,38 @@ function buildInstructionData(
 
 // ── Shared: send + confirm helper ─────────────────────────────────────────────
 
+// Accepts one or more instructions — all batched into a single tx with one blockhash/popup
 async function sendAndConfirm(
-  instruction: TransactionInstruction,
+  instructions: TransactionInstruction | TransactionInstruction[],
   payer: PublicKey,
   signTransaction: (tx: Transaction) => Promise<Transaction>
 ): Promise<string> {
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-  const tx = new Transaction().add(instruction);
+  const ixs = Array.isArray(instructions) ? instructions : [instructions];
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  const tx = new Transaction();
+  ixs.forEach(ix => tx.add(ix));
   tx.recentBlockhash = blockhash;
   tx.feePayer = payer;
 
   const signedTx = await signTransaction(tx);
-  const signature = await connection.sendRawTransaction(signedTx.serialize());
+  const signature = await connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: false });
   await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
   return signature;
 }
 
-// ── Shared: auto-initialize player profile if not yet on-chain ────────────────
-// create_wager and join_wager both require the player profile PDA to exist.
-// This sends initialize_player automatically if missing — one extra wallet popup
-// shown only on the player's very first wager ever.
-async function ensurePlayerProfile(
+// ── Shared: returns initialize_player ix if profile PDA doesn't exist yet ────
+// Caller batches it with the main instruction in a single tx — one blockhash, one popup.
+// If profile already exists returns null (zero overhead on subsequent wagers).
+async function getInitPlayerIxIfNeeded(
   player: PublicKey,
-  signTransaction: (tx: Transaction) => Promise<Transaction>
-): Promise<void> {
+): Promise<TransactionInstruction | null> {
   const [profilePda] = derivePlayerProfilePda(player);
   const existing = await connection.getAccountInfo(profilePda);
-  if (existing) return; // already initialized
+  if (existing) return null; // already initialized — nothing to do
 
-  const initIx = new TransactionInstruction({
+  toast.info("First-time setup: your on-chain profile will be created with this transaction");
+
+  return new TransactionInstruction({
     programId: new PublicKey(PROGRAM_ID),
     keys: [
       { pubkey: profilePda, isSigner: false, isWritable: true },
@@ -128,17 +131,6 @@ async function ensurePlayerProfile(
     ],
     data: Buffer.from(INSTRUCTION_DISCRIMINATORS.initialize_player as number[]),
   });
-
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-  const tx = new Transaction().add(initIx);
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = player;
-
-  toast.info("First-time setup: initializing your on-chain profile\u2026");
-  const signed = await signTransaction(tx);
-  const sig = await connection.sendRawTransaction(signed.serialize());
-  await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-  toast.success("On-chain profile ready!");
 }
 
 
@@ -207,8 +199,9 @@ export function useCreateWagerOnChain() {
     }) => {
       if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
 
-      // Auto-initialize on-chain profile if this is the player's first wager
-      await ensurePlayerProfile(publicKey, signTransaction);
+      // Check if profile needs initializing — if so, batch it with create_wager
+      // into ONE transaction so there's a single blockhash and single wallet popup.
+      const initIx = await getInitPlayerIxIfNeeded(publicKey);
 
       const matchIdBigInt = BigInt(matchId);
       const stakeAmount = BigInt(stakeLamports);
@@ -218,7 +211,7 @@ export function useCreateWagerOnChain() {
 
       // Account order must match CreateWager context in lib.rs:
       //   wager (writable, PDA), player_a_profile (PDA, readonly), player_a (signer, writable), system_program
-      const instruction = new TransactionInstruction({
+      const createIx = new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
           { pubkey: wagerPda, isSigner: false, isWritable: true },
@@ -236,7 +229,9 @@ export function useCreateWagerOnChain() {
         ),
       });
 
-      const signature = await sendAndConfirm(instruction, publicKey, signTransaction);
+      // Batch: [initIx (if needed), createIx] — one tx, one blockhash, one popup
+      const ixs = initIx ? [initIx, createIx] : [createIx];
+      const signature = await sendAndConfirm(ixs, publicKey, signTransaction);
 
       // Record in backend so the DB wager gets the on-chain tx signature
       const sessionToken = await getSessionToken();
@@ -290,8 +285,8 @@ export function useJoinWagerOnChain() {
     }) => {
       if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
 
-      // Auto-initialize on-chain profile if this is player B's first wager
-      await ensurePlayerProfile(publicKey, signTransaction);
+      // Check if profile needs initializing — batch with join_wager if so
+      const initIx = await getInitPlayerIxIfNeeded(publicKey);
 
       const playerA = new PublicKey(playerAWallet);
       const matchIdBigInt = BigInt(matchId);
@@ -302,7 +297,7 @@ export function useJoinWagerOnChain() {
 
       // Account order must match JoinWager context in lib.rs:
       //   wager (writable, PDA), player_b_profile (PDA, readonly), player_b (signer, writable), system_program
-      const instruction = new TransactionInstruction({
+      const joinIx = new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
           { pubkey: wagerPda, isSigner: false, isWritable: true },
@@ -314,7 +309,9 @@ export function useJoinWagerOnChain() {
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.join_wager, stakeAmount),
       });
 
-      const signature = await sendAndConfirm(instruction, publicKey, signTransaction);
+      // Batch: [initIx (if needed), joinIx] — one tx, one blockhash, one popup
+      const ixs = initIx ? [initIx, joinIx] : [joinIx];
+      const signature = await sendAndConfirm(ixs, publicKey, signTransaction);
 
       // Notify backend
       const sessionToken = await getSessionToken();
