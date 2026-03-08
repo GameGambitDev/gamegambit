@@ -208,7 +208,7 @@ serve(async (req) => {
             const wager = await getWager(wagerId);
             if (!wager.ready_player_a || !wager.ready_player_b) return respond({ error: 'Both players must be ready' }, 400);
             if (!wager.countdown_started_at) return respond({ error: 'Countdown not started' }, 400);
-            if (Date.now() - new Date(wager.countdown_started_at).getTime() < 10_000) return respond({ error: 'Countdown not complete' }, 400);
+            if (Date.now() - new Date(wager.countdown_started_at).getTime() < 9_000) return respond({ error: 'Countdown not complete' }, 400);
 
             const { data: updatedWager, error } = await supabase.from('wagers').update({ status: 'voting' }).eq('id', wagerId).select().single();
             if (error) return respond({ error: 'Failed to start game' }, 500);

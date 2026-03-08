@@ -15,7 +15,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
-import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useStartGame, useWagerById, Wager, GameType } from '@/hooks/useWagers'
+import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useStartGame, useWagerById, useCheckGameComplete, Wager, GameType } from '@/hooks/useWagers'
 import { usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import { useQuickMatch } from '@/hooks/useQuickMatch'
@@ -229,6 +229,25 @@ export default function ArenaPage() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [liveGameWager, setLiveGameWager] = useState<Wager | null>(null)
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
+  const checkGameComplete = useCheckGameComplete()
+  // Background polling for all voting wagers — runs even when LiveGameModal is closed
+  useEffect(() => {
+    const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
+    if (votingWagers.length === 0) return
+    const interval = setInterval(() => {
+      votingWagers.forEach(w => {
+        checkGameComplete.mutate({ wagerId: w.id }, {
+          onSuccess: (data) => {
+            if (data.gameComplete) {
+              queryClient.invalidateQueries({ queryKey: ['wagers'] })
+              queryClient.invalidateQueries({ queryKey: ['wager', w.id] })
+            }
+          }
+        })
+      })
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [liveWagers, checkGameComplete, queryClient])
 
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
@@ -350,7 +369,13 @@ export default function ArenaPage() {
   }
 
   useEffect(() => {
-    if (readyRoomWager?.ready_player_a && readyRoomWager?.ready_player_b && readyRoomWager?.countdown_started_at) {
+    // Only fire if wager is in 'joined' status — not if game already started/resolved
+    if (
+      readyRoomWager?.ready_player_a &&
+      readyRoomWager?.ready_player_b &&
+      readyRoomWager?.countdown_started_at &&
+      readyRoomWager?.status === 'joined'
+    ) {
       const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
       const timeUntilStart = (startTime + 10000) - Date.now()
       const go = () => {
@@ -363,7 +388,7 @@ export default function ArenaPage() {
       const timer = setTimeout(go, timeUntilStart)
       return () => clearTimeout(timer)
     }
-  }, [readyRoomWager?.ready_player_a, readyRoomWager?.ready_player_b, readyRoomWager?.countdown_started_at])
+  }, [readyRoomWager?.ready_player_a, readyRoomWager?.ready_player_b, readyRoomWager?.countdown_started_at, readyRoomWager?.status])
 
   const handleCreateWager = () => {
     if (needsSetup) { toast.error('Please set up your username first'); return }
