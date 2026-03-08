@@ -33,13 +33,6 @@ export interface Wager {
   countdown_started_at: string | null;
 }
 
-// ─── SECURE FETCH HELPER ─────────────────────────────────────────────────────
-// We use raw fetch instead of supabase.functions.invoke for all secure-wager
-// calls. The Supabase JS client can silently drop or override Content-Type when
-// custom headers are passed, causing Deno to fail to parse the JSON body (400).
-// Raw fetch gives us full control over every header and body serialization.
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function invokeSecureWager<T>(
   payload: Record<string, unknown>,
   sessionToken: string
@@ -108,11 +101,24 @@ export function useLiveWagers() {
           event: 'UPDATE',
           schema: 'public',
           table: 'wagers',
-          filter: 'status=in.(joined,voting,disputed)',
         },
         (payload) => {
-          queryClient.setQueryData(['wagers', payload.new.id], payload.new);
-          queryClient.invalidateQueries({ queryKey: ['wagers', 'live'] });
+          const updated = payload.new as Wager;
+          queryClient.setQueryData(['wagers', updated.id], updated);
+
+          // If the wager just resolved, remove it from the live list immediately
+          if (updated.status === 'resolved') {
+            queryClient.setQueryData<Wager[]>(['wagers', 'live'], (old) =>
+              old ? old.filter((w) => w.id !== updated.id) : old
+            );
+          } else {
+            queryClient.invalidateQueries({ queryKey: ['wagers', 'live'] });
+          }
+
+          // Always refresh recent winners when something resolves
+          if (updated.status === 'resolved') {
+            queryClient.invalidateQueries({ queryKey: ['wagers', 'winners'] });
+          }
         }
       )
       .subscribe();
@@ -132,7 +138,7 @@ export function useLiveWagers() {
       if (error) throw error;
       return data as Wager[];
     },
-    refetchInterval: 30000,
+    refetchInterval: 10000, // also tightened from 30s to 10s
   });
 }
 
