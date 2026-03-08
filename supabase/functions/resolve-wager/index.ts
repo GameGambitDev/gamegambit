@@ -25,8 +25,8 @@ const MODERATOR_FEE_SHARE = 0.40;
 
 // Discriminators from IDL
 const DISCRIMINATORS = {
-    resolve_wager: [155, 116, 113, 36, 0, 211, 140, 138],
-    close_wager: [35, 180, 90, 171, 200, 58, 76, 74],
+    resolve_wager: [31, 179, 1, 228, 83, 224, 1, 123],
+    close_wager: [167, 240, 85, 147, 127, 50, 69, 203],
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -53,18 +53,24 @@ function buildResolveWagerIx(
     winner: PublicKey,
     platformWallet: PublicKey,
 ): TransactionInstruction {
-    // resolve_wager accounts (must match Rust context):
-    //   wager (writable), authority (signer), winner (writable), platform_wallet (writable), system_program
+    // resolve_wager accounts — matches ResolveWager struct in lib.rs:
+    //   wager, winner, authorizer (signer), platform_wallet, system_program
+    // Args: winner pubkey (32 bytes)
+    const disc = new Uint8Array(DISCRIMINATORS.resolve_wager);
+    const winnerBytes = winner.toBytes();
+    const resolveData = new Uint8Array(disc.length + winnerBytes.length);
+    resolveData.set(disc, 0);
+    resolveData.set(winnerBytes, disc.length);
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
             { pubkey: wagerPda, isSigner: false, isWritable: true },
-            { pubkey: authority, isSigner: true, isWritable: false },
             { pubkey: winner, isSigner: false, isWritable: true },
+            { pubkey: authority, isSigner: true, isWritable: true },
             { pubkey: platformWallet, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: new Uint8Array(DISCRIMINATORS.resolve_wager),
+        data: resolveData,
     });
 }
 
@@ -76,15 +82,16 @@ function buildCloseWagerIx(
     platformWallet: PublicKey,
 ): TransactionInstruction {
     // close_wager accounts (draw refund):
-    //   wager (writable), authority (signer), player_a (writable), player_b (writable), platform_wallet (writable), system_program
+    // close_wager accounts — matches CloseWager struct in lib.rs:
+    //   wager (writable, closes to authorizer), player_a (writable), player_b (writable), authorizer (signer, writable), system_program
+    // No args needed
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
-            { pubkey: wagerPda, isSigner: false, isWritable: true },
-            { pubkey: authority, isSigner: true, isWritable: false },
-            { pubkey: playerA, isSigner: false, isWritable: true },
-            { pubkey: playerB, isSigner: false, isWritable: true },
-            { pubkey: platformWallet, isSigner: false, isWritable: true },
+            { pubkey: wagerPda,                isSigner: false, isWritable: true },
+            { pubkey: playerA,                 isSigner: false, isWritable: true },
+            { pubkey: playerB,                 isSigner: false, isWritable: true },
+            { pubkey: authority,               isSigner: true,  isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
         data: new Uint8Array(DISCRIMINATORS.close_wager),
