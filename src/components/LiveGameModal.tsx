@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +39,7 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
 
   const [showEmbed, setShowEmbed] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const isCheckingRef = useRef(false);
   const [hasShownResult, setHasShownResult] = useState(false);
 
   // Derive result from either local state OR wager DB state (whichever arrives first)
@@ -88,8 +89,9 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
 
   // Poll for completion every 5s while game is active
   const runCheck = useCallback(async () => {
-    if (!wager || isChecking || gameFinished) return;
+    if (!wager || isCheckingRef.current || gameFinished) return;
     try {
+      isCheckingRef.current = true;
       setIsChecking(true);
       const result = await checkGameComplete.mutateAsync({ wagerId: wager.id });
       if (result.gameComplete) {
@@ -100,9 +102,10 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
     } catch (e) {
       console.error('Error checking game:', e);
     } finally {
+      isCheckingRef.current = false;
       setIsChecking(false);
     }
-  }, [wager, isChecking, gameFinished, checkGameComplete, queryClient]);
+  }, [wager, gameFinished, checkGameComplete, queryClient]);
 
   useEffect(() => {
     if (!open || !wager || wager.status !== 'voting') return;
@@ -170,12 +173,12 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className={`p-4 sm:p-6 rounded-lg border text-center ${isDraw
-                  ? 'bg-muted/30 border-border'
-                  : isCurrentPlayerWinner
-                    ? 'bg-success/10 border-success/40'
-                    : isCurrentPlayerLoser
-                      ? 'bg-destructive/10 border-destructive/30'
-                      : 'bg-accent/10 border-accent/30'
+                ? 'bg-muted/30 border-border'
+                : isCurrentPlayerWinner
+                  ? 'bg-success/10 border-success/40'
+                  : isCurrentPlayerLoser
+                    ? 'bg-destructive/10 border-destructive/30'
+                    : 'bg-accent/10 border-accent/30'
                 }`}
             >
               {isDraw ? (

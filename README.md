@@ -1,291 +1,177 @@
-# ♟️ GameGambit
+# Supabase CLI
 
-**Wager. Play. Win.**
+[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
+](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
 
-GameGambit is a decentralized competitive gaming platform where players stake SOL on head-to-head matches and the winner takes the pot. Built on Solana with Lichess integration for provably fair chess wagers.
+[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
 
-🌐 **Live:** [gamegambit.lovable.app](https://gamegambit.lovable.app)
+This repository contains all the functionality for Supabase CLI.
 
----
+- [x] Running Supabase locally
+- [x] Managing database migrations
+- [x] Creating and deploying Supabase Functions
+- [x] Generating types directly from your database schema
+- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
 
-## 🎮 How It Works
+## Getting started
 
-1. **Connect Wallet** — Link your Solana wallet (Phantom, Solflare, etc.)
-2. **Create or Join a Wager** — Set your stake in SOL and pick your game
-3. **Play the Match** — Complete the game on Lichess (chess) or submit results for other titles
-4. **Get Paid** — Winner receives 90% of the pot; 10% platform fee
+### Install the CLI
 
-### Supported Games
+Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
 
-| Game | Verification | Status |
-|------|-------------|--------|
-| ♟️ Chess (Lichess) | Auto-resolved via Lichess API | ✅ Live |
-| 🔫 PUBG Mobile | Player vote / moderator | 🔜 Coming Soon |
-| 🎯 Call of Duty Mobile | Player vote / moderator | 🔜 Coming Soon |
-
----
-
-## ✨ Features
-
-- **On-Chain Escrow** — SOL stakes are held in a Solana program escrow until the match resolves
-- **Auto-Resolution** — Chess wagers resolve automatically when the Lichess game finishes
-- **Draw Handling** — Draws refund both players their full stake (no platform fee)
-- **Victory NFTs** — Winners receive a commemorative NFT for each victory
-- **Achievement Badges** — Unlock badges for milestones (win streaks, total earnings, etc.)
-- **Transaction History** — Full on-chain transaction log with Solana Explorer links
-- **Leaderboard** — Global rankings by wins, earnings, and streaks
-- **Quick Match** — Instantly find an opponent and start playing
-- **Live Game Viewer** — Watch Lichess games in real-time via embedded board
-
----
-
-## 🏗️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React · TypeScript · Vite · Tailwind CSS · shadcn/ui · Framer Motion |
-| Blockchain | Solana (Devnet) · Anchor Program · `@solana/web3.js` · Wallet Adapter |
-| Backend | Lovable Cloud (Supabase) · Edge Functions · PostgreSQL |
-| Chess API | Lichess API (game verification, live streaming, user profiles) |
-
-### Solana Program
-
-- **Program ID:** `CPS82nShfYFBdJPLs4kLMYEUrTwvxieqSrkw6VYRopzx`
-- **Authority:** `45kmAptt386fRtXzjsbschuvhuEo77vRKA5eyYbH4XFs`
-- **Network:** Devnet
-
----
-
-## 🔗 Solana Wallet Adapter Integration
-
-GameGambit uses the official [Solana Wallet Adapter](https://github.com/anza-xyz/wallet-adapter) libraries to connect users' wallets. Here's how every layer fits together:
-
-### Packages Used
-
-```
-@solana/wallet-adapter-base      # Core types & interfaces
-@solana/wallet-adapter-react     # React context hooks (useWallet, useConnection)
-@solana/wallet-adapter-react-ui  # Pre-built modal & button components
-@solana/web3.js                  # Solana JSON-RPC client & Transaction classes
+```bash
+npm i supabase --save-dev
 ```
 
-### Provider Setup (`src/contexts/WalletContext.tsx`)
-
-The entire app is wrapped in three nested providers:
-
-```tsx
-<ConnectionProvider endpoint={clusterApiUrl('devnet')}>   // ← RPC connection
-  <WalletProvider wallets={[]} autoConnect>                // ← wallet detection
-    <WalletModalProvider>                                  // ← connect modal UI
-      {children}
-    </WalletModalProvider>
-  </WalletProvider>
-</ConnectionProvider>
-```
-
-| Provider | Purpose |
-|----------|---------|
-| `ConnectionProvider` | Establishes a JSON-RPC connection to Solana Devnet via `clusterApiUrl('devnet')`. Every hook that sends transactions uses this connection. |
-| `WalletProvider` | Detects installed wallets that implement the [Wallet Standard](https://github.com/wallet-standard/wallet-standard) (Phantom, Solflare, Backpack, etc.). The `wallets` array is empty because standard-compliant wallets are auto-detected. `autoConnect` re-connects the last used wallet on page load. |
-| `WalletModalProvider` | Renders the wallet selection modal UI when the user clicks "Select Wallet". |
-
-### How Components Use the Wallet
-
-**1. Connect Button (Header)**
-
-The `<WalletMultiButton />` component from `@solana/wallet-adapter-react-ui` handles the entire connect/disconnect flow out of the box:
-
-```tsx
-// src/components/layout/Header.tsx
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-
-<WalletMultiButton />  // Shows "Select Wallet" → connected address → disconnect
-```
-
-Custom CSS overrides style the button to match the GameGambit design system using Tailwind's arbitrary selector syntax (`[&_.wallet-adapter-button]`).
-
-**2. Reading Wallet State**
-
-Any component can access wallet state via the `useWallet()` hook:
-
-```tsx
-import { useWallet } from '@solana/wallet-adapter-react';
-
-const { connected, publicKey, signMessage, sendTransaction } = useWallet();
-
-// connected      → boolean, is a wallet connected?
-// publicKey      → PublicKey object (the user's address)
-// signMessage    → sign arbitrary bytes (used for wallet verification)
-// sendTransaction → send a Transaction to the network
-```
-
-**3. Wallet Verification (`src/hooks/useWalletAuth.ts`)**
-
-Before performing sensitive actions (creating/joining wagers), the app verifies wallet ownership via a challenge-response flow:
+When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
 
 ```
-Client                          Edge Function (verify-wallet)
-  │                                       │
-  ├─ generate-nonce(walletAddr) ─────────►│
-  │◄───────────── nonce + message ────────┤
-  │                                       │
-  ├─ signMessage(message) ───► Wallet     │
-  │◄──── signature ──────────── Wallet    │
-  │                                       │
-  ├─ verify-signature(sig, msg) ─────────►│
-  │                  │  nacl.sign.detached.verify()
-  │◄──── sessionToken (1hr, HMAC) ────────┤
+NODE_OPTIONS=--no-experimental-fetch yarn add supabase
 ```
 
-- The nonce is **stateless** — generated via HMAC-SHA256 from `wallet + timestamp + secret`, so no database lookup is needed
-- The session token is a base64-encoded JSON payload + HMAC signature, valid for 1 hour
-- Tokens are cached in `sessionStorage` and reused until expiry
+> **Note**
+For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
 
-**4. On-Chain Transactions (`src/hooks/useSolanaProgram.ts`)**
+<details>
+  <summary><b>macOS</b></summary>
 
-For escrow operations, the app builds Anchor-compatible instructions and sends them via `sendTransaction`:
+  Available via [Homebrew](https://brew.sh). To install:
 
-```tsx
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+  ```sh
+  brew install supabase/tap/supabase
+  ```
 
-const { connection } = useConnection();
-const { publicKey, sendTransaction } = useWallet();
+  To install the beta release channel:
+  
+  ```sh
+  brew install supabase/tap/supabase-beta
+  brew link --overwrite supabase-beta
+  ```
+  
+  To upgrade:
 
-// Build instruction → create Transaction → sendTransaction(tx, connection)
+  ```sh
+  brew upgrade supabase
+  ```
+</details>
+
+<details>
+  <summary><b>Windows</b></summary>
+
+  Available via [Scoop](https://scoop.sh). To install:
+
+  ```powershell
+  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+  scoop install supabase
+  ```
+
+  To upgrade:
+
+  ```powershell
+  scoop update supabase
+  ```
+</details>
+
+<details>
+  <summary><b>Linux</b></summary>
+
+  Available via [Homebrew](https://brew.sh) and Linux packages.
+
+  #### via Homebrew
+
+  To install:
+
+  ```sh
+  brew install supabase/tap/supabase
+  ```
+
+  To upgrade:
+
+  ```sh
+  brew upgrade supabase
+  ```
+
+  #### via Linux packages
+
+  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
+
+  ```sh
+  sudo apk add --allow-untrusted <...>.apk
+  ```
+
+  ```sh
+  sudo dpkg -i <...>.deb
+  ```
+
+  ```sh
+  sudo rpm -i <...>.rpm
+  ```
+
+  ```sh
+  sudo pacman -U <...>.pkg.tar.zst
+  ```
+</details>
+
+<details>
+  <summary><b>Other Platforms</b></summary>
+
+  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
+
+  ```sh
+  go install github.com/supabase/cli@latest
+  ```
+
+  Add a symlink to the binary in `$PATH` for easier access:
+
+  ```sh
+  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
+  ```
+
+  This works on other non-standard Linux distros.
+</details>
+
+<details>
+  <summary><b>Community Maintained Packages</b></summary>
+
+  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
+  To install in your working directory:
+
+  ```bash
+  pkgx install supabase
+  ```
+
+  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
+</details>
+
+### Run the CLI
+
+```bash
+supabase bootstrap
 ```
 
-Key on-chain operations:
-- `initialize_player` — Create a player profile PDA
-- `create_wager` — Deposit SOL into escrow PDA
-- `join_wager` — Match deposit into the same escrow
-- `resolve_wager` — Authority distributes funds to the winner (server-side)
+Or using npx:
 
-### Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    React App                         │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐   │
-│  │         WalletContextProvider                 │   │
-│  │  ┌─────────────┐  ┌──────────────────────┐   │   │
-│  │  │ Connection   │  │  WalletProvider      │   │   │
-│  │  │ Provider     │  │  (auto-detect)       │   │   │
-│  │  │ (Devnet RPC) │  │  ┌────────────────┐  │   │   │
-│  │  │              │  │  │ WalletModal    │  │   │   │
-│  │  │              │  │  │ Provider       │  │   │   │
-│  │  └──────┬───────┘  │  └───────┬────────┘  │   │   │
-│  │         │          └──────────┼───────────┘   │   │
-│  └─────────┼─────────────────────┼───────────────┘   │
-│            │                     │                    │
-│  ┌─────────▼─────────────────────▼───────────────┐   │
-│  │              useWallet() / useConnection()     │   │
-│  │                                                │   │
-│  │  Header ──► WalletMultiButton (connect UI)     │   │
-│  │  useWalletAuth ──► signMessage (verification)  │   │
-│  │  useSolanaProgram ──► sendTransaction (escrow) │   │
-│  └────────────────────────────────────────────────┘   │
-│            │                     │                    │
-└────────────┼─────────────────────┼────────────────────┘
-             │                     │
-             ▼                     ▼
-     Solana Devnet RPC      Wallet Extension
-     (transactions)         (signing)
+```bash
+npx supabase bootstrap
 ```
 
-### Why This Approach?
+The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
 
-1. **Zero wallet config** — The empty `wallets` array + Wallet Standard means any compliant wallet works without listing adapters manually
-2. **Auto-reconnect** — `autoConnect` provides seamless UX across page reloads
-3. **Stateless verification** — HMAC-based nonces avoid database lookups for the challenge-response flow
-4. **Separation of concerns** — Wallet connection (adapter), auth verification (edge function), and on-chain logic (program hooks) are cleanly separated
+## Docs
 
----
+Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
 
-## 🚀 Getting Started
+## Breaking changes
 
-### Prerequisites
+We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
 
-- Node.js 18+ ([install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating))
-- A Solana wallet browser extension (e.g. [Phantom](https://phantom.app))
+However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
 
-### Local Development
+## Developing
+
+To run from source:
 
 ```sh
-# Clone the repo
-git clone <YOUR_GIT_URL>
-cd gamegambit
-
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev
+# Go >= 1.22
+go run . help
 ```
-
-### Environment Variables
-
-The following are configured automatically via Lovable Cloud:
-
-| Variable | Description |
-|----------|-------------|
-| `VITE_SUPABASE_URL` | Backend API URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public API key |
-
-Edge function secrets (configured in Lovable Cloud):
-
-| Secret | Description |
-|--------|-------------|
-| `AUTHORITY_WALLET_SECRET` | Solana authority wallet keypair (JSON) |
-| `SOLANA_RPC_URL` | Solana RPC endpoint |
-
----
-
-## 📁 Project Structure
-
-```
-src/
-├── components/          # UI components
-│   ├── landing/         # Landing page sections
-│   ├── layout/          # Header, Layout
-│   └── ui/              # shadcn/ui primitives
-├── contexts/            # WalletContext (Solana wallet adapter providers)
-├── hooks/
-│   ├── useWalletAuth.ts     # Wallet signature verification & session tokens
-│   ├── useSolanaProgram.ts  # On-chain escrow instructions (create, join, resolve)
-│   ├── useWagers.ts         # Wager CRUD via edge functions
-│   ├── useLichess.ts        # Lichess API integration
-│   ├── useTransactions.ts   # Transaction history queries
-│   ├── useWalletBalance.ts  # SOL balance polling
-│   └── usePlayer.ts         # Player profile management
-├── lib/
-│   ├── solana-config.ts     # Program ID, discriminators, PDA derivation
-│   ├── constants.ts         # App-wide constants
-│   └── utils.ts             # Utility functions
-├── pages/               # Route pages (Arena, Dashboard, Leaderboard, etc.)
-└── integrations/        # Supabase client & types
-
-supabase/functions/
-├── resolve-wager/       # On-chain wager resolution, draw refunds, escrow logging
-├── secure-wager/        # Wager CRUD, Lichess game verification & auto-resolution
-├── secure-player/       # Player profile management
-├── mint-nft/            # Victory NFT minting
-└── verify-wallet/       # Stateless wallet verification (nonce + signature check)
-```
-
----
-
-## 🔒 Security
-
-- Authority wallet secret key is **never** exposed to the frontend
-- All wager mutations go through authenticated edge functions
-- Row Level Security (RLS) policies on all database tables
-- Wallet ownership verified via Ed25519 signature verification (`tweetnacl`)
-- Session tokens are HMAC-signed, expire after 1 hour, and cached client-side in `sessionStorage`
-- Nonce generation is stateless (HMAC-SHA256) — no database state to manage or expire
-
----
-
-## 📄 License
-
-This project is proprietary. All rights reserved.
