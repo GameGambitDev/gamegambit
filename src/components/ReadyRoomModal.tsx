@@ -125,6 +125,10 @@ export function ReadyRoomModal({
     if (countdown !== 0 || hasTriggeredTx.current) return;
     if (!isPlayerA && !isPlayerB) return;
     if (txState !== 'idle') return;
+    // If wager is already in voting/resolved status, both deposits are done — skip
+    if (wager?.status === 'voting' || wager?.status === 'resolved') return;
+    // If player A already created on-chain, wager status will be 'created' or beyond — always safe to skip re-create
+    // (create_wager will fail with 'account already in use' if PDA exists anyway)
     hasTriggeredTx.current = true;
     triggerOnChainDeposit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
