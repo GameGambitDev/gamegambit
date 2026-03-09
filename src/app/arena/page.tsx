@@ -232,6 +232,9 @@ export default function ArenaPage() {
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
+
+  const { data: openWagers, isLoading: openLoading } = useOpenWagers()
+  const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
   // Background polling for all voting wagers — runs even when LiveGameModal is closed
   useEffect(() => {
     const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
@@ -250,9 +253,6 @@ export default function ArenaPage() {
     }, 15000)
     return () => clearInterval(interval)
   }, [liveWagers, checkGameComplete, queryClient])
-
-  const { data: openWagers, isLoading: openLoading } = useOpenWagers()
-  const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
   const { data: player } = usePlayer()
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
