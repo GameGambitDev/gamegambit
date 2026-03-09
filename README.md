@@ -1,5 +1,7 @@
 # Game Gambit
 
+![Game Gambit Logo](/public/logo.png)
+
 [![Next.js 15](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org)
 [![React 18](https://img.shields.io/badge/React-18.3-blue)](https://react.dev)
 [![Solana](https://img.shields.io/badge/Solana-Blockchain-9945FF)](https://solana.com)
