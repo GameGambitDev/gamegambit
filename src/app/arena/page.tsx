@@ -1,5 +1,6 @@
 'use client'
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
@@ -229,6 +230,7 @@ export default function ArenaPage() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [liveGameWager, setLiveGameWager] = useState<Wager | null>(null)
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
+  const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
   // Background polling for all voting wagers — runs even when LiveGameModal is closed
   useEffect(() => {
