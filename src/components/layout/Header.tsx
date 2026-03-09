@@ -3,9 +3,10 @@
 import dynamic from 'next/dynamic'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { motion } from 'framer-motion'
-import { Gamepad2, Menu, X, User } from 'lucide-react'
+import { Menu, X, User } from 'lucide-react'
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -38,12 +39,19 @@ export function Header() {
           {/* Logo - Responsive */}
           <Link href="/" className="flex items-center gap-2 sm:gap-3 group flex-shrink-0">
             <motion.div
-              whileHover={{ rotate: 15, scale: 1.1 }}
+              whileHover={{ rotate: 5, scale: 1.05 }}
               transition={{ type: 'spring', stiffness: 400 }}
               className="relative"
             >
-              <Gamepad2 className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-primary flex-shrink-0" />
-              <div className="absolute inset-0 blur-lg bg-primary/50 -z-10" />
+              <Image
+                src="/logo.png"
+                alt="Game Gambit Logo"
+                width={40}
+                height={40}
+                className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 flex-shrink-0"
+                priority
+              />
+              <div className="absolute inset-0 blur-xl bg-primary/30 -z-10 opacity-50" />
             </motion.div>
             <span className="font-gaming font-bold hidden sm:inline text-sm sm:text-base md:text-lg lg:text-xl whitespace-nowrap">
               <span className="text-foreground">Game</span>
