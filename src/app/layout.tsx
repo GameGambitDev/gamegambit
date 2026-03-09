@@ -21,15 +21,29 @@ export const metadata: Metadata = {
   description: 'Challenge opponents, stake SOL, and prove your skills in competitive gaming matches. Built on Solana for instant, secure transactions.',
   keywords: ['gaming', 'wagers', 'solana', 'competitive', 'esports', 'chess', 'codm', 'pubg'],
   authors: [{ name: 'Game Gambit Team' }],
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/logo.png',
+  },
   openGraph: {
     title: 'Game Gambit | Competitive Gaming Wagers',
     description: 'Challenge opponents and stake SOL in competitive gaming matches',
     type: 'website',
+    images: [
+      {
+        url: '/logo.png',
+        width: 100%,
+        height: 100%,
+        alt: 'Game Gambit Logo',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Game Gambit',
     description: 'Competitive Gaming Wagers on Solana',
+    images: ['/logo.png'],
   },
 }
 
