@@ -376,3 +376,24 @@ export function useCheckGameComplete() {
     },
   });
 }
+
+export function useCancelWager() {
+  const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
+
+  return useMutation({
+    mutationFn: async ({ wagerId, reason }: { wagerId: string; reason?: string }) => {
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) throw new Error('Wallet verification required.');
+      const data = await invokeSecureWager<{ 
+        wager: Wager; 
+        message: string;
+        refundInitiated: boolean;
+      }>({ action: 'cancelWager', wagerId, reason }, sessionToken);
+      return data;
+    },
+    onSuccess: () => { 
+      queryClient.invalidateQueries({ queryKey: ['wagers'] }); 
+    },
+  });
+}

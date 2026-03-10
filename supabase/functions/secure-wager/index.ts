@@ -208,11 +208,18 @@ serve(async (req) => {
             const wager = await getWager(wagerId);
             if (!wager.ready_player_a || !wager.ready_player_b) return respond({ error: 'Both players must be ready' }, 400);
             if (!wager.countdown_started_at) return respond({ error: 'Countdown not started' }, 400);
-            if (Date.now() - new Date(wager.countdown_started_at).getTime() < 9_000) return respond({ error: 'Countdown not complete' }, 400);
+            
+            // Use 10_000ms (10s) to match COUNTDOWN_SECONDS in ReadyRoomModal
+            // Add 500ms buffer for network latency
+            const elapsed = Date.now() - new Date(wager.countdown_started_at).getTime();
+            if (elapsed < 9_500) {
+                console.log(`[secure-wager] Countdown not complete: elapsed=${elapsed}ms`);
+                return respond({ error: 'Countdown not complete', elapsed, required: 9500 }, 400);
+            }
 
             const { data: updatedWager, error } = await supabase.from('wagers').update({ status: 'voting' }).eq('id', wagerId).select().single();
             if (error) return respond({ error: 'Failed to start game' }, 500);
-            console.log(`[secure-wager] Game started for wager ${wagerId}`);
+            console.log(`[secure-wager] Game started for wager ${wagerId} (elapsed=${elapsed}ms)`);
             return respond({ wager: updatedWager });
         }
 
@@ -323,7 +330,8 @@ serve(async (req) => {
                     return respond({ gameComplete: true, status: game.status, resultType, winnerWallet, error: 'Failed to update wager status' });
                 }
 
-                // Fire-and-forget: on-chain resolution
+                // Fire-and-forget: on-chain resolution with error logging
+                console.log(`[secure-wager] Initiating ${resultType === 'draw' ? 'draw refund' : 'winner payout'} for wager ${wagerId}`);
                 fetch(`${supabaseUrl}/functions/v1/resolve-wager`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
@@ -332,7 +340,33 @@ serve(async (req) => {
                         matchId: wager.match_id, playerAWallet: wager.player_a_wallet,
                         playerBWallet: wager.player_b_wallet, winnerWallet, wagerId: wager.id, stakeLamports: wager.stake_lamports,
                     }),
-                }).catch(e => console.error('[secure-wager] resolve-wager call failed:', e));
+                }).then(async (res) => {
+                    if (!res.ok) {
+                        const errBody = await res.text().catch(() => 'unknown');
+                        console.error(`[secure-wager] resolve-wager failed (${res.status}): ${errBody}`);
+                        // Log to transactions table
+                        await supabase.from('wager_transactions').insert({
+                            wager_id: wagerId,
+                            tx_type: 'error_resolution_call',
+                            wallet_address: 'system',
+                            amount_lamports: 0,
+                            status: 'failed',
+                            error_message: `Resolution API failed: ${res.status} - ${errBody}`,
+                        }).catch(() => {});
+                    } else {
+                        console.log(`[secure-wager] resolve-wager completed for wager ${wagerId}`);
+                    }
+                }).catch(e => {
+                    console.error('[secure-wager] resolve-wager call failed:', e);
+                    supabase.from('wager_transactions').insert({
+                        wager_id: wagerId,
+                        tx_type: 'error_resolution_call',
+                        wallet_address: 'system',
+                        amount_lamports: 0,
+                        status: 'failed',
+                        error_message: `Resolution call exception: ${e.message || String(e)}`,
+                    }).catch(() => {});
+                });
 
                 // Fire-and-forget: NFT
                 if (winnerWallet) {
@@ -359,6 +393,94 @@ serve(async (req) => {
         if (action === 'recordOnChainCreate' || action === 'recordOnChainJoin') {
             console.log(`[secure-wager] ${action} recorded`);
             return respond({ success: true });
+        }
+
+        // CANCEL WAGER - Refund both players if wager fails to start
+        // Called when: countdown completes but on-chain deposit fails, or one player cancels
+        if (action === 'cancelWager') {
+            const { wagerId, reason } = data;
+            if (!wagerId) return respond({ error: 'Wager ID required' }, 400);
+            
+            const wager = await getWager(wagerId);
+            
+            // Only allow cancellation if wager is in 'joined' status (ready room)
+            // or if it's in 'voting' but no on-chain activity (error recovery)
+            if (!['joined', 'voting'].includes(wager.status)) {
+                return respond({ error: 'Wager cannot be cancelled in current status' }, 400);
+            }
+            
+            // Verify caller is a participant
+            const isPlayerA = wager.player_a_wallet === walletAddress;
+            const isPlayerB = wager.player_b_wallet === walletAddress;
+            if (!isPlayerA && !isPlayerB) {
+                return respond({ error: 'Only participants can cancel the wager' }, 403);
+            }
+
+            console.log(`[secure-wager] Cancelling wager ${wagerId} by ${walletAddress}. Reason: ${reason || 'user_requested'}`);
+
+            // Update wager status to cancelled
+            const { data: updatedWager, error: updateError } = await supabase.from('wagers')
+                .update({ 
+                    status: 'cancelled', 
+                    cancelled_at: new Date().toISOString(),
+                    cancelled_by: walletAddress,
+                    cancel_reason: reason || 'user_requested',
+                    ready_player_a: false,
+                    ready_player_b: false,
+                    countdown_started_at: null,
+                })
+                .eq('id', wagerId)
+                .select()
+                .single();
+
+            if (updateError) {
+                console.error('[secure-wager] Cancel error:', updateError);
+                return respond({ error: 'Failed to cancel wager' }, 500);
+            }
+
+            // Log the cancellation
+            await supabase.from('wager_transactions').insert({
+                wager_id: wagerId,
+                tx_type: 'cancelled',
+                wallet_address: walletAddress,
+                amount_lamports: 0,
+                status: 'confirmed',
+            }).catch(e => console.error('[secure-wager] Failed to log cancellation:', e));
+
+            // Trigger refund via resolve-wager edge function
+            // This will return funds to both players if any were deposited on-chain
+            fetch(`${supabaseUrl}/functions/v1/resolve-wager`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
+                body: JSON.stringify({
+                    action: 'refund_cancelled',
+                    matchId: wager.match_id,
+                    playerAWallet: wager.player_a_wallet,
+                    playerBWallet: wager.player_b_wallet,
+                    wagerId: wager.id,
+                    stakeLamports: wager.stake_lamports,
+                    cancelledBy: walletAddress,
+                    reason: reason || 'user_requested',
+                }),
+            }).catch(e => console.error('[secure-wager] refund call failed:', e));
+
+            // Notify the other player via a notification record
+            const otherPlayerWallet = isPlayerA ? wager.player_b_wallet : wager.player_a_wallet;
+            if (otherPlayerWallet) {
+                await supabase.from('notifications').insert({
+                    wallet_address: otherPlayerWallet,
+                    type: 'wager_cancelled',
+                    title: 'Wager Cancelled',
+                    message: `The wager has been cancelled. Any deposited funds will be refunded.`,
+                    data: { wagerId, cancelledBy: walletAddress, reason: reason || 'user_requested' },
+                }).catch(e => console.error('[secure-wager] Failed to create notification:', e));
+            }
+
+            return respond({ 
+                wager: updatedWager, 
+                message: 'Wager cancelled. Refunds will be processed automatically.',
+                refundInitiated: true,
+            });
         }
 
         return respond({ error: 'Invalid action' }, 400);

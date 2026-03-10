@@ -123,13 +123,41 @@ async function logTransaction(
     amountLamports: number,
     txSignature: string | null = null,
     status: 'pending' | 'confirmed' | 'failed' = 'confirmed',
+    errorMessage: string | null = null,
 ) {
     try {
         await supabase.from('wager_transactions').insert({
-            wager_id: wagerId, tx_type: txType, wallet_address: walletAddress,
-            amount_lamports: amountLamports, tx_signature: txSignature, status,
+            wager_id: wagerId, 
+            tx_type: txType, 
+            wallet_address: walletAddress,
+            amount_lamports: amountLamports, 
+            tx_signature: txSignature, 
+            status,
+            error_message: errorMessage,
+            created_at: new Date().toISOString(),
         });
-    } catch (e) { console.log('⚠️ Transaction log error:', e); }
+    } catch (e) { console.log('Transaction log error:', e); }
+}
+
+async function logError(
+    supabase: ReturnType<typeof createClient>,
+    wagerId: string,
+    errorType: string,
+    errorMessage: string,
+    context: Record<string, unknown> = {},
+) {
+    try {
+        console.error(`[${errorType}] Wager ${wagerId}: ${errorMessage}`, context);
+        await supabase.from('wager_transactions').insert({
+            wager_id: wagerId,
+            tx_type: `error_${errorType}`,
+            wallet_address: context.walletAddress as string || 'system',
+            amount_lamports: 0,
+            status: 'failed',
+            error_message: `${errorType}: ${errorMessage}`,
+            created_at: new Date().toISOString(),
+        });
+    } catch (e) { console.log('Error log failed:', e); }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -178,10 +206,20 @@ serve(async (req) => {
                 let txSig: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
-                    console.log(`✅ resolve_wager tx: ${txSig}`);
-                } catch (onChainErr) {
-                    // Log but don't crash — DB is already updated, funds can be swept manually
-                    console.error('⚠️ On-chain resolve_wager failed:', onChainErr);
+                    console.log(`resolve_wager tx success: ${txSig}`);
+                } catch (onChainErr: any) {
+                    // Log error with full context for debugging
+                    const errorMsg = onChainErr?.message || String(onChainErr);
+                    console.error('On-chain resolve_wager failed:', errorMsg);
+                    
+                    // Log the failure to transactions table
+                    if (wagerId) {
+                        await logError(supabase, wagerId, 'on_chain_resolve', errorMsg, {
+                            walletAddress: winnerWallet,
+                            wagerPda: wagerPda.toBase58(),
+                            matchId,
+                        });
+                    }
                 }
 
                 // Update DB
@@ -248,9 +286,18 @@ serve(async (req) => {
                 let txSig: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
-                    console.log(`✅ close_wager (draw) tx: ${txSig}`);
-                } catch (onChainErr) {
-                    console.error('⚠️ On-chain close_wager failed:', onChainErr);
+                    console.log(`close_wager (draw) tx success: ${txSig}`);
+                } catch (onChainErr: any) {
+                    const errorMsg = onChainErr?.message || String(onChainErr);
+                    console.error('On-chain close_wager (draw) failed:', errorMsg);
+                    
+                    if (wagerId) {
+                        await logError(supabase, wagerId, 'on_chain_draw_refund', errorMsg, {
+                            walletAddress: playerAWallet,
+                            wagerPda: wagerPda.toBase58(),
+                            matchId,
+                        });
+                    }
                 }
 
                 if (wagerId) {
@@ -291,6 +338,77 @@ serve(async (req) => {
                 if (playerAWallet) await logTransaction(supabase, wagerId, 'escrow_deposit', playerAWallet, stakeLamports, txSignature ?? null);
                 if (playerBWallet) await logTransaction(supabase, wagerId, 'escrow_deposit', playerBWallet, stakeLamports, txSignature ?? null);
                 return respond({ success: true });
+            }
+
+            // ── refund_cancelled: refund both players when wager is cancelled ─────
+            case 'refund_cancelled': {
+                const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports, cancelledBy, reason } = body;
+                if (!matchId || !playerAWallet) throw new Error('Missing: matchId, playerAWallet');
+
+                const playerAPubkey = new PublicKey(playerAWallet);
+                const playerBPubkey = playerBWallet ? new PublicKey(playerBWallet) : null;
+                const platformPubkey = new PublicKey(PLATFORM_WALLET);
+                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
+
+                console.log(`Cancelled wager refund PDA: ${wagerPda.toBase58()} | Reason: ${reason}`);
+
+                // Check if PDA has funds (only if on-chain deposits were made)
+                const pdaBalance = await connection.getBalance(wagerPda);
+                let txSig: string | null = null;
+
+                if (pdaBalance > 0 && playerBPubkey) {
+                    // Funds exist on-chain, use close_wager to refund both players
+                    console.log(`PDA has ${pdaBalance} lamports - initiating on-chain refund`);
+                    const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                    try {
+                        txSig = await sendAndConfirm(connection, authority, ix);
+                        console.log(`close_wager (cancelled) tx success: ${txSig}`);
+                    } catch (onChainErr: any) {
+                        const errorMsg = onChainErr?.message || String(onChainErr);
+                        console.error('On-chain close_wager (cancelled) failed:', errorMsg);
+                        
+                        if (wagerId) {
+                            await logError(supabase, wagerId, 'on_chain_cancel_refund', errorMsg, {
+                                walletAddress: cancelledBy,
+                                wagerPda: wagerPda.toBase58(),
+                                matchId,
+                                pdaBalance,
+                            });
+                        }
+                    }
+                } else {
+                    console.log(`No on-chain funds to refund (PDA balance: ${pdaBalance})`);
+                }
+
+                // Update wager status in DB if not already done
+                if (wagerId) {
+                    const { data: wager } = await supabase.from('wagers').select('status').eq('id', wagerId).single();
+                    if (wager?.status !== 'cancelled') {
+                        await supabase.from('wagers').update({
+                            status: 'cancelled',
+                            cancelled_at: new Date().toISOString(),
+                            cancelled_by: cancelledBy,
+                            cancel_reason: reason,
+                        }).eq('id', wagerId);
+                    }
+
+                    // Log refund transactions
+                    const stake = stakeLamports || 0;
+                    if (pdaBalance > 0) {
+                        await logTransaction(supabase, wagerId, 'cancel_refund', playerAWallet, stake, txSig);
+                        if (playerBWallet) {
+                            await logTransaction(supabase, wagerId, 'cancel_refund', playerBWallet, stake, txSig);
+                        }
+                    }
+                }
+
+                return respond({
+                    success: true,
+                    txSignature: txSig,
+                    refunded: pdaBalance > 0,
+                    pdaBalance,
+                    explorerUrl: txSig ? `https://explorer.solana.com/tx/${txSig}?cluster=devnet` : null,
+                });
             }
 
             // ── ban_player ────────────────────────────────────────────────────────
