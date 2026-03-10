@@ -170,6 +170,11 @@ CREATE TABLE wagers (
   winner_wallet TEXT REFERENCES players(wallet_address),
   resolved_at TIMESTAMP WITH TIME ZONE,
   
+  -- Cancellation (for refunds)
+  cancelled_at TIMESTAMP WITH TIME ZONE,
+  cancelled_by TEXT REFERENCES players(wallet_address),
+  cancel_reason TEXT,   -- 'user_cancelled', 'transaction_failed', etc.
+  
   -- Public Access
   is_public BOOLEAN DEFAULT true,
   stream_url TEXT,
@@ -188,9 +193,10 @@ CREATE INDEX idx_wagers_resolved ON wagers(status) WHERE status = 'resolved';
 **Status Flow:**
 1. `created` → Waiting for player B to join
 2. `joined` → Both players present, enter ready room
-3. `voting` → Match in progress
+3. `voting` → Match in progress (after countdown and deposits)
 4. `disputed` → Moderator review needed
 5. `resolved` → Winner determined, payouts processed
+6. `cancelled` → Wager cancelled, refunds processed (can occur from joined/voting)
 
 ---
 
@@ -339,11 +345,23 @@ CREATE TYPE wager_status AS ENUM (
   'joined',       -- Both players ready
   'voting',       -- In progress / voting phase
   'disputed',     -- Moderator review
-  'resolved'      -- Completed with winner
+  'resolved',     -- Completed with winner
+  'cancelled'     -- Cancelled with refunds
 );
 
 -- Transaction Types
-CREATE TYPE transaction_type AS ENUM ('deposit', 'withdraw', 'payout', 'refund');
+CREATE TYPE transaction_type AS ENUM (
+  'deposit',        -- Initial stake deposit
+  'withdraw',       -- Withdrawal request
+  'payout',         -- Winner payout
+  'refund',         -- Refund on draw
+  'cancel_refund',  -- Refund on cancellation
+  'cancelled',      -- Wager cancelled log
+  'error_on_chain_resolve',     -- On-chain resolution failed
+  'error_on_chain_draw_refund', -- On-chain draw refund failed
+  'error_on_chain_cancel_refund', -- On-chain cancel refund failed
+  'error_resolution_call'       -- Resolution API call failed
+);
 
 -- Transaction Status
 CREATE TYPE transaction_status AS ENUM ('pending', 'confirmed', 'failed');

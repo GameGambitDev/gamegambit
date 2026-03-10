@@ -21,17 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Player achievement badges
 - Rate limiting by wallet address
 - Lichess API integration for chess
+- Progressive Web App (PWA) support with offline caching
+- Cancel wager functionality with automatic refunds
+- Animated victory/defeat/draw result modals
+- Comprehensive error logging to wager_transactions table
+- Player notifications when wager is cancelled
 
 ### Changed
 - Upgraded to Next.js 15 with Turbopack
 - Optimized database queries for 200k+ MAU support
 - Improved error handling and user feedback
 - Enhanced mobile responsiveness
+- Reordered wager flow: startGame API now called BEFORE on-chain deposit
+- Improved countdown timing with 500ms buffer for network latency
 
 ### Fixed
 - Race condition in concurrent wager joins
 - Database connection pooling issues
 - Solana transaction confirmation delays
+- "Countdown not complete" error due to timing mismatch (9000ms vs 10000ms)
+- SOL being deducted before game start was confirmed
+- Missing 'cancelled' status in WagerStatus TypeScript type
+- Mobile wallet connection display issues
 
 ## [1.0.0] - 2026-03-09
 
