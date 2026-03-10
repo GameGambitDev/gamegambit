@@ -33,8 +33,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/logo.png',
-        width: 100%,
-        height: 100%,
+        width: 1200,
+        height: 630,
         alt: 'Game Gambit Logo',
       },
     ],
