@@ -85,6 +85,7 @@ export function ReadyRoomModal({
   const [localReady, setLocalReady] = useState(false);
   const [txState, setTxState] = useState<TxState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [otherPlayerInError, setOtherPlayerInError] = useState(false);
 
   const hasTriggeredTx = useRef(false);
 
@@ -107,9 +108,34 @@ export function ReadyRoomModal({
     if (!open) {
       setTxState('idle');
       setErrorMessage(null);
+      setOtherPlayerInError(false);
       hasTriggeredTx.current = false;
     }
   }, [open]);
+
+  // Reset otherPlayerInError when wager status changes or countdown resets
+  useEffect(() => {
+    if (wager?.status === 'voting' || !bothReady) {
+      setOtherPlayerInError(false);
+    }
+  }, [wager?.status, bothReady]);
+
+  // Monitor if other player has hit an error (wager stuck in 'joined' status after countdown)
+  useEffect(() => {
+    if (!wager || !bothReady || !wager.countdown_started_at) return;
+    
+    const checkCountdownExpired = () => {
+      const startTime = new Date(wager.countdown_started_at!).getTime();
+      const elapsed = Date.now() - startTime;
+      // If 12 seconds have passed and wager is still in 'joined', the other player hit an error
+      if (elapsed > 12000 && wager.status === 'joined' && txState === 'idle') {
+        setOtherPlayerInError(true);
+      }
+    };
+    
+    const interval = setInterval(checkCountdownExpired, 1000);
+    return () => clearInterval(interval);
+  }, [wager, bothReady, wager?.countdown_started_at, txState]);
 
   useEffect(() => {
     const startedAt = wager?.countdown_started_at;
@@ -314,38 +340,45 @@ export function ReadyRoomModal({
               </motion.div>
             )}
 
-            {txState === 'error' && (
+            {(txState === 'error' || otherPlayerInError) && (
               <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                 className="p-4 rounded-lg bg-destructive/10 border border-destructive/30 space-y-3"
               >
                 <div className="flex items-start gap-2">
                   <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-destructive">Transaction Failed</p>
+                    <p className="text-sm font-medium text-destructive">
+                      {otherPlayerInError ? 'Waiting for other player...' : 'Transaction Failed'}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {errorMessage || 'Make sure you have enough SOL and try again.'}
+                      {otherPlayerInError 
+                        ? 'The other player encountered an error. You can retry the game start or cancel the wager.'
+                        : errorMessage || 'Make sure you have enough SOL and try again.'
+                      }
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="flex-1 text-xs" 
-                    onClick={() => {
-                      hasTriggeredTx.current = false;
-                      setTxState('idle');
-                      setErrorMessage(null);
-                      triggerGameStartThenDeposit();
-                    }}
-                  >
-                    <Loader2 className="h-3 w-3 mr-1" />
-                    Retry
-                  </Button>
+                  {txState === 'error' && !otherPlayerInError && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1 text-xs" 
+                      onClick={() => {
+                        hasTriggeredTx.current = false;
+                        setTxState('idle');
+                        setErrorMessage(null);
+                        triggerGameStartThenDeposit();
+                      }}
+                    >
+                      <Loader2 className="h-3 w-3 mr-1" />
+                      Retry
+                    </Button>
+                  )}
                   <Button 
                     size="sm" 
                     variant="destructive" 
-                    className="flex-1 text-xs"
+                    className={otherPlayerInError ? 'w-full text-xs' : 'flex-1 text-xs'}
                     onClick={handleCancelWager}
                     disabled={cancelWagerMutation.isPending}
                   >

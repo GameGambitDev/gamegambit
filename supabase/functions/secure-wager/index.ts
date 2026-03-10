@@ -209,12 +209,12 @@ serve(async (req) => {
             if (!wager.ready_player_a || !wager.ready_player_b) return respond({ error: 'Both players must be ready' }, 400);
             if (!wager.countdown_started_at) return respond({ error: 'Countdown not started' }, 400);
             
-            // Use 10_000ms (10s) to match COUNTDOWN_SECONDS in ReadyRoomModal
-            // Add 500ms buffer for network latency
+            // Use 11_000ms (11s) to be safe - accounts for client clock drift and network latency
+            // Client countdown is 10s, but we add 1s buffer for safety
             const elapsed = Date.now() - new Date(wager.countdown_started_at).getTime();
-            if (elapsed < 9_500) {
-                console.log(`[secure-wager] Countdown not complete: elapsed=${elapsed}ms`);
-                return respond({ error: 'Countdown not complete', elapsed, required: 9500 }, 400);
+            if (elapsed < 11_000) {
+                console.log(`[secure-wager] Countdown not complete: elapsed=${elapsed}ms, required=11000ms`);
+                return respond({ error: 'Countdown not complete', elapsed, required: 11000 }, 400);
             }
 
             const { data: updatedWager, error } = await supabase.from('wagers').update({ status: 'voting' }).eq('id', wagerId).select().single();
