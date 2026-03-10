@@ -1,7 +1,7 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import dynamic from 'next/dynamic'
@@ -27,6 +27,7 @@ import { QuickMatchModal } from '@/components/QuickMatchModal'
 import { ReadyRoomModal } from '@/components/ReadyRoomModal'
 import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal'
 import { LiveGameModal } from '@/components/LiveGameModal'
+import { GameResultModal } from '@/components/GameResultModal'
 import { PlayerLink } from '@/components/PlayerLink'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
 import { toast } from 'sonner'
@@ -41,14 +42,7 @@ const getGameData = (game: string) => {
 }
 
 function OpenWagerCard({
-  wager,
-  onJoin,
-  onViewDetails,
-  onEdit,
-  onDelete,
-  isJoining,
-  isOwner,
-  creatorUsername
+  wager, onJoin, onViewDetails, onEdit, onDelete, isJoining, isOwner, creatorUsername
 }: {
   wager: Wager
   onJoin: (id: string) => void
@@ -70,11 +64,7 @@ function OpenWagerCard({
             <div className="text-3xl">{game.icon}</div>
             <div>
               <div className="font-gaming text-sm mb-1">
-                <PlayerLink
-                  walletAddress={wager.player_a_wallet}
-                  username={creatorUsername}
-                  className="font-gaming"
-                />
+                <PlayerLink walletAddress={wager.player_a_wallet} username={creatorUsername} className="font-gaming" />
                 {isOwner && <span className="ml-2 text-xs text-primary">(You)</span>}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -87,31 +77,18 @@ function OpenWagerCard({
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <div className="font-gaming text-lg font-bold text-accent">
-                {formatSol(wager.stake_lamports)} SOL
-              </div>
+              <div className="font-gaming text-lg font-bold text-accent">{formatSol(wager.stake_lamports)} SOL</div>
             </div>
             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
               {isOwner ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => onEdit?.(wager)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => onDelete?.(wager)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => onEdit?.(wager)}><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="destructive" size="sm" onClick={() => onDelete?.(wager)}><Trash2 className="h-4 w-4" /></Button>
                 </>
               ) : (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => onViewDetails(wager)}>
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="neon"
-                    size="sm"
-                    onClick={() => onJoin(wager.id)}
-                    disabled={isJoining}
-                  >
+                  <Button variant="outline" size="sm" onClick={() => onViewDetails(wager)}><Eye className="h-4 w-4" /></Button>
+                  <Button variant="neon" size="sm" onClick={() => onJoin(wager.id)} disabled={isJoining}>
                     {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept'}
                   </Button>
                 </>
@@ -125,11 +102,7 @@ function OpenWagerCard({
 }
 
 function LiveMatchCard({
-  wager,
-  onEnterReadyRoom,
-  onWatchGame,
-  onViewDetails,
-  currentWallet
+  wager, onEnterReadyRoom, onWatchGame, onViewDetails, currentWallet
 }: {
   wager: Wager
   onEnterReadyRoom?: (wagerId: string) => void
@@ -145,13 +118,9 @@ function LiveMatchCard({
   const isInProgress = wager.status === 'voting'
 
   const handleClick = () => {
-    if (isResolved) {
-      onViewDetails?.(wager)
-    } else if (canEnterReadyRoom) {
-      onEnterReadyRoom?.(wager.id)
-    } else if (isInProgress) {
-      onWatchGame?.(wager)
-    }
+    if (isResolved) onViewDetails?.(wager)
+    else if (canEnterReadyRoom) onEnterReadyRoom?.(wager.id)
+    else if (isInProgress) onWatchGame?.(wager)
   }
 
   return (
@@ -184,15 +153,11 @@ function LiveMatchCard({
           <div className="flex items-center gap-3">
             <div className="font-gaming text-accent">{formatSol(wager.stake_lamports * 2)} SOL</div>
             {isResolved ? (
-              <Badge variant="outline" className="cursor-pointer">
-                {wager.winner_wallet ? '🏆 View Result' : '🤝 Draw'}
-              </Badge>
+              <Badge variant="outline" className="cursor-pointer">{wager.winner_wallet ? '🏆 View Result' : '🤝 Draw'}</Badge>
             ) : canEnterReadyRoom ? (
               <Badge variant="joined" className="cursor-pointer">Enter Ready Room</Badge>
             ) : isInProgress && isParticipant ? (
-              <Badge variant="voting" className="cursor-pointer flex items-center gap-1">
-                <Play className="h-3 w-3" /> Watch Game
-              </Badge>
+              <Badge variant="voting" className="cursor-pointer flex items-center gap-1"><Play className="h-3 w-3" /> Watch Game</Badge>
             ) : (
               <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'}>
                 {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
@@ -228,14 +193,29 @@ export default function ArenaPage() {
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
-  const [liveGameWager, setLiveGameWager] = useState<Wager | null>(null)
+
+  // LiveGameModal — keep wager ID so we can pull fresh data from the query cache
+  const [liveGameWagerId, setLiveGameWagerId] = useState<string | null>(null)
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
+
+  // GameResultModal
+  const [gameResultOpen, setGameResultOpen] = useState(false)
+  const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
+  const shownResultForRef = useRef<Set<string>>(new Set())
+
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
 
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
-  // Background polling for all voting wagers — runs even when LiveGameModal is closed
+
+  // Always pull live wager from cache so it stays fresh
+  const liveGameWager = useMemo(() => {
+    if (!liveGameWagerId) return null
+    return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
+  }, [liveGameWagerId, liveWagers])
+
+  // Background polling — runs even when LiveGameModal is closed
   useEffect(() => {
     const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
     if (votingWagers.length === 0) return
@@ -252,7 +232,31 @@ export default function ArenaPage() {
       })
     }, 15000)
     return () => clearInterval(interval)
-  }, [liveWagers, checkGameComplete, queryClient])
+  }, [liveWagers])
+
+  // Watch for resolution — show GameResultModal once per wager
+  useEffect(() => {
+    if (!liveWagers || !walletAddress) return
+    liveWagers.forEach(w => {
+      if (w.status !== 'resolved') return
+      if (shownResultForRef.current.has(w.id)) return
+      // Only show for wagers the current user participated in
+      const isParticipant = w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress
+      if (!isParticipant) return
+
+      shownResultForRef.current.add(w.id)
+
+      // Close LiveGameModal if it was showing this wager
+      if (liveGameWagerId === w.id) {
+        setLiveGameModalOpen(false)
+      }
+
+      // Open result modal
+      setGameResultWager(w)
+      setGameResultOpen(true)
+    })
+  }, [liveWagers, walletAddress])
+
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
   const { data: player } = usePlayer()
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
@@ -264,19 +268,18 @@ export default function ArenaPage() {
   const setReadyMutation = useSetReady()
   const startGameMutation = useStartGame()
   const { isComplete: profileComplete, needsSetup } = useIsProfileComplete()
-
   const { data: searchedPlayers } = useSearchPlayers(searchQuery)
+
+  const { data: winnerPlayerA } = usePlayerByWallet(gameResultWager?.player_a_wallet || null)
+  const { data: winnerPlayerB } = usePlayerByWallet(gameResultWager?.player_b_wallet || null)
+  const gameResultWinnerUsername = gameResultWager?.winner_wallet === gameResultWager?.player_a_wallet
+    ? winnerPlayerA?.username
+    : winnerPlayerB?.username
 
   const wagerWalletAddresses = useMemo(() => {
     const addresses = new Set<string>()
-    openWagers?.forEach(w => {
-      addresses.add(w.player_a_wallet)
-      if (w.player_b_wallet) addresses.add(w.player_b_wallet)
-    })
-    liveWagers?.forEach(w => {
-      addresses.add(w.player_a_wallet)
-      if (w.player_b_wallet) addresses.add(w.player_b_wallet)
-    })
+    openWagers?.forEach(w => { addresses.add(w.player_a_wallet); if (w.player_b_wallet) addresses.add(w.player_b_wallet) })
+    liveWagers?.forEach(w => { addresses.add(w.player_a_wallet); if (w.player_b_wallet) addresses.add(w.player_b_wallet) })
     return Array.from(addresses)
   }, [openWagers, liveWagers])
 
@@ -284,12 +287,8 @@ export default function ArenaPage() {
 
   const playerUsernameMap = useMemo(() => {
     const map: Record<string, string | null> = {}
-    wagerPlayers?.forEach(p => {
-      map[p.wallet_address.toLowerCase()] = p.username
-    })
-    searchedPlayers?.forEach(p => {
-      map[p.wallet_address.toLowerCase()] = p.username
-    })
+    wagerPlayers?.forEach(p => { map[p.wallet_address.toLowerCase()] = p.username })
+    searchedPlayers?.forEach(p => { map[p.wallet_address.toLowerCase()] = p.username })
     return map
   }, [wagerPlayers, searchedPlayers])
 
@@ -298,11 +297,10 @@ export default function ArenaPage() {
     if (!searchQuery.trim()) return openWagers
     const query = searchQuery.toLowerCase()
     const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || []
-    return openWagers.filter(wager => {
-      if (wager.player_a_wallet.toLowerCase().includes(query)) return true
-      if (matchedWallets.includes(wager.player_a_wallet.toLowerCase())) return true
-      return false
-    })
+    return openWagers.filter(wager =>
+      wager.player_a_wallet.toLowerCase().includes(query) ||
+      matchedWallets.includes(wager.player_a_wallet.toLowerCase())
+    )
   }, [openWagers, searchQuery, searchedPlayers])
 
   const filteredLiveWagers = useMemo(() => {
@@ -310,13 +308,12 @@ export default function ArenaPage() {
     if (!searchQuery.trim()) return liveWagers
     const query = searchQuery.toLowerCase()
     const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || []
-    return liveWagers.filter(wager => {
-      if (wager.player_a_wallet.toLowerCase().includes(query)) return true
-      if (wager.player_b_wallet?.toLowerCase().includes(query)) return true
-      if (matchedWallets.includes(wager.player_a_wallet.toLowerCase())) return true
-      if (wager.player_b_wallet && matchedWallets.includes(wager.player_b_wallet.toLowerCase())) return true
-      return false
-    })
+    return liveWagers.filter(wager =>
+      wager.player_a_wallet.toLowerCase().includes(query) ||
+      wager.player_b_wallet?.toLowerCase().includes(query) ||
+      matchedWallets.includes(wager.player_a_wallet.toLowerCase()) ||
+      (wager.player_b_wallet && matchedWallets.includes(wager.player_b_wallet.toLowerCase()))
+    )
   }, [liveWagers, searchQuery, searchedPlayers])
 
   const handleQuickMatch = () => {
@@ -371,7 +368,6 @@ export default function ArenaPage() {
   }
 
   useEffect(() => {
-    // Only fire if wager is in 'joined' status — not if game already started/resolved
     if (
       readyRoomWager?.ready_player_a &&
       readyRoomWager?.ready_player_b &&
@@ -409,15 +405,25 @@ export default function ArenaPage() {
     }
   }
 
-  // Resolved games go to WagerDetailsModal; in-progress go to LiveGameModal
   const handleWatchGame = (wager: Wager) => {
     if (wager.status === 'resolved' || (wager.status as string) === 'closed') {
       handleViewDetails(wager)
     } else {
-      setLiveGameWager(wager)
+      setLiveGameWagerId(wager.id)
       setLiveGameModalOpen(true)
     }
   }
+
+  // Derive GameResultModal props
+  const gameResultTotalPot = (gameResultWager?.stake_lamports ?? 0) * 2
+  const gameResultPlatformFee = Math.floor(gameResultTotalPot * 0.1)
+  const gameResultPayout = gameResultTotalPot - gameResultPlatformFee
+  const gameResultIsDraw = gameResultWager?.status === 'resolved' && !gameResultWager?.winner_wallet
+  const gameResultType: 'win' | 'lose' | 'draw' = gameResultIsDraw
+    ? 'draw'
+    : gameResultWager?.winner_wallet === walletAddress
+      ? 'win'
+      : 'lose'
 
   if (!connected) {
     return (
@@ -451,16 +457,13 @@ export default function ArenaPage() {
           className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8"
         >
           <div>
-            <h1 className="text-3xl font-bold mb-2 font-gaming">
-              <span className="gradient-text">Arena</span>
-            </h1>
+            <h1 className="text-3xl font-bold mb-2 font-gaming"><span className="gradient-text">Arena</span></h1>
             <p className="text-muted-foreground">Find opponents and stake your claim</p>
           </div>
           <div className="flex gap-3">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Button variant="neon" className="group" onClick={handleCreateWager}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Wager
+                <Plus className="h-4 w-4 mr-2" />Create Wager
               </Button>
             </motion.div>
           </div>
@@ -482,33 +485,18 @@ export default function ArenaPage() {
             />
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleQuickMatch}
-              disabled={quickMatch.isPending}
-              className="hover:border-primary/50 hover:shadow-neon transition-all"
-            >
-              {quickMatch.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Zap className="h-4 w-4 mr-2" />
-              )}
+            <Button variant="outline" onClick={handleQuickMatch} disabled={quickMatch.isPending} className="hover:border-primary/50 hover:shadow-neon transition-all">
+              {quickMatch.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
               Quick Match
             </Button>
-            <Button variant="ghost" size="icon">
-              <Filter className="h-4 w-4" />
-            </Button>
+            <Button variant="ghost" size="icon"><Filter className="h-4 w-4" /></Button>
           </div>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             {/* Live Matches */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
               <div className="flex items-center gap-2 mb-4">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
@@ -517,11 +505,8 @@ export default function ArenaPage() {
                 <h2 className="font-gaming text-lg">Live Matches</h2>
                 <Badge variant="outline" className="ml-auto">{filteredLiveWagers.length}</Badge>
               </div>
-
               {liveLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                </div>
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
               ) : filteredLiveWagers.length > 0 ? (
                 <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                   {filteredLiveWagers.map((wager) => (
@@ -537,27 +522,18 @@ export default function ArenaPage() {
                   ))}
                 </motion.div>
               ) : (
-                <Card variant="gaming" className="p-6 text-center text-muted-foreground">
-                  No live matches right now
-                </Card>
+                <Card variant="gaming" className="p-6 text-center text-muted-foreground">No live matches right now</Card>
               )}
             </motion.div>
 
             {/* Open Wagers */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="font-gaming text-lg">Open Wagers</h2>
                 <Badge variant="outline" className="ml-auto">{filteredOpenWagers.length}</Badge>
               </div>
-
               {openLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                </div>
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
               ) : filteredOpenWagers.length > 0 ? (
                 <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                   {filteredOpenWagers.map((wager) => (
@@ -576,21 +552,14 @@ export default function ArenaPage() {
                   ))}
                 </motion.div>
               ) : (
-                <EmptyState
-                  title="No Open Wagers"
-                  description="Be the first to create a wager and challenge others!"
-                />
+                <EmptyState title="No Open Wagers" description="Be the first to create a wager and challenge others!" />
               )}
             </motion.div>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
               <Card variant="gaming" className="p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="p-2 rounded-lg bg-primary/20">
@@ -606,11 +575,7 @@ export default function ArenaPage() {
               </Card>
             </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
               <Card variant="gaming">
                 <div className="p-4 border-b border-border/50">
                   <div className="flex items-center gap-2">
@@ -620,9 +585,7 @@ export default function ArenaPage() {
                 </div>
                 <div className="p-4">
                   {winnersLoading ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                    </div>
+                    <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
                   ) : recentWinners && recentWinners.length > 0 ? (
                     <div className="space-y-3">
                       {recentWinners.map((wager) => {
@@ -650,18 +613,10 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      <CreateWagerModal
-        open={createModalOpen}
-        onOpenChange={setCreateModalOpen}
-        onSuccess={() => setCreateModalOpen(false)}
-      />
+      {/* ── Modals ── */}
+      <CreateWagerModal open={createModalOpen} onOpenChange={setCreateModalOpen} onSuccess={() => setCreateModalOpen(false)} />
 
-      <QuickMatchModal
-        open={quickMatchModalOpen}
-        onOpenChange={setQuickMatchModalOpen}
-        onMatch={handleQuickMatchSubmit}
-        isPending={quickMatch.isPending}
-      />
+      <QuickMatchModal open={quickMatchModalOpen} onOpenChange={setQuickMatchModalOpen} onMatch={handleQuickMatchSubmit} isPending={quickMatch.isPending} />
 
       <WagerDetailsModal
         wager={selectedWager}
@@ -679,10 +634,7 @@ export default function ArenaPage() {
         onOpenChange={(open) => !open && setReadyRoomWagerId(null)}
         onReady={handleSetReady}
         onEditWager={() => {
-          if (readyRoomWager) {
-            setEditWager(readyRoomWager)
-            setEditModalOpen(true)
-          }
+          if (readyRoomWager) { setEditWager(readyRoomWager); setEditModalOpen(true) }
         }}
         isSettingReady={setReadyMutation.isPending}
         currentWallet={walletAddress}
@@ -691,23 +643,38 @@ export default function ArenaPage() {
       <EditWagerModal
         wager={editWager}
         open={editModalOpen}
-        onOpenChange={(open) => {
-          setEditModalOpen(open)
-          if (!open) setEditWager(null)
-        }}
+        onOpenChange={(open) => { setEditModalOpen(open); if (!open) setEditWager(null) }}
         onSave={handleSaveEditWager}
         isSaving={editWagerMutation.isPending}
         canEditGameId={editWager?.status === 'created'}
       />
 
+      {/* LiveGameModal — receives fresh wager from query cache */}
       <LiveGameModal
         wager={liveGameWager}
         open={liveGameModalOpen}
         onOpenChange={(open) => {
           setLiveGameModalOpen(open)
-          if (!open) setLiveGameWager(null)
+          if (!open) setLiveGameWagerId(null)
         }}
         currentWallet={walletAddress}
+      />
+
+      {/* GameResultModal — pops automatically when wager resolves */}
+      <GameResultModal
+        open={gameResultOpen}
+        onOpenChange={setGameResultOpen}
+        result={gameResultType}
+        winnerWallet={gameResultWager?.winner_wallet}
+        winnerUsername={gameResultWinnerUsername}
+        totalPot={gameResultTotalPot}
+        platformFee={gameResultPlatformFee}
+        winnerPayout={gameResultPayout}
+        refundAmount={gameResultWager?.stake_lamports}
+        onViewDetails={() => {
+          setGameResultOpen(false)
+          if (gameResultWager) handleViewDetails(gameResultWager)
+        }}
       />
     </div>
   )
