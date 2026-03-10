@@ -5,7 +5,7 @@ import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
 
-export type WagerStatus = 'created' | 'joined' | 'voting' | 'retractable' | 'disputed' | 'resolved';
+export type WagerStatus = 'created' | 'joined' | 'voting' | 'retractable' | 'disputed' | 'resolved' | 'cancelled';
 export type GameType = 'chess' | 'codm' | 'pubg';
 
 export interface Wager {
@@ -26,6 +26,9 @@ export interface Wager {
   vote_timestamp: string | null;
   retract_deadline: string | null;
   resolved_at: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancel_reason: string | null;
   created_at: string;
   updated_at: string;
   ready_player_a: boolean | null;

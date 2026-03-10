@@ -172,6 +172,51 @@ Resolve a completed wager with a winner.
 
 ---
 
+#### Cancel Wager
+Cancel a wager and initiate refunds to both players. Can only be called by participants when wager is in 'joined' or 'voting' status.
+
+**POST** `/wagers/{wager_id}/cancel`
+
+##### Request Body
+```json
+{
+  "reason": "transaction_failed"
+}
+```
+
+##### Parameters
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reason` | `string` | No | Reason for cancellation: `user_cancelled`, `transaction_failed`, `timeout` |
+
+##### Response
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "cancelled",
+  "cancelled_at": "2026-03-09T10:40:00Z",
+  "cancelled_by": "G1R2k...",
+  "cancel_reason": "transaction_failed",
+  "message": "Wager cancelled. Refunds will be processed automatically.",
+  "refundInitiated": true
+}
+```
+
+##### Error Responses
+| Status | Code | Description |
+|--------|------|-------------|
+| `400` | `INVALID_STATUS` | Wager cannot be cancelled in current status |
+| `403` | `NOT_PARTICIPANT` | Only participants can cancel the wager |
+| `404` | `NOT_FOUND` | Wager not found |
+
+##### Notes
+- Cancellation triggers automatic refunds to both players
+- The other player receives a notification about the cancellation
+- All deposited funds are returned (minus any gas fees)
+- Cancellation is logged in `wager_transactions` table
+
+---
+
 #### Get Wager Details
 Get details of a specific wager.
 
@@ -212,7 +257,7 @@ Get paginated list of active wagers.
 ##### Query Parameters
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `status` | `string` | - | Filter by status: created, joined, voting, disputed, resolved |
+| `status` | `string` | - | Filter by status: created, joined, voting, disputed, resolved, cancelled |
 | `game` | `string` | - | Filter by game: chess, codm, pubg |
 | `limit` | `number` | 50 | Results per page (max 100) |
 | `offset` | `number` | 0 | Pagination offset |

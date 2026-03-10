@@ -19,6 +19,8 @@
 - **NFT Rewards**: Victory NFTs for achievements and streaks
 - **Transaction History**: Complete audit trail of all blockchain transactions
 - **Performance Optimized**: Handles 200k+ MAUs with sub-100ms query latency
+- **Progressive Web App**: Installable on iOS/Android with offline support
+- **Mobile Optimized**: Fully responsive design with mobile-first approach
 
 ## Tech Stack
 
@@ -151,6 +153,17 @@ gamegambit/
 Players create wagers by selecting a game, stake amount, and opponent. Transactions are settled on Solana with automatic payouts.
 
 **Flow**: Create → Join → Ready Room → Match → Voting → Resolution
+
+#### Error Recovery & Refunds
+- **Cancel Wager**: Players can cancel during ready room if errors occur
+- **Automatic Refunds**: Both players automatically refunded on cancellation
+- **Error Notifications**: Other player notified when wager is cancelled
+- **Transaction Logging**: All errors logged for debugging and support
+
+#### Game Results
+- **Victory Screen**: Animated trophy with confetti for winners
+- **Defeat Screen**: Consolation message with winner info for losers
+- **Draw Screen**: Refund information with scale animation
 
 #### Multi-Game Support
 - **Chess**: Integrated with Lichess API for live game data
@@ -286,6 +299,39 @@ See `src/lib/rate-limiting.ts` for implementation.
 - **SQL Injection Prevention**: Parameterized queries throughout
 - **Input Validation**: Zod schemas on all API endpoints
 
+## Progressive Web App (PWA)
+
+Game Gambit is fully configured as a Progressive Web App, allowing players to:
+
+### Features
+- **Install on Home Screen**: Add to iOS/Android home screen without app store
+- **Offline Support**: Access cached content when disconnected from internet
+- **Push Notifications**: Real-time alerts for match invitations and results
+- **Fast Loading**: Service worker caches assets for lightning-fast load times
+- **App-like Experience**: Standalone fullscreen mode without browser UI
+
+### Installation
+
+**On Mobile:**
+1. Open Game Gambit in your mobile browser
+2. Look for "Add to Home Screen" or "Install App" prompt
+3. Tap to install - the app will appear as a native app on your home screen
+
+**On Desktop (Chrome/Edge):**
+1. Visit the site and click the install icon in the address bar (if present)
+2. Or right-click → Create shortcut
+
+### PWA Configuration
+- **Manifest**: `/public/manifest.json` - App metadata and icons
+- **Service Worker**: `/public/sw.js` - Caching and offline support
+- **Setup Component**: `src/components/PWASetup.tsx` - Initialization logic
+
+### Offline Capabilities
+- View cached player profiles and leaderboard
+- Browse recent match history
+- Check wallet balance (last synced data)
+- Create wagers queue (synced when online)
+
 ## Contributing
 
 1. Fork the repository
@@ -312,160 +358,9 @@ For issues, questions, or suggestions:
 - [ ] Streaming integration (Twitch, YouTube)
 - [ ] Advanced analytics dashboard
 - [ ] Cross-chain settlement (Ethereum, Polygon)
+- [ ] Web3 messaging for direct player communication
+- [ ] Sponsor integration for prize pools
 
 ---
 
 **Made with ❤️ by Web3ProdigyDev**
-
-When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
-
-```
-NODE_OPTIONS=--no-experimental-fetch yarn add supabase
-```
-
-> **Note**
-For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
-
-<details>
-  <summary><b>macOS</b></summary>
-
-  Available via [Homebrew](https://brew.sh). To install:
-
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To install the beta release channel:
-  
-  ```sh
-  brew install supabase/tap/supabase-beta
-  brew link --overwrite supabase-beta
-  ```
-  
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Windows</b></summary>
-
-  Available via [Scoop](https://scoop.sh). To install:
-
-  ```powershell
-  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-  scoop install supabase
-  ```
-
-  To upgrade:
-
-  ```powershell
-  scoop update supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Linux</b></summary>
-
-  Available via [Homebrew](https://brew.sh) and Linux packages.
-
-  #### via Homebrew
-
-  To install:
-
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-
-  #### via Linux packages
-
-  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
-
-  ```sh
-  sudo apk add --allow-untrusted <...>.apk
-  ```
-
-  ```sh
-  sudo dpkg -i <...>.deb
-  ```
-
-  ```sh
-  sudo rpm -i <...>.rpm
-  ```
-
-  ```sh
-  sudo pacman -U <...>.pkg.tar.zst
-  ```
-</details>
-
-<details>
-  <summary><b>Other Platforms</b></summary>
-
-  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
-
-  ```sh
-  go install github.com/supabase/cli@latest
-  ```
-
-  Add a symlink to the binary in `$PATH` for easier access:
-
-  ```sh
-  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
-  ```
-
-  This works on other non-standard Linux distros.
-</details>
-
-<details>
-  <summary><b>Community Maintained Packages</b></summary>
-
-  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
-  To install in your working directory:
-
-  ```bash
-  pkgx install supabase
-  ```
-
-  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
-</details>
-
-### Run the CLI
-
-```bash
-supabase bootstrap
-```
-
-Or using npx:
-
-```bash
-npx supabase bootstrap
-```
-
-The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
-
-## Docs
-
-Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
-
-## Breaking changes
-
-We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
-
-However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
-
-## Developing
-
-To run from source:
-
-```sh
-# Go >= 1.22
-go run . help
-```
