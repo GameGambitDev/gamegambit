@@ -12,6 +12,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { useAutoCreatePlayer } from '@/hooks/useAutoCreatePlayer'
+import { PWAInstallPrompt, ServiceWorkerUpdater } from '@/components/PWASetup'
 
 import '@solana/wallet-adapter-react-ui/styles.css'
 
@@ -51,6 +52,8 @@ export function Providers({ children }: ProvidersProps) {
         <WalletProvider wallets={wallets} autoConnect>
           <WalletModalProvider>
             <TooltipProvider>
+              <PWAInstallPrompt />
+              <ServiceWorkerUpdater />
               <AutoPlayerSetup />
               {children}
               <Toaster />

@@ -50,21 +50,52 @@ export default function DashboardPage() {
 
   if (!connected) {
     return (
-      <div className="py-8 pb-16">
+      <div className="py-8 pb-16 min-h-screen flex flex-col items-center justify-center">
         <div className="container px-4">
-          <div className="max-w-md mx-auto text-center py-20">
-            <div className="mb-8">
-              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6 animate-glow-pulse">
-                <Activity className="h-10 w-10 text-primary" />
+          <div className="max-w-sm mx-auto text-center py-12">
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 200 }}
+              className="mb-8"
+            >
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center mx-auto mb-6 animate-pulse border-2 border-primary/50">
+                <Activity className="h-12 w-12 text-primary" />
               </div>
-              <h1 className="text-3xl font-bold mb-4 font-gaming">Your Dashboard</h1>
-              <p className="text-muted-foreground mb-8">
-                Connect your wallet to view your dashboard.
+            </motion.div>
+            
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <h1 className="text-2xl sm:text-3xl font-bold mb-3 font-gaming">
+                Welcome to <span className="text-primary">Game Gambit</span>
+              </h1>
+              <p className="text-sm sm:text-base text-muted-foreground mb-6">
+                Connect your Solana wallet to access your dashboard and start playing competitive matches.
               </p>
-            </div>
-            <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-8 [&_.wallet-adapter-button]:hover:!shadow-neon">
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-6 [&_.wallet-adapter-button]:!text-sm [&_.wallet-adapter-button]:sm:!h-14 [&_.wallet-adapter-button]:sm:!px-8 [&_.wallet-adapter-button]:sm:!text-base [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all mb-6"
+            >
               <WalletMultiButton />
-            </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="mt-8 p-4 rounded-lg bg-muted/40 border border-border/50"
+            >
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                We support all major Solana wallets including Phantom, Magic Eden, and more.
+              </p>
+            </motion.div>
           </div>
         </div>
       </div>

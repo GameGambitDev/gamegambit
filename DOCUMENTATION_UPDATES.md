@@ -232,7 +232,7 @@ gamegambit/
 ### 10. **Logo & Favicon** ✨ NEW ASSETS
 **Status**: Added official Game Gambit branding  
 **Files Created**: 
-- `/public/logo.png` (1200x630px - PNG format)
+- `/public/logo.png` (1200x1200px - PNG format)
 - `/public/favicon.png` (icon version - PNG format)
 
 **Branding Design Features**:

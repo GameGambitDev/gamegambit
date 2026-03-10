@@ -21,9 +21,10 @@ export const metadata: Metadata = {
   description: 'Challenge opponents, stake SOL, and prove your skills in competitive gaming matches. Built on Solana for instant, secure transactions.',
   keywords: ['gaming', 'wagers', 'solana', 'competitive', 'esports', 'chess', 'codm', 'pubg'],
   authors: [{ name: 'Game Gambit Team' }],
+  manifest: '/manifest.json',
   icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon.ico',
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
     apple: '/logo.png',
   },
   openGraph: {
@@ -34,7 +35,7 @@ export const metadata: Metadata = {
       {
         url: '/logo.png',
         width: 1200,
-        height: 1200,
+        height: 630,
         alt: 'Game Gambit Logo',
       },
     ],
@@ -48,11 +49,12 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#00ffff',
+  themeColor: '#9945FF',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
