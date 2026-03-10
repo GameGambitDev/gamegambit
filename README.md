@@ -17,10 +17,12 @@
 - **Real-Time Leaderboard**: Live player rankings with skill ratings
 - **Voting System**: Dispute resolution with player voting
 - **NFT Rewards**: Victory NFTs for achievements and streaks
-- **Transaction History**: Complete audit trail of all blockchain transactions
+- **Transaction History**: Complete audit trail of all blockchain transactions with Solana Explorer links
 - **Performance Optimized**: Handles 200k+ MAUs with sub-100ms query latency
 - **Progressive Web App**: Installable on iOS/Android with offline support
 - **Mobile Optimized**: Fully responsive design with mobile-first approach
+- **Automated Fund Distribution**: Funds automatically distributed to winners post-game with on-chain validation
+- **Animated Game Results**: Victory/defeat/draw modals with confetti and animations auto-trigger on resolution
 
 ## Tech Stack
 
@@ -89,6 +91,17 @@ pnpm lint
 ```
 
 Visit `http://localhost:3000` to see the application.
+
+### Database Setup
+
+After deploying wager cancellation features, you need to update your database schema:
+
+**See [SETUP_WAGER_CANCELLATION.md](./SETUP_WAGER_CANCELLATION.md) for detailed instructions.**
+
+Quick setup:
+1. Go to Supabase SQL Editor
+2. Run the SQL in `WAGER_CANCELLATION_SETUP.sql`
+3. Verify columns were created
 
 ## Project Structure
 

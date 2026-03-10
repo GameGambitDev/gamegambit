@@ -440,9 +440,22 @@ Get all transactions for a player.
 #### Transaction Fields
 | Field | Type | Description |
 |-------|------|-------------|
-| `tx_type` | `string` | deposit, withdraw, payout, refund |
+| `tx_type` | `string` | `deposit`, `withdraw`, `payout`, `refund`, `cancel_refund`, `cancelled`, `error_on_chain_resolve`, `error_resolution_call` |
 | `status` | `string` | pending, confirmed, failed |
 | `tx_signature` | `string` | Solana transaction hash |
+| `error_message` | `string` | Error details if status is failed |
+
+#### Transaction Types Reference
+| Type | Description |
+|------|-------------|
+| `deposit` | Initial stake deposited to wager |
+| `withdraw` | Player withdrawal request |
+| `payout` | Winner receives winnings |
+| `refund` | Refund on draw (both players get funds back) |
+| `cancel_refund` | Refund when wager was cancelled |
+| `cancelled` | Log entry for wager cancellation |
+| `error_on_chain_resolve` | Error occurred during on-chain resolution to winner |
+| `error_resolution_call` | Error occurred during resolution API call |
 
 ---
 

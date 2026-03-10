@@ -17,15 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Real-time leaderboard with skill rating system
 - NFT reward system with tier progression
 - Voting-based dispute resolution
-- Transaction history tracking
+- Transaction history tracking with Solana Explorer URLs
 - Player achievement badges
 - Rate limiting by wallet address
 - Lichess API integration for chess
 - Progressive Web App (PWA) support with offline caching
 - Cancel wager functionality with automatic refunds
-- Animated victory/defeat/draw result modals
+- Animated victory/defeat/draw result modals with confetti
 - Comprehensive error logging to wager_transactions table
 - Player notifications when wager is cancelled
+- Auto-opening GameResultModal on wager resolution
+- Background polling for voting wagers (15s intervals)
+- `resolveOnChain()` helper for direct Solana resolution
+- Explorer URL in `checkGameComplete` API response
 
 ### Changed
 - Upgraded to Next.js 15 with Turbopack
@@ -33,16 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved error handling and user feedback
 - Enhanced mobile responsiveness
 - Reordered wager flow: startGame API now called BEFORE on-chain deposit
-- Improved countdown timing with 500ms buffer for network latency
+- Improved countdown timing with 11s buffer for network latency and clock drift
+- **CRITICAL: Inlined Solana resolution logic directly into secure-wager (eliminated resolve-wager edge function)**
+- `resolve-wager` edge function removed; all resolution happens in `secure-wager`
 
 ### Fixed
+- **CRITICAL: Funds never distributed after game ended** - fire-and-forget fetch() silently failed; now inlined in secure-wager
+- **CRITICAL: wager_transactions table always empty** - missing enum values for tx_type; added `cancelled`, `cancel_refund`, `error_on_chain_resolve`, `error_resolution_call`
+- **CRITICAL: GameResultModal never appeared** - added useEffect watcher in arena/page.tsx to detect wager resolution
+- **CRITICAL: liveGameWager was stale** - now stores ID only, derives from live query cache
 - Race condition in concurrent wager joins
 - Database connection pooling issues
 - Solana transaction confirmation delays
-- "Countdown not complete" error due to timing mismatch (9000ms vs 10000ms)
+- "Countdown not complete" error due to timing mismatch
 - SOL being deducted before game start was confirmed
 - Missing 'cancelled' status in WagerStatus TypeScript type
 - Mobile wallet connection display issues
+- Solana program `resolve_wager` now accepts `WagerStatus::Joined` (rebuilt and redeployed)
 
 ## [1.0.0] - 2026-03-09
 
