@@ -19,7 +19,6 @@ const PLATFORM_WALLET = new PublicKey("3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiC
 const RPC_URL = "https://api.devnet.solana.com";
 const ADMIN_WALLET = Deno.env.get("ADMIN_WALLET") ?? "";
 
-// Instruction discriminators from IDL
 const DISCRIMINATORS = {
     resolve_wager: new Uint8Array([31, 179, 1, 228, 83, 224, 1, 123]),
     close_wager: new Uint8Array([167, 240, 85, 147, 127, 50, 69, 203]),
@@ -44,7 +43,7 @@ function deriveWagerPDA(playerAWallet: string, matchId: bigint): PublicKey {
     const view = new DataView(matchIdBytes.buffer);
     view.setBigUint64(0, matchId, true);
     const [pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("wager"), playerAPubkey.toBytes(), matchIdBytes],
+        [new TextEncoder().encode("wager"), playerAPubkey.toBytes(), matchIdBytes],
         PROGRAM_ID
     );
     return pda;
@@ -76,7 +75,6 @@ async function forceResolve(
     adminWallet: string,
     notes: string | null
 ) {
-    // Fetch wager
     const { data: wager, error } = await supabase
         .from("wagers")
         .select("*")
@@ -85,7 +83,6 @@ async function forceResolve(
 
     if (error || !wager) throw new Error("Wager not found");
 
-    // Validate winner is a participant
     if (winnerWallet !== wager.player_a_wallet && winnerWallet !== wager.player_b_wallet) {
         throw new Error("Winner must be a participant in this wager");
     }
@@ -96,11 +93,9 @@ async function forceResolve(
 
     const authority = getAuthority();
     const connection = new Connection(RPC_URL, "confirmed");
-
     const wagerPDA = deriveWagerPDA(wager.player_a_wallet, BigInt(wager.match_id));
     const winnerPubkey = new PublicKey(winnerWallet);
 
-    // Build resolve_wager instruction
     const ix = new TransactionInstruction({
         programId: PROGRAM_ID,
         keys: [
@@ -110,22 +105,18 @@ async function forceResolve(
             { pubkey: PLATFORM_WALLET, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: Buffer.from(DISCRIMINATORS.resolve_wager),
+        data: DISCRIMINATORS.resolve_wager,
     });
 
     const tx = new Transaction().add(ix);
-    const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
-        commitment: "confirmed",
-    });
+    const sig = await sendAndConfirmTransaction(connection, tx, [authority], { commitment: "confirmed" });
 
-    // Update DB
     await supabase.from("wagers").update({
         status: "resolved",
         winner_wallet: winnerWallet,
         resolved_at: new Date().toISOString(),
     }).eq("id", wagerId);
 
-    // Log transaction
     const totalPot = wager.stake_lamports * 2;
     const platformFee = Math.floor(totalPot * 0.1);
     const winnerPayout = totalPot - platformFee;
@@ -172,10 +163,8 @@ async function forceRefund(
 
     const authority = getAuthority();
     const connection = new Connection(RPC_URL, "confirmed");
-
     const wagerPDA = deriveWagerPDA(wager.player_a_wallet, BigInt(wager.match_id));
 
-    // Check PDA balance first
     const pdaBalance = await connection.getBalance(wagerPDA);
     if (pdaBalance === 0) throw new Error("PDA is empty — funds may have already been distributed");
 
@@ -191,22 +180,18 @@ async function forceRefund(
             { pubkey: authority.publicKey, isSigner: true, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: Buffer.from(DISCRIMINATORS.close_wager),
+        data: DISCRIMINATORS.close_wager,
     });
 
     const tx = new Transaction().add(ix);
-    const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
-        commitment: "confirmed",
-    });
+    const sig = await sendAndConfirmTransaction(connection, tx, [authority], { commitment: "confirmed" });
 
-    // Update DB
     await supabase.from("wagers").update({
         status: "cancelled",
         cancelled_at: new Date().toISOString(),
         cancel_reason: "admin_force_refund",
     }).eq("id", wagerId);
 
-    // Log transactions
     await supabase.from("wager_transactions").insert([
         { wager_id: wagerId, wallet_address: wager.player_a_wallet, tx_type: "cancel_refund", amount_lamports: wager.stake_lamports, tx_signature: sig, status: "confirmed" },
         { wager_id: wagerId, wallet_address: wager.player_b_wallet, tx_type: "cancel_refund", amount_lamports: wager.stake_lamports, tx_signature: sig, status: "confirmed" },
@@ -355,20 +340,9 @@ Deno.serve(async (req) => {
     }
 
     try {
-        // Auth: must use service role key
-        const authHeader = req.headers.get("Authorization") ?? "";
-        const token = authHeader.replace("Bearer ", "");
-        if (token !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
-            return new Response(JSON.stringify({ error: "Unauthorized" }), {
-                status: 401,
-                headers: { ...CORS, "Content-Type": "application/json" },
-            });
-        }
-
         const body = await req.json();
         const { action, adminWallet, notes } = body;
 
-        // Verify adminWallet matches env
         if (!ADMIN_WALLET || adminWallet !== ADMIN_WALLET) {
             return new Response(JSON.stringify({ error: "Forbidden: invalid admin wallet" }), {
                 status: 403,
@@ -390,19 +364,19 @@ Deno.serve(async (req) => {
                 result = await markDisputed(supabase, body.wagerId, adminWallet, notes ?? null);
                 break;
             case "banPlayer":
-                result = await banPlayer(supabase, body.walletAddress, body.reason, adminWallet);
+                result = await banPlayer(supabase, body.playerWallet, body.reason, adminWallet);
                 break;
             case "unbanPlayer":
-                result = await unbanPlayer(supabase, body.walletAddress, adminWallet);
+                result = await unbanPlayer(supabase, body.playerWallet, adminWallet);
                 break;
             case "flagPlayer":
-                result = await flagPlayer(supabase, body.walletAddress, body.reason, adminWallet);
+                result = await flagPlayer(supabase, body.playerWallet, body.reason, adminWallet);
                 break;
             case "checkPdaBalance":
                 result = await checkPdaBalance(supabase, body.wagerId, adminWallet);
                 break;
             case "addNote":
-                result = await addNote(supabase, body.wagerId ?? null, body.walletAddress ?? null, body.note, adminWallet);
+                result = await addNote(supabase, body.wagerId ?? null, body.playerWallet ?? null, body.note, adminWallet);
                 break;
             default:
                 return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
