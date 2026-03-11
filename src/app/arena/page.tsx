@@ -202,6 +202,7 @@ export default function ArenaPage() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const shownResultForRef = useRef<Set<string>>(new Set())
+  const liveWagerSnapshotRef = useRef<Wager | null>(null)
 
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
@@ -212,7 +213,9 @@ export default function ArenaPage() {
   // Always pull live wager from cache so it stays fresh
   const liveGameWager = useMemo(() => {
     if (!liveGameWagerId) return null
-    return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
+    const found = liveWagers?.find(w => w.id === liveGameWagerId) ?? null
+    if (found) liveWagerSnapshotRef.current = found   // keep snapshot while visible
+    return found ?? liveWagerSnapshotRef.current       // fall back after resolution
   }, [liveGameWagerId, liveWagers])
 
   // Background polling — runs even when LiveGameModal is closed
@@ -655,7 +658,10 @@ export default function ArenaPage() {
         open={liveGameModalOpen}
         onOpenChange={(open) => {
           setLiveGameModalOpen(open)
-          if (!open) setLiveGameWagerId(null)
+          if (!open) {
+            setLiveGameWagerId(null)
+            liveWagerSnapshotRef.current = null
+          }
         }}
         currentWallet={walletAddress}
       />
