@@ -1,43 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { getSessionByTokenHash } from '@/integrations/supabase/admin/sessions';
-import { hashToken, extractTokenFromHeader } from '@/lib/admin/auth';
-import { logAdminAction } from '@/integrations/supabase/admin/audit';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 export async function POST(request: NextRequest) {
     try {
-        // Get token from cookie or header
-        let token = request.cookies.get('admin_token')?.value;
-
-        if (!token) {
-            const authHeader = request.headers.get('authorization');
-            token = extractTokenFromHeader(authHeader);
-        }
-
-        if (!token) {
-            return NextResponse.json(
-                { success: false, error: 'Unauthorized' },
-                { status: 401 }
-            );
-        }
-
-        // Verify admin session
-        const tokenHash = hashToken(token);
-        const sessionResult = await getSessionByTokenHash(tokenHash);
-
-        if (!sessionResult.success || !sessionResult.session) {
-            return NextResponse.json(
-                { success: false, error: 'Invalid session' },
-                { status: 401 }
-            );
-        }
-
-        const adminId = sessionResult.session.admin_id;
-
-        // Parse request body
         const body = await request.json() as {
             action: string;
             adminWallet: string;
@@ -48,132 +15,86 @@ export async function POST(request: NextRequest) {
             notes?: string;
         };
 
-        const {
-            action,
-            adminWallet,
-            wagerId,
-            winnerWallet,
-            playerWallet,
-            reason,
-            notes,
-        } = body;
+        const { action, adminWallet, wagerId, winnerWallet, playerWallet, reason, notes } = body;
 
-        // Validate admin wallet is set (for edge function verification)
         if (!adminWallet) {
-            return NextResponse.json(
-                { success: false, error: 'Admin wallet required' },
-                { status: 400 }
-            );
+            return NextResponse.json({ success: false, error: 'Admin wallet required' }, { status: 400 });
         }
 
-        // Call Supabase edge function
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-        const functionName = 'admin-action';
-        const payload: Record<string, any> = {
-            action,
-            adminWallet,
+        // Map camelCase frontend action names → snake_case edge function action names
+        // (actions.ts sends snake_case, but handle both just in case)
+        const actionMap: Record<string, string> = {
+            force_resolve: 'forceResolve',
+            force_refund: 'forceRefund',
+            mark_disputed: 'markDisputed',
+            ban_player: 'banPlayer',
+            flag_player: 'flagPlayer',
+            unban_player: 'unbanPlayer',
+            // pass-through if already camelCase
+            forceResolve: 'forceResolve',
+            forceRefund: 'forceRefund',
+            markDisputed: 'markDisputed',
+            banPlayer: 'banPlayer',
+            flagPlayer: 'flagPlayer',
+            unbanPlayer: 'unbanPlayer',
+            checkPdaBalance: 'checkPdaBalance',
+            addNote: 'addNote',
         };
 
-        switch (action) {
-            case 'forceResolve':
-                if (!wagerId || !winnerWallet) {
-                    return NextResponse.json(
-                        { success: false, error: 'Missing required fields: wagerId, winnerWallet' },
-                        { status: 400 }
-                    );
-                }
-                payload.wagerId = wagerId;
-                payload.winnerWallet = winnerWallet;
-                payload.notes = notes;
-                break;
-
-            case 'forceRefund':
-                if (!wagerId) {
-                    return NextResponse.json(
-                        { success: false, error: 'Missing required field: wagerId' },
-                        { status: 400 }
-                    );
-                }
-                payload.wagerId = wagerId;
-                payload.notes = notes;
-                break;
-
-            case 'markDisputed':
-                if (!wagerId) {
-                    return NextResponse.json(
-                        { success: false, error: 'Missing required field: wagerId' },
-                        { status: 400 }
-                    );
-                }
-                payload.wagerId = wagerId;
-                payload.reason = reason;
-                break;
-
-            case 'banPlayer':
-            case 'flagPlayer':
-            case 'unbanPlayer':
-                if (!playerWallet) {
-                    return NextResponse.json(
-                        { success: false, error: 'Missing required field: playerWallet' },
-                        { status: 400 }
-                    );
-                }
-                payload.playerWallet = playerWallet;
-                if (reason) payload.reason = reason;
-                break;
-
-            default:
-                return NextResponse.json(
-                    { success: false, error: 'Unknown action' },
-                    { status: 400 }
-                );
+        const edgeAction = actionMap[action];
+        if (!edgeAction) {
+            return NextResponse.json({ success: false, error: `Unknown action: ${action}` }, { status: 400 });
         }
 
-        // Call edge function
-        const { data, error } = await supabase.functions.invoke(functionName, {
-            body: payload,
+        // Validate required fields per action
+        if ((edgeAction === 'forceResolve') && (!wagerId || !winnerWallet)) {
+            return NextResponse.json({ success: false, error: 'Missing required fields: wagerId, winnerWallet' }, { status: 400 });
+        }
+        if (['forceRefund', 'markDisputed', 'checkPdaBalance'].includes(edgeAction) && !wagerId) {
+            return NextResponse.json({ success: false, error: 'Missing required field: wagerId' }, { status: 400 });
+        }
+        if (['banPlayer', 'flagPlayer', 'unbanPlayer'].includes(edgeAction) && !playerWallet) {
+            return NextResponse.json({ success: false, error: 'Missing required field: playerWallet' }, { status: 400 });
+        }
+
+        // Build payload for edge function
+        const payload: Record<string, unknown> = {
+            action: edgeAction,
+            adminWallet,
+            ...(wagerId && { wagerId }),
+            ...(winnerWallet && { winnerWallet }),
+            ...(playerWallet && { playerWallet }),
+            ...(reason && { reason }),
+            ...(notes && { notes }),
+        };
+
+        // Call admin-action edge function directly with service role key
+        const edgeRes = await fetch(`${supabaseUrl}/functions/v1/admin-action`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseServiceKey}`,
+                'apikey': supabaseServiceKey,
+            },
+            body: JSON.stringify(payload),
         });
 
-        if (error) {
-            console.error('[Admin API] Edge function error:', error);
+        const data = await edgeRes.json().catch(() => ({ error: edgeRes.statusText }));
+
+        if (!edgeRes.ok) {
+            console.error('[Admin API] Edge function error:', data);
             return NextResponse.json(
-                { success: false, error: error.message || 'Edge function failed' },
-                { status: 500 }
+                { success: false, error: (data as { error?: string }).error || 'Edge function failed' },
+                { status: edgeRes.status }
             );
         }
 
-        // Log admin action
-        try {
-            await logAdminAction(
-                adminId,
-                `admin_${action}`,
-                action === 'forceResolve' || action === 'forceRefund' || action === 'markDisputed'
-                    ? 'wager'
-                    : 'player',
-                wagerId || playerWallet,
-                data?.transactionSignature,
-                { ...payload },
-                request.headers.get('x-forwarded-for') || 'unknown',
-                request.headers.get('user-agent') || 'unknown'
-            );
-        } catch (logError) {
-            console.error('[Admin API] Failed to log action:', logError);
-            // Don't fail the request if logging fails
-        }
+        return NextResponse.json({ success: true, message: `${edgeAction} completed successfully`, ...data });
 
-        return NextResponse.json({
-            success: true,
-            message: `${action} completed successfully`,
-            ...data,
-        });
     } catch (error) {
         console.error('[Admin API] Error:', error);
         return NextResponse.json(
-            {
-                success: false,
-                error: 'Failed to process admin action',
-            },
+            { success: false, error: error instanceof Error ? error.message : 'Failed to process admin action' },
             { status: 500 }
         );
     }
