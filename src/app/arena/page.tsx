@@ -202,8 +202,7 @@ export default function ArenaPage() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const shownResultForRef = useRef<Set<string>>(new Set())
-  const liveWagerSnapshotRef = useRef<Wager | null>(null)   // ← add this
-
+  const liveWagerSnapshotRef = useRef<Wager | null>(null)
 
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
@@ -374,6 +373,7 @@ export default function ArenaPage() {
     }
   }
 
+  // ── START GAME EFFECT (fixed: no synchronous early-fire, min 1s delay) ──────
   useEffect(() => {
     if (
       readyRoomWager?.ready_player_a &&
@@ -382,15 +382,21 @@ export default function ArenaPage() {
       readyRoomWager?.status === 'joined'
     ) {
       const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
-      const timeUntilStart = (startTime + 13000) - Date.now()
+      const elapsed = Date.now() - startTime
+      const remaining = 13000 - elapsed
+
+      // Always wait at least 1s — prevents firing synchronously on re-renders
+      // before the server's 11s gate has passed
+      const delay = Math.max(remaining, 1000)
+
       const go = () => {
         startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
           onSuccess: () => { toast.success('Game started! Good luck!'); setReadyRoomWagerId(null) },
           onError: (err: any) => toast.error(err.message || 'Failed to start game')
         })
       }
-      if (timeUntilStart <= 0) { go(); return }
-      const timer = setTimeout(go, timeUntilStart)
+
+      const timer = setTimeout(go, delay)
       return () => clearTimeout(timer)
     }
   }, [readyRoomWager?.ready_player_a, readyRoomWager?.ready_player_b, readyRoomWager?.countdown_started_at, readyRoomWager?.status])
