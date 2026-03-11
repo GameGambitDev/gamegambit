@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionByTokenHash } from '@/integrations/supabase/admin/sessions';
+import { verifyAdminSession } from '@/integrations/supabase/admin/auth';
 import { hashToken, extractTokenFromHeader } from '@/lib/admin/auth';
 
 export async function GET(request: NextRequest) {
   try {
     // Get token from cookie or header
     let token = request.cookies.get('admin_token')?.value;
-    
+
     if (!token) {
       const authHeader = request.headers.get('authorization');
       token = extractTokenFromHeader(authHeader);
@@ -14,10 +14,7 @@ export async function GET(request: NextRequest) {
 
     if (!token) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'No session found',
-        },
+        { valid: false, error: 'No session found' },
         { status: 401 }
       );
     }
@@ -25,19 +22,14 @@ export async function GET(request: NextRequest) {
     // Hash token to lookup session
     const tokenHash = hashToken(token);
 
-    // Verify session
-    const result = await getSessionByTokenHash(tokenHash);
+    // Verify session - returns full admin user
+    const result = await verifyAdminSession(tokenHash);
 
-    if (!result.success) {
-      // Clear cookie if session is invalid
+    if (!result.valid) {
       const response = NextResponse.json(
-        {
-          success: false,
-          error: result.error || 'Session invalid or expired',
-        },
+        { valid: false, error: result.error || 'Session invalid or expired' },
         { status: 401 }
       );
-
       response.cookies.set('admin_token', '', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -45,25 +37,17 @@ export async function GET(request: NextRequest) {
         maxAge: 0,
         path: '/',
       });
-
       return response;
     }
 
     return NextResponse.json(
-      {
-        success: true,
-        admin: result.session,
-        
-      },
+      { valid: true, admin: result.admin, expiresAt: result.expiresAt },
       { status: 200 }
     );
   } catch (error) {
     console.error('Verify error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Verification failed',
-      },
+      { valid: false, error: 'Verification failed' },
       { status: 500 }
     );
   }
