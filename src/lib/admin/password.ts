@@ -15,7 +15,7 @@ export async function hashPassword(password: string): Promise<string> {
     if (globalThis.crypto?.subtle) {
       const encoder = new TextEncoder();
       const data = encoder.encode(password);
-      const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
+      const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       return hashHex;
@@ -36,7 +36,7 @@ export async function hashPassword(password: string): Promise<string> {
   // Final fallback (browser environment)
   const encoder = new TextEncoder();
   const data = encoder.encode(password);
-  const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -62,7 +62,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
     // Simple SHA-256 comparison
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
-    const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
+    const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     return computedHash === hash;

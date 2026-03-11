@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { logoutAdminUser, getSessionByTokenHash } from '@/integrations/supabase/admin/sessions';
+import { invalidateAllAdminSessions, getSessionByTokenHash } from '@/integrations/supabase/admin/sessions';
 import { hashToken, extractTokenFromHeader } from '@/lib/admin/auth';
 import { logAdminAction } from '@/integrations/supabase/admin/audit';
 
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const sessionResult = await getSessionByTokenHash(tokenHash);
     
     // Logout the session
-    const result = await logoutAdminUser(tokenHash);
+    const result = await invalidateAllAdminSessions(tokenHash);
 
     if (!result.success) {
       return NextResponse.json(

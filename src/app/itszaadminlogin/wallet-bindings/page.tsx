@@ -52,10 +52,6 @@ function WalletBindingsContent() {
   );
 }
 
-export const metadata = {
-  title: 'Wallet Bindings - Admin Dashboard',
-  description: 'Manage your Solana wallet bindings',
-};
 
 export default function WalletBindingsPage() {
   return (

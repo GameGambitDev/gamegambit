@@ -11,11 +11,11 @@ interface Wallet {
 }
 
 export const WalletsList = () => {
-  const { wallets, isLoading, error, listWallets, unbindWallet } = useAdminWallet();
+  const { wallets, isLoading, error, fetchWallets, unbindWallet } = useAdminWallet();
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    listWallets();
+    fetchWallets();
   }, []);
 
   const handleUnbind = async (walletId: string) => {
@@ -24,8 +24,8 @@ export const WalletsList = () => {
     setDeleteLoading(walletId);
     try {
       const result = await unbindWallet(walletId);
-      if (result.success) {
-        listWallets(); // Refresh list
+      if (result) {
+        fetchWallets(); // Refresh list
       }
     } finally {
       setDeleteLoading(null);

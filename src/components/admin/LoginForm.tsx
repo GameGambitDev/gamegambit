@@ -20,10 +20,10 @@ export const LoginForm = () => {
 
     try {
       const result = await login({ email, password });
-      if (result.success) {
+      if (result) {
         router.push('/itszaadminlogin/dashboard');
       } else {
-        setError(result.error || 'Login failed');
+        setError("Login failed");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

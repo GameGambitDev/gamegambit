@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminUser, emailExists } from '@/integrations/supabase/admin/auth';
-import { validateSignupForm, validatePasswordStrength, sanitizeInput } from '@/lib/admin/validators';
 import { logAdminAction } from '@/integrations/supabase/admin/audit';
 import type { AdminSignupRequest } from '@/types/admin';
+import { validateSignupForm, sanitizeInput } from '@/lib/admin/validators';
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,24 +12,7 @@ export async function POST(request: NextRequest) {
     const validation = validateSignupForm(body);
     if (!validation.valid) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Validation failed',
-          errors: validation.errors,
-        },
-        { status: 400 }
-      );
-    }
-
-    // Check password strength
-    const passwordStrength = validatePasswordStrength(body.password);
-    if (!passwordStrength.valid) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Password does not meet security requirements',
-          errors: passwordStrength.errors,
-        },
+        { success: false, error: 'Validation failed', errors: validation.errors },
         { status: 400 }
       );
     }
@@ -38,10 +21,7 @@ export async function POST(request: NextRequest) {
     const exists = await emailExists(body.email);
     if (exists) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Email already registered',
-        },
+        { success: false, error: 'Email already registered' },
         { status: 409 }
       );
     }
@@ -57,10 +37,7 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       console.error('Signup error:', result.error);
       return NextResponse.json(
-        {
-          success: false,
-          error: result.error || 'Failed to create admin account',
-        },
+        { success: false, error: result.error || 'Failed to create admin account' },
         { status: 500 }
       );
     }
@@ -79,17 +56,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Set session cookie
     const response = NextResponse.json(
-      {
-        success: true,
-        message: 'Admin account created successfully',
-        admin: result.admin,
-      },
+      { success: true, message: 'Admin account created successfully', admin: result.admin },
       { status: 201 }
     );
 
-    // Set httpOnly cookie with token
     if (result.token) {
       response.cookies.set('admin_token', result.token, {
         httpOnly: true,
@@ -104,10 +75,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Signup error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'An unexpected error occurred',
-      },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

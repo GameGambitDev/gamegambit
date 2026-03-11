@@ -18,11 +18,11 @@ export const WalletBindForm = () => {
 
     try {
       const result = await bindWallet(walletAddress);
-      if (result.success) {
+      if (result) {
         setSuccess(`Wallet ${walletAddress} is ready to bind. Sign the message in your wallet.`);
         setWalletAddress('');
       } else {
-        setError(result.error || 'Failed to bind wallet');
+        setError("Failed to bind wallet");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
