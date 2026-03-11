@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
         };
 
         switch (action) {
-            case 'force_resolve':
+            case 'forceResolve':
                 if (!wagerId || !winnerWallet) {
                     return NextResponse.json(
                         { success: false, error: 'Missing required fields: wagerId, winnerWallet' },
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
                 payload.notes = notes;
                 break;
 
-            case 'force_refund':
+            case 'forceRefund':
                 if (!wagerId) {
                     return NextResponse.json(
                         { success: false, error: 'Missing required field: wagerId' },
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
                 payload.notes = notes;
                 break;
 
-            case 'mark_disputed':
+            case 'markDisputed':
                 if (!wagerId) {
                     return NextResponse.json(
                         { success: false, error: 'Missing required field: wagerId' },
@@ -110,9 +110,9 @@ export async function POST(request: NextRequest) {
                 payload.reason = reason;
                 break;
 
-            case 'ban_player':
-            case 'flag_player':
-            case 'unban_player':
+            case 'banPlayer':
+            case 'flagPlayer':
+            case 'unbanPlayer':
                 if (!playerWallet) {
                     return NextResponse.json(
                         { success: false, error: 'Missing required field: playerWallet' },
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
             await logAdminAction(
                 adminId,
                 `admin_${action}`,
-                action === 'force_resolve' || action === 'force_refund' || action === 'mark_disputed'
+                action === 'forceResolve' || action === 'forceRefund' || action === 'markDisputed'
                     ? 'wager'
                     : 'player',
                 wagerId || playerWallet,
