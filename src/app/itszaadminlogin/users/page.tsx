@@ -71,7 +71,7 @@ function UsersContent() {
                 body: JSON.stringify({
                     action: 'banPlayer',
                     adminWallet: publicKey.toBase58(),
-                    walletAddress,
+                    playerWallet: walletAddress,
                     reason,
                 }),
             });
@@ -108,7 +108,7 @@ function UsersContent() {
                 body: JSON.stringify({
                     action: 'unbanPlayer',
                     adminWallet: publicKey.toBase58(),
-                    walletAddress,
+                    playerWallet: walletAddress,
                 }),
             });
 
