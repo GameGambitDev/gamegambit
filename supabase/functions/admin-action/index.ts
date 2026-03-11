@@ -96,6 +96,13 @@ async function forceResolve(
     const wagerPDA = deriveWagerPDA(wager.player_a_wallet, BigInt(wager.match_id));
     const winnerPubkey = new PublicKey(winnerWallet);
 
+    // Instruction data = 8-byte discriminator + 32-byte winner pubkey
+    const disc = DISCRIMINATORS.resolve_wager;
+    const winnerBytes = winnerPubkey.toBytes();
+    const instructionData = new Uint8Array(disc.length + winnerBytes.length);
+    instructionData.set(disc, 0);
+    instructionData.set(winnerBytes, disc.length);
+
     const ix = new TransactionInstruction({
         programId: PROGRAM_ID,
         keys: [
@@ -105,7 +112,7 @@ async function forceResolve(
             { pubkey: PLATFORM_WALLET, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: DISCRIMINATORS.resolve_wager,
+        data: instructionData,
     });
 
     const tx = new Transaction().add(ix);
