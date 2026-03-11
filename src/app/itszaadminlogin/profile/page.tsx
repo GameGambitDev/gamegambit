@@ -14,7 +14,7 @@ function ProfileContent() {
 
   useEffect(() => {
     if (profile) {
-      setFormData({ name: profile.name || '', bio: profile.bio || '' });
+      setFormData({ name: profile.full_name || '', bio: profile.bio || '' });
     }
   }, [profile]);
 
@@ -25,10 +25,10 @@ function ProfileContent() {
 
     try {
       const result = await updateProfile(formData);
-      if (result.success) {
+      if (result) {
         setMessage({ type: 'success', text: 'Profile updated successfully' });
       } else {
-        setMessage({ type: 'error', text: result.error || 'Failed to update profile' });
+        setMessage({ type: "error", text: "Failed to update profile" });
       }
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'An error occurred' });
@@ -127,10 +127,6 @@ function ProfileContent() {
   );
 }
 
-export const metadata = {
-  title: 'Profile Settings - Admin Dashboard',
-  description: 'Manage your admin profile settings',
-};
 
 export default function ProfilePage() {
   return (

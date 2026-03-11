@@ -76,10 +76,6 @@ function DashboardContent() {
   );
 }
 
-export const metadata = {
-  title: 'Admin Dashboard - Game Gambit',
-  description: 'Game Gambit admin control panel',
-};
 
 export default function DashboardPage() {
   return (

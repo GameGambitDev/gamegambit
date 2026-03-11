@@ -45,13 +45,13 @@ export const SignupForm = () => {
       const result = await signup({
         email: formData.email,
         password: formData.password,
-        name: formData.name,
+        full_name: formData.name,
       });
 
-      if (result.success) {
+      if (result) {
         router.push('/itszaadminlogin/login?registered=true');
       } else {
-        setError(result.error || 'Signup failed');
+        setError("Signup failed");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

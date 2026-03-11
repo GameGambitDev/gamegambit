@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { AdminUser, AdminSignupRequest, AdminLoginRequest } from '@/types/admin';
-import { validatePasswordStrength } from '@/lib/admin/validators';
+import { validatePasswordStrength } from '@/lib/admin/password';
 
 interface UseAdminAuthState {
   admin: AdminUser | null;
@@ -26,11 +26,6 @@ export function useAdminAuth(): UseAdminAuthState & UseAdminAuthActions {
     error: null,
     isAuthenticated: false,
   });
-
-  // Verify session on mount
-  useEffect(() => {
-    verify();
-  }, []);
 
   const signup = useCallback(async (data: AdminSignupRequest): Promise<boolean> => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
@@ -188,6 +183,10 @@ export function useAdminAuth(): UseAdminAuthState & UseAdminAuthActions {
   const clearError = useCallback(() => {
     setState((prev) => ({ ...prev, error: null }));
   }, []);
+
+  useEffect(() => {
+    verify();
+  }, [verify]);
 
   return {
     ...state,

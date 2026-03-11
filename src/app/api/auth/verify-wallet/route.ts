@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
         const encoder = new TextEncoder();
         const data = encoder.encode(payloadStr + secret);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
         const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 

@@ -142,6 +142,7 @@ export interface AdminAuditLogQuery {
   offset?: number;
   action_type?: string;
   resource_type?: string;
+  resource_id?: string;
   start_date?: string;
   end_date?: string;
 }

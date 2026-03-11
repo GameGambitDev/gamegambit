@@ -39,7 +39,7 @@ export const ProfileCard = () => {
           {avatarUrl ? (
             <img
               src={avatarUrl}
-              alt={profile?.name || 'Profile'}
+              alt={profile?.full_name || 'Profile'}
               className="w-12 h-12 rounded-full object-cover"
             />
           ) : (
@@ -48,7 +48,7 @@ export const ProfileCard = () => {
             </div>
           )}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">{profile?.name || 'Admin'}</h3>
+            <h3 className="text-lg font-semibold text-gray-900">{profile?.full_name || 'Admin'}</h3>
             <p className="text-sm text-gray-600">{session?.user.email}</p>
             <span className="inline-block mt-1 px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full capitalize">
               {session?.user.role}

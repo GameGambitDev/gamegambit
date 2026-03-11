@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminSession, getSessionByTokenHash } from '@/integrations/supabase/admin/sessions';
+import { getSessionByTokenHash } from '@/integrations/supabase/admin/sessions';
 import { hashToken, extractTokenFromHeader } from '@/lib/admin/auth';
 
 export async function GET(request: NextRequest) {
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     if (!token) {
       return NextResponse.json(
         {
-          valid: false,
+          success: false,
           error: 'No session found',
         },
         { status: 401 }
@@ -26,13 +26,13 @@ export async function GET(request: NextRequest) {
     const tokenHash = hashToken(token);
 
     // Verify session
-    const result = await verifyAdminSession(tokenHash);
+    const result = await getSessionByTokenHash(tokenHash);
 
-    if (!result.valid) {
+    if (!result.success) {
       // Clear cookie if session is invalid
       const response = NextResponse.json(
         {
-          valid: false,
+          success: false,
           error: result.error || 'Session invalid or expired',
         },
         { status: 401 }
@@ -51,9 +51,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        valid: true,
-        admin: result.admin,
-        expiresAt: result.expiresAt,
+        success: true,
+        admin: result.session,
+        
       },
       { status: 200 }
     );
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
     console.error('Verify error:', error);
     return NextResponse.json(
       {
-        valid: false,
+        success: false,
         error: 'Verification failed',
       },
       { status: 500 }

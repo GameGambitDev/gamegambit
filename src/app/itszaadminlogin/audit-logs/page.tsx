@@ -122,10 +122,6 @@ function AuditLogsContent() {
   );
 }
 
-export const metadata = {
-  title: 'Audit Logs - Admin Dashboard',
-  description: 'View your account audit logs and security events',
-};
 
 export default function AuditLogsPage() {
   return (
