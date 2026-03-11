@@ -36,7 +36,7 @@ export const useAdminSession = () => {
         }
 
         const data = await response.json();
-        setSession(data.session);
+        setSession(data.admin ? { token: "", user: { id: data.admin.id, email: data.admin.email, role: data.admin.role, name: data.admin.full_name }, expiresAt: new Date(data.expiresAt) } : null);
         setError(null);
       } catch (err) {
         setSession(null);
@@ -71,7 +71,7 @@ export const useAdminSession = () => {
 
         if (response.ok) {
           const data = await response.json();
-          setSession(data.session);
+          setSession(data.admin ? { token: "", user: { id: data.admin.id, email: data.admin.email, role: data.admin.role, name: data.admin.full_name }, expiresAt: new Date(data.expiresAt) } : null);
         } else {
           setSession(null);
           router.push('/itszaadminlogin/login');
@@ -108,7 +108,7 @@ export const useAdminSession = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setSession(data.session);
+        setSession(data.admin ? { token: "", user: { id: data.admin.id, email: data.admin.email, role: data.admin.role, name: data.admin.full_name }, expiresAt: new Date(data.expiresAt) } : null);
         return data.session;
       } else {
         setSession(null);
