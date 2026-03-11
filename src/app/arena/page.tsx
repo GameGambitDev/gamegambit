@@ -202,6 +202,8 @@ export default function ArenaPage() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const shownResultForRef = useRef<Set<string>>(new Set())
+  const liveWagerSnapshotRef = useRef<Wager | null>(null)   // ← add this
+
 
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
