@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
         // Call Supabase edge function
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-        let functionName = 'admin-action';
-        let payload: Record<string, any> = {
+        const functionName = 'admin-action';
+        const payload: Record<string, any> = {
             action,
             adminWallet,
         };

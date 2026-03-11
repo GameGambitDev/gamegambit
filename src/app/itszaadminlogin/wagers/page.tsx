@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { ProtectedRoute } from '@/components/admin';
 import { motion } from 'framer-motion';
 import { Dices, Search, Filter, Loader, Copy, Check } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 
 interface Wager {
@@ -14,7 +14,7 @@ interface Wager {
     player_b_wallet: string;
     game: 'chess' | 'codm' | 'pubg';
     stake_lamports: number;
-    status: 'created' | 'joined' | 'voting' | 'disputed' | 'resolved' | 'cancelled';
+    status: 'created' | 'joined' | 'voting' | 'retractable' | 'disputed' | 'resolved' | 'cancelled';
     winner_wallet: string | null;
     created_at: string;
     resolved_at: string | null;
@@ -44,7 +44,7 @@ function WagersContent() {
         try {
             setLoading(true);
             setError(null);
-            const { data, error: fetchError } = await supabase
+            const { data, error: fetchError } = await getSupabaseClient()
                 .from('wagers')
                 .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, winner_wallet, created_at, resolved_at')
                 .order('created_at', { ascending: false });

@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { ProtectedRoute } from '@/components/admin';
 import { motion } from 'framer-motion';
 import { Scale, Search, AlertTriangle, Loader } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 
 interface Dispute {
@@ -14,7 +14,7 @@ interface Dispute {
     player_b_wallet: string;
     game: 'chess' | 'codm' | 'pubg';
     stake_lamports: number;
-    status: 'disputed';
+    status: string;
     vote_player_a: string;
     vote_player_b: string;
     created_at: string;
@@ -41,7 +41,7 @@ function DisputesContent() {
         try {
             setLoading(true);
             setError(null);
-            const { data, error: fetchError } = await supabase
+            const { data, error: fetchError } = await getSupabaseClient()
                 .from('wagers')
                 .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, vote_player_a, vote_player_b, created_at')
                 .eq('status', 'disputed')

@@ -4,19 +4,19 @@ import { Suspense, useEffect, useState } from 'react';
 import { ProtectedRoute } from '@/components/admin';
 import { motion } from 'framer-motion';
 import { Users as UsersIcon, Search, Filter, Loader } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 
 interface Player {
     wallet_address: string;
     username: string | null;
     is_banned: boolean;
-    ban_reason: string | null;
+    
     total_wins: number;
     total_losses: number;
     total_earnings: number;
     created_at: string;
-    flagged_for_review: boolean;
+    
 }
 
 function UsersContent() {
@@ -38,9 +38,9 @@ function UsersContent() {
         try {
             setLoading(true);
             setError(null);
-            const { data, error: fetchError } = await supabase
+            const { data, error: fetchError } = await getSupabaseClient()
                 .from('players')
-                .select('wallet_address, username, is_banned, ban_reason, total_wins, total_losses, total_earnings, created_at, flagged_for_review')
+                .select('wallet_address, username, is_banned, total_wins, total_losses, total_earnings, created_at')
                 .order('created_at', { ascending: false });
 
             if (fetchError) throw fetchError;
