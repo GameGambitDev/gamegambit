@@ -38,24 +38,33 @@ export interface Wager {
 
 async function invokeSecureWager<T>(
   payload: Record<string, unknown>,
-  sessionToken: string
+  sessionToken: string,
+  timeoutMs = 25000
 ): Promise<T> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${supabaseAnonKey}`,
-      'X-Session-Token': sessionToken,
-    },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const json = await res.json().catch(() => ({ error: res.statusText }));
-  if (!res.ok) throw new Error((json as { error?: string }).error || 'secure-wager request failed');
-  return json as T;
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+        'X-Session-Token': sessionToken,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const json = await res.json().catch(() => ({ error: res.statusText }));
+    if (!res.ok) throw new Error((json as { error?: string }).error || 'secure-wager request failed');
+    return json as T;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ─── READ QUERIES ─────────────────────────────────────────────────────────────
@@ -141,7 +150,7 @@ export function useLiveWagers() {
       if (error) throw error;
       return data as Wager[];
     },
-    refetchInterval: 10000, // also tightened from 30s to 10s
+    refetchInterval: 10000,
   });
 }
 
@@ -362,7 +371,31 @@ export function useCheckGameComplete() {
     mutationFn: async ({ wagerId }: { wagerId: string }) => {
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-      return invokeSecureWager<{
+
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+      // Fire-and-forget: kick off the edge function but don't wait for the full
+      // Lichess + on-chain resolution to complete. The realtime subscription in
+      // useLiveWagers will pick up the DB update when it lands.
+      fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'X-Session-Token': sessionToken,
+        },
+        body: JSON.stringify({ action: 'checkGameComplete', wagerId }),
+        // No signal/timeout — let the edge function run to completion server-side.
+        // ERR_CONNECTION_CLOSED is expected and harmless; the DB update arrives
+        // via the Supabase realtime channel.
+      }).catch(() => {
+        // Swallow network errors (connection closed after edge fn times out).
+        // Resolution is confirmed via the realtime DB subscription, not this response.
+      });
+
+      // Return immediately so the polling interval isn't blocked.
+      return { gameComplete: false, message: 'check triggered' } as {
         gameComplete: boolean;
         status?: string;
         winner?: string;
@@ -370,7 +403,7 @@ export function useCheckGameComplete() {
         resultType?: 'playerA' | 'playerB' | 'draw' | 'unknown';
         message?: string;
         wager?: Wager;
-      }>({ action: 'checkGameComplete', wagerId }, sessionToken);
+      };
     },
     onSuccess: (data) => {
       if (data.gameComplete) {
@@ -388,15 +421,15 @@ export function useCancelWager() {
     mutationFn: async ({ wagerId, reason }: { wagerId: string; reason?: string }) => {
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
-      const data = await invokeSecureWager<{ 
-        wager: Wager; 
+      const data = await invokeSecureWager<{
+        wager: Wager;
         message: string;
         refundInitiated: boolean;
       }>({ action: 'cancelWager', wagerId, reason }, sessionToken);
       return data;
     },
-    onSuccess: () => { 
-      queryClient.invalidateQueries({ queryKey: ['wagers'] }); 
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wagers'] });
     },
   });
 }
