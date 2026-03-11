@@ -21,6 +21,7 @@ bun.lockb
 # Next.js
 .next
 out
+.env
 .env.local
 .env.*.local
 

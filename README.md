@@ -12,6 +12,7 @@
 
 ## Features
 
+### Player Features
 - **Decentralized Wagers**: Create and join gaming matches with Solana blockchain settlement
 - **Multi-Game Support**: Chess (Lichess integration), Call of Duty Mobile, PUBG
 - **Real-Time Leaderboard**: Live player rankings with skill ratings
@@ -23,6 +24,15 @@
 - **Mobile Optimized**: Fully responsive design with mobile-first approach
 - **Automated Fund Distribution**: Funds automatically distributed to winners post-game with on-chain validation
 - **Animated Game Results**: Victory/defeat/draw modals with confetti and animations auto-trigger on resolution
+
+### Admin Features
+- **Hybrid Authentication**: Email/password signup + optional Solana wallet binding
+- **Admin Dashboard**: Centralized control panel at `/itszaadminlogin`
+- **Wallet Management**: Bind and verify multiple Solana wallets per admin account
+- **Role-Based Access Control**: Three-tier hierarchy (moderator, admin, superadmin) with granular permissions
+- **Comprehensive Audit Logging**: Complete action history with IP tracking and user agent logging
+- **Session Management**: Secure httpOnly cookies with automatic token refresh
+- **Profile Management**: Update admin information, manage avatars, two-factor authentication support
 
 ## Tech Stack
 
@@ -70,6 +80,16 @@ NEXT_PUBLIC_PROGRAM_ID=E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
+# Admin Authentication (Required for /itszaadminlogin)
+ADMIN_JWT_SECRET=your_jwt_secret_key_min_32_chars
+ADMIN_SESSION_TIMEOUT=3600000
+ADMIN_REFRESH_TIMEOUT=604800000
+NEXT_PUBLIC_ADMIN_SOLANA_NETWORK=devnet
+ADMIN_SMTP_HOST=smtp.your-email.com
+ADMIN_SMTP_PORT=587
+ADMIN_SMTP_USER=your-email@example.com
+ADMIN_SMTP_PASSWORD=your-app-password
+
 # Optional: Lichess API
 NEXT_PUBLIC_LICHESS_API_URL=https://lichess.org/api
 ```
@@ -94,6 +114,7 @@ Visit `http://localhost:3000` to see the application.
 
 ### Database Setup
 
+#### Wager Cancellation Features
 After deploying wager cancellation features, you need to update your database schema:
 
 **See [SETUP_WAGER_CANCELLATION.md](./SETUP_WAGER_CANCELLATION.md) for detailed instructions.**
@@ -103,13 +124,33 @@ Quick setup:
 2. Run the SQL in `WAGER_CANCELLATION_SETUP.sql`
 3. Verify columns were created
 
+#### Admin Panel Setup
+To enable the admin authentication system at `/itszaadminlogin`:
+
+1. **Run the migration**: Execute `scripts/migrations/001_create_admin_tables.sql` in Supabase SQL Editor
+2. **Set environment variables**: Add all `ADMIN_*` variables to your `.env.local` (see Environment Variables section above)
+3. **Generate JWT secret**: `openssl rand -base64 32`
+4. **Access admin portal**: Navigate to `http://localhost:3000/itszaadminlogin`
+
+**See [ADMIN_SETUP_AND_CHANGES.md](./ADMIN_SETUP_AND_CHANGES.md) for complete setup guide.**
+
 ## Project Structure
 
 ```
 gamegambit/
 ├── src/
 │   ├── app/                    # Next.js 15 App Router
-│   │   ├── api/               # API routes
+│   │   ├── api/
+│   │   │   ├── admin/         # Admin API endpoints (auth, profile, wallet, audit)
+│   │   │   └── ...            # Player API routes
+│   │   ├── itszaadminlogin/   # Admin panel routes
+│   │   │   ├── login/         # Admin login page
+│   │   │   ├── signup/        # Admin signup page
+│   │   │   ├── dashboard/     # Admin dashboard
+│   │   │   ├── profile/       # Admin profile management
+│   │   │   ├── wallet-bindings/ # Wallet management
+│   │   │   ├── audit-logs/    # Audit history
+│   │   │   └── unauthorized/  # Access denied page
 │   │   ├── arena/             # Wager creation & matching
 │   │   ├── dashboard/         # User statistics
 │   │   ├── leaderboard/       # Rankings & stats
@@ -117,18 +158,36 @@ gamegambit/
 │   │   └── page.tsx           # Landing page
 │   │
 │   ├── components/            # React components
+│   │   ├── admin/             # Admin UI components
+│   │   │   ├── LoginForm.tsx
+│   │   │   ├── SignupForm.tsx
+│   │   │   ├── ProtectedRoute.tsx
+│   │   │   ├── ProfileCard.tsx
+│   │   │   ├── WalletBindForm.tsx
+│   │   │   └── ...
 │   │   ├── landing/           # Landing page sections
 │   │   ├── layout/            # Layout components
 │   │   ├── modals/            # Dialog modals
 │   │   └── ui/                # Shadcn/UI components
 │   │
 │   ├── hooks/                 # Custom React hooks
+│   │   ├── admin/             # Admin-specific hooks
+│   │   │   ├── useAdminAuth.ts
+│   │   │   ├── useAdminProfile.ts
+│   │   │   ├── useAdminWallet.ts
+│   │   │   └── useAdminSession.ts
 │   │   ├── useWagers.ts       # Wager state management
 │   │   ├── useWalletAuth.ts   # Wallet authentication
 │   │   ├── useSolanaProgram.ts # Program interaction
 │   │   └── ...
 │   │
 │   ├── lib/                   # Utility functions
+│   │   ├── admin/             # Admin utilities
+│   │   │   ├── password.ts    # PBKDF2 hashing
+│   │   │   ├── auth.ts        # JWT operations
+│   │   │   ├── validators.ts  # Input validation
+│   │   │   ├── wallet-verify.ts # Solana signature verification
+│   │   │   └── permissions.ts # RBAC matrix
 │   │   ├── idl/               # Solana IDL files
 │   │   ├── solana-program-utils.ts
 │   │   ├── solana-event-bridge.ts
@@ -137,9 +196,22 @@ gamegambit/
 │   │   └── ...
 │   │
 │   ├── integrations/          # Third-party integrations
-│   │   └── supabase/          # Supabase client & types
+│   │   └── supabase/
+│   │       ├── client.ts
+│   │       └── admin/         # Admin database operations
+│   │           ├── auth.ts
+│   │           ├── profile.ts
+│   │           ├── wallets.ts
+│   │           ├── audit.ts
+│   │           └── sessions.ts
 │   │
-│   └── types/                 # TypeScript definitions
+│   ├── types/                 # TypeScript definitions
+│   │   ├── admin.ts           # Admin types & interfaces
+│   │   └── ...
+│   │
+├── scripts/
+│   └── migrations/
+│       └── 001_create_admin_tables.sql  # Admin schema migration
 │
 ├── public/                    # Static assets
 ├── docs/                      # Documentation files
@@ -147,6 +219,11 @@ gamegambit/
 │   ├── BACKEND_ARCHITECTURE.md
 │   ├── SOLANA_IDL_INTEGRATION.md
 │   └── INTEGRATION_CHECKLIST.md
+│
+├── ADMIN_SETUP_AND_CHANGES.md     # Complete admin setup guide
+├── ADMIN_FILES_CREATED.md         # File manifest with purposes
+├── ADMIN_IMPLEMENTATION_SUMMARY.md # Feature overview
+├── ADMIN_BUILD_COMPLETED.md       # Build statistics
 │
 └── package.json              # Dependencies & scripts
 ```
@@ -159,6 +236,13 @@ gamegambit/
 - **[Backend Architecture](./BACKEND_ARCHITECTURE.md)** - Performance optimization for 200k+ MAUs
 - **[Solana IDL Integration](./SOLANA_IDL_INTEGRATION.md)** - Smart contract type system
 - **[Integration Checklist](./INTEGRATION_CHECKLIST.md)** - Development progress tracking
+
+### Admin Panel Documentation
+
+- **[Admin Setup Guide](./ADMIN_SETUP_AND_CHANGES.md)** - Complete installation and configuration instructions
+- **[Admin Files Created](./ADMIN_FILES_CREATED.md)** - Detailed manifest of all 47 files with purposes
+- **[Implementation Summary](./ADMIN_IMPLEMENTATION_SUMMARY.md)** - Feature overview and API reference
+- **[Build Statistics](./ADMIN_BUILD_COMPLETED.md)** - Development breakdown by phase
 
 ### Key Features
 
@@ -306,11 +390,22 @@ See `src/lib/rate-limiting.ts` for implementation.
 
 ## Security
 
+### Player Security
 - **Wallet Verification**: All transactions require valid Solana signatures
 - **Row-Level Security**: PostgreSQL RLS policies for data isolation
 - **Rate Limiting**: Per-wallet and per-IP rate limits
 - **SQL Injection Prevention**: Parameterized queries throughout
 - **Input Validation**: Zod schemas on all API endpoints
+
+### Admin Panel Security
+- **Password Security**: PBKDF2 hashing with 100,000 iterations
+- **Session Management**: httpOnly, Secure, SameSite cookies with automatic refresh
+- **JWT Authentication**: Ed25519 signed tokens with expiry validation
+- **Wallet Verification**: Ed25519 signature verification for Solana wallet binding
+- **Row-Level Security**: Database-level RLS policies per admin account
+- **Audit Logging**: Complete action history with IP, user agent, and timestamp tracking
+- **Role-Based Access**: Three-tier permission matrix (moderator, admin, superadmin)
+- **Token Hashing**: Refresh tokens hashed before storage in database
 
 ## Progressive Web App (PWA)
 
