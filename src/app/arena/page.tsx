@@ -202,7 +202,6 @@ export default function ArenaPage() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const shownResultForRef = useRef<Set<string>>(new Set())
-  const liveWagerSnapshotRef = useRef<Wager | null>(null)
 
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
@@ -213,9 +212,7 @@ export default function ArenaPage() {
   // Always pull live wager from cache so it stays fresh
   const liveGameWager = useMemo(() => {
     if (!liveGameWagerId) return null
-    const found = liveWagers?.find(w => w.id === liveGameWagerId) ?? null
-    if (found) liveWagerSnapshotRef.current = found   // keep snapshot while visible
-    return found ?? liveWagerSnapshotRef.current       // fall back after resolution
+    return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
   }, [liveGameWagerId, liveWagers])
 
   // Background polling — runs even when LiveGameModal is closed
@@ -237,28 +234,33 @@ export default function ArenaPage() {
     return () => clearInterval(interval)
   }, [liveWagers])
 
-  // Watch for resolution — show GameResultModal once per wager
+  // Watch for resolution via the 'last-resolved' cache key set by the realtime
+  // handler — this fires BEFORE the wager is removed from the live list so we
+  // always have full wager data for the GameResultModal
+  const lastResolvedWager = queryClient.getQueryData<Wager>(['wagers', 'last-resolved'])
   useEffect(() => {
-    if (!liveWagers || !walletAddress) return
-    liveWagers.forEach(w => {
-      if (w.status !== 'resolved') return
-      if (shownResultForRef.current.has(w.id)) return
-      // Only show for wagers the current user participated in
-      const isParticipant = w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress
-      if (!isParticipant) return
+    const w = queryClient.getQueryData<Wager>(['wagers', 'last-resolved'])
+    if (!w || !walletAddress) return
+    if (shownResultForRef.current.has(w.id)) return
 
-      shownResultForRef.current.add(w.id)
+    const isParticipant = w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress
+    if (!isParticipant) return
 
-      // Close LiveGameModal if it was showing this wager
-      if (liveGameWagerId === w.id) {
-        setLiveGameModalOpen(false)
-      }
+    shownResultForRef.current.add(w.id)
 
-      // Open result modal
-      setGameResultWager(w)
-      setGameResultOpen(true)
-    })
-  }, [liveWagers, walletAddress])
+    // Close LiveGameModal if it was showing this wager
+    if (liveGameWagerId === w.id) {
+      setLiveGameModalOpen(false)
+      liveWagerSnapshotRef.current = null
+    }
+
+    // Open result modal with the captured wager data
+    setGameResultWager(w)
+    setGameResultOpen(true)
+
+    // Clear last-resolved so it doesn't re-trigger on re-render
+    queryClient.removeQueries({ queryKey: ['wagers', 'last-resolved'] })
+  }, [lastResolvedWager, walletAddress])
 
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
   const { data: player } = usePlayer()
@@ -378,7 +380,7 @@ export default function ArenaPage() {
       readyRoomWager?.status === 'joined'
     ) {
       const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
-      const timeUntilStart = (startTime + 10000) - Date.now()
+      const timeUntilStart = (startTime + 13000) - Date.now()
       const go = () => {
         startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
           onSuccess: () => { toast.success('Game started! Good luck!'); setReadyRoomWagerId(null) },
@@ -658,10 +660,7 @@ export default function ArenaPage() {
         open={liveGameModalOpen}
         onOpenChange={(open) => {
           setLiveGameModalOpen(open)
-          if (!open) {
-            setLiveGameWagerId(null)
-            liveWagerSnapshotRef.current = null
-          }
+          if (!open) setLiveGameWagerId(null)
         }}
         currentWallet={walletAddress}
       />

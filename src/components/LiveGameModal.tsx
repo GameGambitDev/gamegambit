@@ -42,7 +42,6 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
   const isCheckingRef = useRef(false);
   const [hasShownResult, setHasShownResult] = useState(false);
 
-  // Derive result from either local state OR wager DB state (whichever arrives first)
   const resolvedWinnerWallet = wager?.winner_wallet ?? null;
   const isWagerResolved = wager?.status === 'resolved' || (wager?.status as string) === 'closed';
   const gameFinished = isWagerResolved;
@@ -87,53 +86,36 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
     }
   }, [gameFinished, hasShownResult, isCurrentPlayerWinner, isDraw, isCurrentPlayerLoser]);
 
-  // Poll for completion every 5s while game is active
-  const runCheck = useCallback(async () => {
+  // Poll every 8s while game is active — fire-and-forget, result arrives via realtime
+  const runCheck = useCallback(() => {
     if (!wager || isCheckingRef.current || gameFinished) return;
-    try {
-      isCheckingRef.current = true;
-      setIsChecking(true);
-      const result = await checkGameComplete.mutateAsync({ wagerId: wager.id });
-      if (result.gameComplete) {
-        queryClient.invalidateQueries({ queryKey: ['wagers'] });
-        queryClient.invalidateQueries({ queryKey: ['wager', wager.id] });
-        queryClient.invalidateQueries({ queryKey: ['players'] });
+    isCheckingRef.current = true;
+    setIsChecking(true);
+    checkGameComplete.mutate({ wagerId: wager.id }, {
+      onSettled: () => {
+        isCheckingRef.current = false;
+        setIsChecking(false);
       }
-    } catch (e) {
-      console.error('Error checking game:', e);
-    } finally {
-      isCheckingRef.current = false;
-      setIsChecking(false);
-    }
-  }, [wager, gameFinished, checkGameComplete, queryClient]);
+    });
+  }, [wager, gameFinished, checkGameComplete]);
 
   useEffect(() => {
     if (!open || !wager || wager.status !== 'voting') return;
-    runCheck();
-    const interval = setInterval(runCheck, 5000);
-    return () => clearInterval(interval);
+    // Initial check after a short delay
+    const initial = setTimeout(runCheck, 2000);
+    const interval = setInterval(runCheck, 8000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
   }, [open, wager?.id, wager?.status]);
 
-  const handleManualCheck = useCallback(async () => {
+  const handleManualCheck = useCallback(() => {
     if (!wager) return;
     refetchGame();
-    try {
-      setIsChecking(true);
-      const result = await checkGameComplete.mutateAsync({ wagerId: wager.id });
-      if (result.gameComplete) {
-        queryClient.invalidateQueries({ queryKey: ['wagers'] });
-        queryClient.invalidateQueries({ queryKey: ['wager', wager.id] });
-        queryClient.invalidateQueries({ queryKey: ['players'] });
-        toast.success('Game result detected!');
-      } else {
-        toast.info('Game still in progress');
-      }
-    } catch {
-      toast.error('Error checking game status');
-    } finally {
-      setIsChecking(false);
-    }
-  }, [wager, refetchGame, checkGameComplete, queryClient]);
+    runCheck();
+    toast.info('Checking game status...');
+  }, [wager, refetchGame, runCheck]);
 
   if (!wager) return null;
 

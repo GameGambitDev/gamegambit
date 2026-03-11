@@ -44,16 +44,18 @@ const getStatusBadge = (status: string, won?: boolean) => {
       return <Badge variant="disputed">Disputed</Badge>
     case 'resolved':
       return won ? <Badge variant="success">Won</Badge> : <Badge variant="destructive">Lost</Badge>
+    case 'cancelled':
+      return <Badge variant="glass">Cancelled</Badge>
     default:
       return <Badge variant="glass">{status}</Badge>
   }
 }
 
-function WagerRow({ 
-  wager, 
+function WagerRow({
+  wager,
   myWallet,
-  onEnterReadyRoom 
-}: { 
+  onEnterReadyRoom
+}: {
   wager: Wager
   myWallet: string
   onEnterReadyRoom?: (wagerId: string) => void
@@ -63,10 +65,10 @@ function WagerRow({
   const opponent = isChallenger ? wager.player_b_wallet : wager.player_a_wallet
   const won = wager.winner_wallet === myWallet
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
-  const gameLink = wager.game === 'chess' && wager.lichess_game_id 
-    ? `https://lichess.org/${wager.lichess_game_id}` 
+  const gameLink = wager.game === 'chess' && wager.lichess_game_id
+    ? `https://lichess.org/${wager.lichess_game_id}`
     : null
-  
+
   return (
     <Card variant="wager" className="group hover:border-primary/40 transition-all">
       <CardContent className="p-4">
@@ -75,9 +77,9 @@ function WagerRow({
             <div className="text-3xl">{game.icon}</div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-gaming text-sm">You</span>
+                <span className="font-gaming text-sm text-foreground">You</span>
                 <Swords className="h-4 w-4 text-muted-foreground" />
-                <span className="font-gaming text-sm">
+                <span className="font-gaming text-sm text-foreground">
                   {opponent ? truncateAddress(opponent) : 'Waiting...'}
                 </span>
               </div>
@@ -91,9 +93,9 @@ function WagerRow({
                 {gameLink && (
                   <>
                     <span>•</span>
-                    <a 
-                      href={gameLink} 
-                      target="_blank" 
+                    <a
+                      href={gameLink}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-primary hover:underline flex items-center gap-1"
                       onClick={(e) => e.stopPropagation()}
@@ -113,8 +115,8 @@ function WagerRow({
             </div>
             {getStatusBadge(wager.status, won)}
             {wager.status === 'joined' && onEnterReadyRoom && (
-              <Button 
-                variant="neon" 
+              <Button
+                variant="neon"
                 size="sm"
                 onClick={() => onEnterReadyRoom(wager.id)}
               >
@@ -151,7 +153,7 @@ export default function MyWagersPage() {
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
-  
+
   const { data: wagers, isLoading } = useMyWagers()
   const { data: player } = usePlayer()
   const { data: readyRoomWager } = useWagerById(readyRoomWagerId)
@@ -161,7 +163,7 @@ export default function MyWagersPage() {
 
   const activeWagers = wagers?.filter(w => ['created', 'joined', 'voting', 'disputed'].includes(w.status)) || []
   const completedWagers = wagers?.filter(w => w.status === 'resolved') || []
-  
+
   const winsCount = completedWagers.filter(w => w.winner_wallet === walletAddress).length
   const lossesCount = completedWagers.filter(w => w.winner_wallet && w.winner_wallet !== walletAddress).length
 
@@ -189,7 +191,7 @@ export default function MyWagersPage() {
   if (readyRoomWager?.ready_player_a && readyRoomWager?.ready_player_b && readyRoomWager?.countdown_started_at) {
     const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
     const now = Date.now()
-    if (now - startTime >= 10000 && readyRoomWager.status === 'joined') {
+    if (now - startTime >= 13000 && readyRoomWager.status === 'joined') {
       startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
         onSuccess: () => {
           toast.success('Game started! Good luck!')
@@ -230,14 +232,14 @@ export default function MyWagersPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="text-3xl font-bold mb-2 font-gaming">
+          <h1 className="text-3xl font-bold mb-2 font-gaming text-foreground">
             My <span className="gradient-text">Wagers</span>
           </h1>
           <p className="text-muted-foreground">Track all your active and completed matches</p>
         </motion.div>
 
         {/* Stats Overview */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -263,7 +265,7 @@ export default function MyWagersPage() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wider">{stat.label}</div>
-                    <div className="font-gaming text-xl">{stat.value}</div>
+                    <div className="font-gaming text-xl text-foreground">{stat.value}</div>
                   </div>
                 </div>
               </Card>
@@ -295,9 +297,9 @@ export default function MyWagersPage() {
                   <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                     {wagers.map((wager) => (
                       <motion.div key={wager.id} variants={staggerItem}>
-                        <WagerRow 
-                          wager={wager} 
-                          myWallet={walletAddress} 
+                        <WagerRow
+                          wager={wager}
+                          myWallet={walletAddress}
                           onEnterReadyRoom={setReadyRoomWagerId}
                         />
                       </motion.div>
@@ -313,8 +315,8 @@ export default function MyWagersPage() {
                   <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                     {activeWagers.map((wager) => (
                       <motion.div key={wager.id} variants={staggerItem}>
-                        <WagerRow 
-                          wager={wager} 
+                        <WagerRow
+                          wager={wager}
                           myWallet={walletAddress}
                           onEnterReadyRoom={setReadyRoomWagerId}
                         />

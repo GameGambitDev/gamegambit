@@ -118,18 +118,18 @@ export function useLiveWagers() {
           const updated = payload.new as Wager;
           queryClient.setQueryData(['wagers', updated.id], updated);
 
-          // If the wager just resolved, remove it from the live list immediately
           if (updated.status === 'resolved') {
+            // Store resolved wager BEFORE removing from live list so arena page
+            // can show GameResultModal with full wager data
+            queryClient.setQueryData(['wagers', 'last-resolved'], updated);
+
+            // Now remove from live list
             queryClient.setQueryData<Wager[]>(['wagers', 'live'], (old) =>
               old ? old.filter((w) => w.id !== updated.id) : old
             );
+            queryClient.invalidateQueries({ queryKey: ['wagers', 'winners'] });
           } else {
             queryClient.invalidateQueries({ queryKey: ['wagers', 'live'] });
-          }
-
-          // Always refresh recent winners when something resolves
-          if (updated.status === 'resolved') {
-            queryClient.invalidateQueries({ queryKey: ['wagers', 'winners'] });
           }
         }
       )
