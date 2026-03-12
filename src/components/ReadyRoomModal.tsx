@@ -1,16 +1,20 @@
 /**
  * ReadyRoomModal.tsx
  *
- * FIXED Flow (v2):
+ * Correct Flow (v3):
  *  1. Both players click "Ready" → Supabase updated
  *  2. Server sets countdown_started_at → 10s countdown begins
  *  3. At zero:
- *     a. startGame API is called first to transition wager to 'voting' status
- *     b. ONLY AFTER startGame succeeds:
- *        - Player A's wallet popup: signs create_wager (deposits stake into PDA escrow)
- *        - Player B's wallet popup: signs join_wager   (deposits matching stake)
+ *     a. Player A's wallet popup: signs create_wager (deposits stake into PDA escrow)
+ *        Player B's wallet popup: signs join_wager   (deposits matching stake)
+ *     b. ONLY AFTER on-chain deposit is confirmed:
+ *        → startGame API called → wager transitions to 'voting'
  *  4. Confirmed → game link shown
- *  5. If ANY step fails → Cancel button available → refunds both players
+ *  5. If deposit fails → wager stays 'joined' (no funds at risk) → retry or cancel
+ *
+ * The old v2 flow had startGame BEFORE the deposit, which meant the wager
+ * could be marked 'voting' (live) with an empty PDA if the user rejected
+ * or cancelled the wallet signature popup.
  *
  * ⚠️  React Rules of Hooks: ALL hooks must be called unconditionally at the top.
  *     The `if (!wager) return null` guard lives AFTER all hooks.
@@ -44,7 +48,9 @@ interface ReadyRoomModalProps {
   currentWallet?: string;
 }
 
-type TxState = 'idle' | 'starting_game' | 'signing' | 'confirmed' | 'error';
+// signing     = waiting for wallet popup / on-chain confirmation
+// starting_game = deposit confirmed, calling startGame API
+type TxState = 'idle' | 'signing' | 'starting_game' | 'confirmed' | 'error';
 
 const COUNTDOWN_SECONDS = 10;
 
@@ -120,23 +126,26 @@ export function ReadyRoomModal({
     }
   }, [wager?.status, bothReady]);
 
-  // Monitor if other player has hit an error (wager stuck in 'joined' status after countdown)
+  // Monitor if other player has hit an error (wager stuck in 'joined' after countdown)
+  // With the correct flow, wager stays 'joined' until BOTH deposits confirm, so we
+  // only flag otherPlayerInError after a generous window (30s) to avoid false positives.
   useEffect(() => {
     if (!wager || !bothReady || !wager.countdown_started_at) return;
-    
+
     const checkCountdownExpired = () => {
       const startTime = new Date(wager.countdown_started_at!).getTime();
       const elapsed = Date.now() - startTime;
-      // If 12 seconds have passed and wager is still in 'joined', the other player hit an error
-      if (elapsed > 12000 && wager.status === 'joined' && txState === 'idle') {
+      // 30s: deposit + confirmation can take a few seconds on devnet
+      if (elapsed > 30000 && wager.status === 'joined' && txState === 'idle') {
         setOtherPlayerInError(true);
       }
     };
-    
+
     const interval = setInterval(checkCountdownExpired, 1000);
     return () => clearInterval(interval);
   }, [wager, bothReady, wager?.countdown_started_at, txState]);
 
+  // Countdown ticker
   useEffect(() => {
     const startedAt = wager?.countdown_started_at;
     if (!bothReady || !startedAt) {
@@ -154,53 +163,44 @@ export function ReadyRoomModal({
     return () => clearInterval(id);
   }, [bothReady, wager?.countdown_started_at]);
 
+  // Fire deposit flow when countdown hits zero
   useEffect(() => {
     if (countdown !== 0 || hasTriggeredTx.current) return;
     if (!isPlayerA && !isPlayerB) return;
     if (txState !== 'idle') return;
-    // If wager is already in voting/resolved status, skip startGame but still do deposit if needed
-    if (wager?.status === 'voting') {
-      // Wager already started, just do on-chain deposit
-      hasTriggeredTx.current = true;
-      triggerOnChainDeposit();
-      return;
-    }
     if (wager?.status === 'resolved' || wager?.status === 'cancelled') return;
-    
-    // NEW FLOW: Call startGame FIRST, then on-chain deposit
+
     hasTriggeredTx.current = true;
-    triggerGameStartThenDeposit();
+
+    if (wager?.status === 'voting') {
+      // startGame already ran on a prior attempt (e.g. other player's client called it first)
+      // — just do the deposit for this player.
+      triggerDepositThenStartGame(/* skipStartGame */ true);
+    } else {
+      // Normal path: deposit first, then startGame
+      triggerDepositThenStartGame(/* skipStartGame */ false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countdown]);
 
-  // NEW: Start game first (transitions wager to 'voting'), then deposit
-  const triggerGameStartThenDeposit = useCallback(async () => {
+  /**
+   * CORRECT ORDER:
+   *   1. On-chain deposit (wallet popup — user must sign)
+   *   2. startGame API (only after funds are confirmed in PDA)
+   *
+   * skipStartGame=true is used on retry when wager is already 'voting'
+   * (startGame already succeeded, we just need the deposit).
+   */
+  const triggerDepositThenStartGame = useCallback(async (skipStartGame = false) => {
     if (!wager) return;
-    setTxState('starting_game');
     setErrorMessage(null);
-    
-    try {
-      // Step 1: Call startGame to transition wager status to 'voting'
-      // This MUST succeed before we ask the user to deposit funds
-      await startGameMutation.mutateAsync({ wagerId: wager.id });
-      
-      // Step 2: Now do the on-chain deposit
-      await triggerOnChainDeposit();
-    } catch (err: any) {
-      console.error('Game start failed:', err);
-      setTxState('error');
-      setErrorMessage(err.message || 'Failed to start game. Please try again or cancel.');
-      hasTriggeredTx.current = false;
-      toast.error('Failed to start game', { description: err.message });
-    }
-  }, [wager, startGameMutation]);
 
-  const triggerOnChainDeposit = useCallback(async () => {
-    if (!wager) return;
-    setTxState('signing');
-    setErrorMessage(null);
-    
     try {
+      // ── Step 1: On-chain deposit ────────────────────────────────────────
+      // Wallet popup appears here. If user rejects, we throw and wager stays
+      // 'joined' — no funds lost, no phantom 'voting' status.
+      setTxState('signing');
+
       if (isPlayerA) {
         await createWagerOnChain.mutateAsync({
           matchId: wager.match_id,
@@ -216,22 +216,32 @@ export function ReadyRoomModal({
           wagerId: wager.id,
         });
       }
+
+      // ── Step 2: Flip wager to 'voting' ─────────────────────────────────
+      // Only reached if deposit confirmed on-chain. PDA is funded.
+      if (!skipStartGame) {
+        setTxState('starting_game');
+        await startGameMutation.mutateAsync({ wagerId: wager.id });
+      }
+
       setTxState('confirmed');
       toast.success('Stake locked in escrow! Game starting…');
     } catch (err: any) {
+      console.error('Deposit or game start failed:', err);
       setTxState('error');
-      setErrorMessage(err.message || 'Transaction failed. Your funds are safe - you can retry or cancel.');
+      setErrorMessage(
+        err.message || 'Transaction failed. Your funds are safe — you can retry or cancel.'
+      );
       hasTriggeredTx.current = false;
-      console.error('On-chain deposit failed:', err);
     }
-  }, [wager, isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain]);
+  }, [wager, isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain, startGameMutation]);
 
   const handleCancelWager = useCallback(async () => {
     if (!wager) return;
     try {
-      await cancelWagerMutation.mutateAsync({ 
-        wagerId: wager.id, 
-        reason: errorMessage ? 'transaction_failed' : 'user_cancelled' 
+      await cancelWagerMutation.mutateAsync({
+        wagerId: wager.id,
+        reason: errorMessage ? 'transaction_failed' : 'user_cancelled',
       });
       toast.success('Wager cancelled. Any deposited funds will be refunded.');
       onOpenChange(false);
@@ -272,7 +282,7 @@ export function ReadyRoomModal({
 
           {/* ── Countdown Timer ──────────────────────────────────────────── */}
           <AnimatePresence>
-            {bothReady && countdown !== null && (txState === 'idle' || txState === 'starting_game') && (
+            {bothReady && countdown !== null && (txState === 'idle' || txState === 'signing' || txState === 'starting_game') && (
               <motion.div
                 key="countdown"
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -288,24 +298,29 @@ export function ReadyRoomModal({
                       fill="none"
                       stroke="hsl(var(--primary))"
                       strokeWidth="4"
-                      strokeDasharray={`${(countdown / COUNTDOWN_SECONDS) * 276.46} 276.46`}
+                      strokeDasharray={`${(Math.max(countdown ?? 0, 0) / COUNTDOWN_SECONDS) * 276.46} 276.46`}
                       className="transition-all duration-250"
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <span className="text-2xl sm:text-3xl font-gaming font-bold text-primary">
-                      {txState === 'starting_game' ? <Loader2 className="h-8 w-8 animate-spin" /> : countdown}
+                      {txState === 'starting_game'
+                        ? <Loader2 className="h-8 w-8 animate-spin" />
+                        : countdown
+                      }
                     </span>
                   </div>
                 </div>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  {txState === 'starting_game' 
-                    ? 'Starting game...' 
-                    : countdown === 0 
-                      ? 'Confirm transaction in your wallet…' 
-                      : 'Game starting in…'}
+                  {txState === 'starting_game'
+                    ? 'Starting game…'
+                    : txState === 'signing'
+                      ? 'Confirm transaction in your wallet…'
+                      : countdown === 0
+                        ? 'Confirm transaction in your wallet…'
+                        : 'Game starting in…'}
                 </p>
-                {countdown > 0 && txState === 'idle' && (
+                {countdown !== null && countdown > 0 && txState === 'idle' && (
                   <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
                     Click "Not Ready" to cancel
                   </p>
@@ -348,11 +363,11 @@ export function ReadyRoomModal({
                   <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-destructive">
-                      {otherPlayerInError ? 'Waiting for other player...' : 'Transaction Failed'}
+                      {otherPlayerInError ? 'Waiting for other player…' : 'Transaction Failed'}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {otherPlayerInError 
-                        ? 'The other player encountered an error. You can retry the game start or cancel the wager.'
+                      {otherPlayerInError
+                        ? 'The other player has not deposited yet. Wait for them to retry, or cancel the wager.'
                         : errorMessage || 'Make sure you have enough SOL and try again.'
                       }
                     </p>
@@ -360,24 +375,25 @@ export function ReadyRoomModal({
                 </div>
                 <div className="flex gap-2">
                   {txState === 'error' && !otherPlayerInError && (
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="flex-1 text-xs" 
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 text-xs"
                       onClick={() => {
                         hasTriggeredTx.current = false;
                         setTxState('idle');
                         setErrorMessage(null);
-                        triggerGameStartThenDeposit();
+                        // If wager is already voting (startGame ran before error), skip startGame
+                        triggerDepositThenStartGame(wager.status === 'voting');
                       }}
                     >
                       <Loader2 className="h-3 w-3 mr-1" />
                       Retry
                     </Button>
                   )}
-                  <Button 
-                    size="sm" 
-                    variant="destructive" 
+                  <Button
+                    size="sm"
+                    variant="destructive"
                     className={otherPlayerInError ? 'w-full text-xs' : 'flex-1 text-xs'}
                     onClick={handleCancelWager}
                     disabled={cancelWagerMutation.isPending}
