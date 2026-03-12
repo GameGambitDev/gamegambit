@@ -110,10 +110,13 @@ async function resolveOnChain(
             const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey);
             txSig = await sendAndConfirm(connection, authority, ix);
             console.log(`[secure-wager] close_wager (draw) tx: ${txSig}`);
-            await supabase.from('wager_transactions').insert([
+            const { error: drawInsertError } = await supabase.from('wager_transactions').insert([
                 { wager_id: wagerId, tx_type: 'draw_refund', wallet_address: wager.player_a_wallet, amount_lamports: stake, tx_signature: txSig, status: 'confirmed' },
                 { wager_id: wagerId, tx_type: 'draw_refund', wallet_address: wager.player_b_wallet, amount_lamports: stake, tx_signature: txSig, status: 'confirmed' },
             ]);
+            if (drawInsertError) {
+                console.error('[secure-wager] wager_transactions draw insert failed:', JSON.stringify(drawInsertError));
+            }
         } else {
             const totalPot = stake * 2;
             const platformFee = Math.floor(totalPot * PLATFORM_FEE_BPS / 10_000);
@@ -123,10 +126,13 @@ async function resolveOnChain(
             const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
             txSig = await sendAndConfirm(connection, authority, ix);
             console.log(`[secure-wager] resolve_wager tx: ${txSig}`);
-            await supabase.from('wager_transactions').insert([
+            const { error: txInsertError } = await supabase.from('wager_transactions').insert([
                 { wager_id: wagerId, tx_type: 'winner_payout', wallet_address: winnerWallet, amount_lamports: winnerPayout, tx_signature: txSig, status: 'confirmed' },
                 { wager_id: wagerId, tx_type: 'platform_fee', wallet_address: PLATFORM_WALLET, amount_lamports: platformFee, tx_signature: txSig, status: 'confirmed' },
             ]);
+            if (txInsertError) {
+                console.error('[secure-wager] wager_transactions insert failed:', JSON.stringify(txInsertError));
+            }
             const loserWallet = winnerWallet === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
             await supabase.rpc('update_winner_stats', { p_wallet: winnerWallet, p_stake: stake, p_earnings: winnerPayout })
                 .then(({ error }: { error: unknown }) => error && console.log('winner stats error:', error));
@@ -138,7 +144,8 @@ async function resolveOnChain(
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[secure-wager] resolveOnChain failed:', msg);
         await supabase.from('wager_transactions').insert({
-            wager_id: wager.id, tx_type: 'error_on_chain_resolve', wallet_address: 'system',
+            wager_id: wager.id, tx_type: 'error_on_chain_resolve',
+            wallet_address: wager.player_a_wallet as string,
             amount_lamports: 0, status: 'failed', error_message: msg,
         }).catch(() => { });
         return null;
@@ -438,7 +445,7 @@ serve(async (req) => {
             if (updateError) return respond({ error: 'Failed to cancel wager' }, 500);
 
             await supabase.from('wager_transactions').insert({
-                wager_id: wagerId, tx_type: 'cancelled', wallet_address: walletAddress,
+                wager_id: wagerId, tx_type: 'cancelled', wallet_address: wager.player_a_wallet,
                 amount_lamports: 0, status: 'confirmed',
             }).catch(() => { });
 
@@ -456,10 +463,13 @@ serve(async (req) => {
                         const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey);
                         const txSig = await sendAndConfirm(connection, authority, ix);
                         console.log(`[secure-wager] Cancel refund tx: ${txSig}`);
-                        await supabase.from('wager_transactions').insert([
+                        const { error: cancelInsertError } = await supabase.from('wager_transactions').insert([
                             { wager_id: wagerId, tx_type: 'cancel_refund', wallet_address: wager.player_a_wallet, amount_lamports: wager.stake_lamports, tx_signature: txSig, status: 'confirmed' },
                             { wager_id: wagerId, tx_type: 'cancel_refund', wallet_address: wager.player_b_wallet, amount_lamports: wager.stake_lamports, tx_signature: txSig, status: 'confirmed' },
                         ]);
+                        if (cancelInsertError) {
+                            console.error('[secure-wager] cancel_refund insert failed:', JSON.stringify(cancelInsertError));
+                        }
                     }
                 } catch (e: unknown) {
                     console.error('[secure-wager] Cancel refund failed:', e instanceof Error ? e.message : String(e));
