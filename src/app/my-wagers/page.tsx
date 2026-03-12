@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import dynamic from 'next/dynamic'
@@ -9,7 +9,7 @@ const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
   { ssr: false }
 )
-import { Swords, Clock, Trophy, XCircle, CheckCircle, Filter, Loader2, Play, ExternalLink } from 'lucide-react'
+import { Swords, Clock, Trophy, XCircle, CheckCircle, Filter, Loader2, Play, ExternalLink, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
 import { useMyWagers, useSetReady, useStartGame, useWagerById, Wager } from '@/hooks/useWagers'
 import { usePlayer } from '@/hooks/usePlayer'
+import { useMyTransactions } from '@/hooks/useTransactions'
+import { getExplorerUrl } from '@/lib/solana-config'
 import { ReadyRoomModal } from '@/components/ReadyRoomModal'
 import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal'
 import { useEditWager } from '@/hooks/useWagers'
@@ -34,30 +36,25 @@ const getGameData = (game: string) => {
 
 const getStatusBadge = (status: string, won?: boolean) => {
   switch (status) {
-    case 'created':
-      return <Badge variant="created">Waiting</Badge>
-    case 'joined':
-      return <Badge variant="joined">Ready Room</Badge>
-    case 'voting':
-      return <Badge variant="voting">In Progress</Badge>
-    case 'disputed':
-      return <Badge variant="disputed">Disputed</Badge>
-    case 'resolved':
-      return won ? <Badge variant="success">Won</Badge> : <Badge variant="destructive">Lost</Badge>
-    case 'cancelled':
-      return <Badge variant="glass">Cancelled</Badge>
-    default:
-      return <Badge variant="glass">{status}</Badge>
+    case 'created': return <Badge variant="created">Waiting</Badge>
+    case 'joined': return <Badge variant="joined">Ready Room</Badge>
+    case 'voting': return <Badge variant="voting">In Progress</Badge>
+    case 'disputed': return <Badge variant="disputed">Disputed</Badge>
+    case 'resolved': return won ? <Badge variant="success">Won</Badge> : <Badge variant="destructive">Lost</Badge>
+    case 'cancelled': return <Badge variant="glass">Cancelled</Badge>
+    default: return <Badge variant="glass">{status}</Badge>
   }
 }
 
 function WagerRow({
   wager,
   myWallet,
-  onEnterReadyRoom
+  txSig,
+  onEnterReadyRoom,
 }: {
   wager: Wager
   myWallet: string
+  txSig?: string | null
   onEnterReadyRoom?: (wagerId: string) => void
 }) {
   const game = getGameData(wager.game)
@@ -65,14 +62,16 @@ function WagerRow({
   const opponent = isChallenger ? wager.player_b_wallet : wager.player_a_wallet
   const won = wager.winner_wallet === myWallet
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
-  const gameLink = wager.game === 'chess' && wager.lichess_game_id
-    ? `https://lichess.org/${wager.lichess_game_id}`
-    : null
+  const gameLink =
+    wager.game === 'chess' && wager.lichess_game_id
+      ? `https://lichess.org/${wager.lichess_game_id}`
+      : null
 
   return (
     <Card variant="wager" className="group hover:border-primary/40 transition-all">
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
+          {/* Left */}
           <div className="flex items-center gap-4">
             <div className="text-3xl">{game.icon}</div>
             <div>
@@ -83,13 +82,15 @@ function WagerRow({
                   {opponent ? truncateAddress(opponent) : 'Waiting...'}
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 <span>{game.name}</span>
                 <span>•</span>
                 <Clock className="h-3 w-3" />
                 <span>{timeDiff}m ago</span>
                 <span>•</span>
                 <span>{isChallenger ? 'Challenger' : 'Opponent'}</span>
+
+                {/* Lichess link */}
                 {gameLink && (
                   <>
                     <span>•</span>
@@ -104,9 +105,30 @@ function WagerRow({
                     </a>
                   </>
                 )}
+
+                {/* On-chain proof link — only rendered when a confirmed sig exists */}
+                {txSig && (
+                  <>
+                    <span>•</span>
+                    <a
+                      href={getExplorerUrl('tx', txSig)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:underline flex items-center gap-1 font-medium"
+                      onClick={(e) => e.stopPropagation()}
+                      title={txSig}
+                    >
+                      <Link2 className="h-3 w-3" />
+                      {truncateAddress(txSig)}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Right */}
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="font-gaming text-lg font-bold text-accent">
@@ -115,19 +137,13 @@ function WagerRow({
             </div>
             {getStatusBadge(wager.status, won)}
             {wager.status === 'joined' && onEnterReadyRoom && (
-              <Button
-                variant="neon"
-                size="sm"
-                onClick={() => onEnterReadyRoom(wager.id)}
-              >
+              <Button variant="neon" size="sm" onClick={() => onEnterReadyRoom(wager.id)}>
                 <Play className="h-4 w-4 mr-1" />
                 Ready Room
               </Button>
             )}
             {wager.status === 'voting' && (
-              <Button variant="gold" size="sm">
-                Vote
-              </Button>
+              <Button variant="gold" size="sm">Vote</Button>
             )}
           </div>
         </div>
@@ -161,11 +177,34 @@ export default function MyWagersPage() {
   const startGameMutation = useStartGame()
   const editWagerMutation = useEditWager()
 
-  const activeWagers = wagers?.filter(w => ['created', 'joined', 'voting', 'disputed'].includes(w.status)) || []
-  const completedWagers = wagers?.filter(w => w.status === 'resolved') || []
+  // Reuse existing hook — single query for all my transactions
+  const { data: myTransactions } = useMyTransactions(200)
 
-  const winsCount = completedWagers.filter(w => w.winner_wallet === walletAddress).length
-  const lossesCount = completedWagers.filter(w => w.winner_wallet && w.winner_wallet !== walletAddress).length
+  // wagerId → first confirmed payout/refund tx_signature
+  const txSigByWagerId = useMemo(() => {
+    const map: Record<string, string> = {}
+    const payoutTypes = new Set(['winner_payout', 'draw_refund', 'cancel_refund'])
+    myTransactions?.forEach((tx) => {
+      if (
+        tx.tx_signature &&
+        tx.status === 'confirmed' &&
+        payoutTypes.has(tx.tx_type) &&
+        !map[tx.wager_id]
+      ) {
+        map[tx.wager_id] = tx.tx_signature
+      }
+    })
+    return map
+  }, [myTransactions])
+
+  const activeWagers =
+    wagers?.filter((w) => ['created', 'joined', 'voting', 'disputed'].includes(w.status)) || []
+  const completedWagers = wagers?.filter((w) => w.status === 'resolved') || []
+
+  const winsCount = completedWagers.filter((w) => w.winner_wallet === walletAddress).length
+  const lossesCount = completedWagers.filter(
+    (w) => w.winner_wallet && w.winner_wallet !== walletAddress
+  ).length
 
   const handleSetReady = async (ready: boolean) => {
     if (!readyRoomWagerId) return
@@ -188,16 +227,22 @@ export default function MyWagersPage() {
     }
   }
 
-  if (readyRoomWager?.ready_player_a && readyRoomWager?.ready_player_b && readyRoomWager?.countdown_started_at) {
+  if (
+    readyRoomWager?.ready_player_a &&
+    readyRoomWager?.ready_player_b &&
+    readyRoomWager?.countdown_started_at
+  ) {
     const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
-    const now = Date.now()
-    if (now - startTime >= 13000 && readyRoomWager.status === 'joined') {
-      startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
-        onSuccess: () => {
-          toast.success('Game started! Good luck!')
-          setReadyRoomWagerId(null)
+    if (Date.now() - startTime >= 13000 && readyRoomWager.status === 'joined') {
+      startGameMutation.mutate(
+        { wagerId: readyRoomWager.id },
+        {
+          onSuccess: () => {
+            toast.success('Game started! Good luck!')
+            setReadyRoomWagerId(null)
+          },
         }
-      })
+      )
     }
   }
 
@@ -238,7 +283,7 @@ export default function MyWagersPage() {
           <p className="text-muted-foreground">Track all your active and completed matches</p>
         </motion.div>
 
-        {/* Stats Overview */}
+        {/* Stats */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -300,6 +345,7 @@ export default function MyWagersPage() {
                         <WagerRow
                           wager={wager}
                           myWallet={walletAddress}
+                          txSig={txSigByWagerId[wager.id]}
                           onEnterReadyRoom={setReadyRoomWagerId}
                         />
                       </motion.div>
@@ -318,6 +364,7 @@ export default function MyWagersPage() {
                         <WagerRow
                           wager={wager}
                           myWallet={walletAddress}
+                          txSig={txSigByWagerId[wager.id]}
                           onEnterReadyRoom={setReadyRoomWagerId}
                         />
                       </motion.div>
@@ -333,7 +380,11 @@ export default function MyWagersPage() {
                   <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                     {completedWagers.map((wager) => (
                       <motion.div key={wager.id} variants={staggerItem}>
-                        <WagerRow wager={wager} myWallet={walletAddress} />
+                        <WagerRow
+                          wager={wager}
+                          myWallet={walletAddress}
+                          txSig={txSigByWagerId[wager.id]}
+                        />
                       </motion.div>
                     ))}
                   </motion.div>
@@ -352,10 +403,7 @@ export default function MyWagersPage() {
         onOpenChange={(open) => !open && setReadyRoomWagerId(null)}
         onReady={handleSetReady}
         onEditWager={() => {
-          if (readyRoomWager) {
-            setEditWager(readyRoomWager)
-            setEditModalOpen(true)
-          }
+          if (readyRoomWager) { setEditWager(readyRoomWager); setEditModalOpen(true) }
         }}
         isSettingReady={setReadyMutation.isPending}
         currentWallet={walletAddress}
@@ -364,10 +412,7 @@ export default function MyWagersPage() {
       <EditWagerModal
         wager={editWager}
         open={editModalOpen}
-        onOpenChange={(open) => {
-          setEditModalOpen(open)
-          if (!open) setEditWager(null)
-        }}
+        onOpenChange={(open) => { setEditModalOpen(open); if (!open) setEditWager(null) }}
         onSave={handleSaveEditWager}
         isSaving={editWagerMutation.isPending}
         canEditGameId={editWager?.status === 'created'}
