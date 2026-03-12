@@ -761,10 +761,22 @@
 
 .wallet-adapter-modal-wrapper {
   @apply !bg-card;
+  /* Force above fixed header (z-50) and all other overlays */
+  z-index: 9999 !important;
 }
 
 .wallet-adapter-modal-title {
   @apply !font-gaming;
+}
+
+/* Wallet dropdown (disconnect menu) must also sit above the header */
+.wallet-adapter-dropdown-list {
+  z-index: 9999 !important;
+}
+
+/* Overlay backdrop must match */
+.wallet-adapter-modal-overlay {
+  z-index: 9998 !important;
 }
 
 /* ============================================
