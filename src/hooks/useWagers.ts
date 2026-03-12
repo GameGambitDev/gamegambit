@@ -120,7 +120,8 @@ export function useLiveWagers() {
 
           if (updated.status === 'resolved') {
             // Store resolved wager BEFORE removing from live list so arena page
-            // can show GameResultModal with full wager data
+            // can show GameResultModal with full wager data.
+            // setQueryData triggers the queryCache subscriber in arena/page.tsx.
             queryClient.setQueryData(['wagers', 'last-resolved'], updated);
 
             // Now remove from live list
@@ -374,6 +375,10 @@ export function useCheckGameComplete() {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
       const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+      // Fire-and-forget — the server resolves the wager and updates the DB.
+      // The client learns about resolution via the Supabase realtime subscription
+      // in useLiveWagers, which sets ['wagers', 'last-resolved'] in the cache,
+      // which the queryCache subscriber in arena/page.tsx picks up immediately.
       fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
         method: 'POST',
         headers: {

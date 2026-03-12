@@ -16,7 +16,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
-import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useStartGame, useWagerById, useCheckGameComplete, Wager, GameType } from '@/hooks/useWagers'
+import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useWagerById, useCheckGameComplete, Wager, GameType } from '@/hooks/useWagers'
 import { usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import { useQuickMatch } from '@/hooks/useQuickMatch'
@@ -202,7 +202,6 @@ export default function ArenaPage() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const shownResultForRef = useRef<Set<string>>(new Set())
-  const liveWagerSnapshotRef = useRef<Wager | null>(null)
 
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
@@ -219,12 +218,12 @@ export default function ArenaPage() {
   // Track in-flight wager IDs to prevent concurrent duplicate checks
   const inFlightChecksRef = useRef<Set<string>>(new Set())
 
+  // Poll voting wagers every 8s to trigger Lichess resolution check on the server
   useEffect(() => {
     const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
     if (votingWagers.length === 0) return
     const interval = setInterval(() => {
       votingWagers.forEach(w => {
-        // Skip if a check is already in flight for this wager
         if (inFlightChecksRef.current.has(w.id)) return
         inFlightChecksRef.current.add(w.id)
         checkGameComplete.mutate({ wagerId: w.id }, {
@@ -234,37 +233,43 @@ export default function ArenaPage() {
           }
         })
       })
-    }, 15000)
+    }, 8000)
     return () => clearInterval(interval)
   }, [liveWagers])
 
-  // Watch for resolution via the 'last-resolved' cache key set by the realtime
-  // handler — this fires BEFORE the wager is removed from the live list so we
-  // always have full wager data for the GameResultModal
-  const lastResolvedWager = queryClient.getQueryData<Wager>(['wagers', 'last-resolved'])
+  // ── RESULTS MODAL: subscribe directly to query cache ──────────────────────
+  // When useLiveWagers realtime handler receives a 'resolved' wager it calls:
+  //   queryClient.setQueryData(['wagers', 'last-resolved'], updatedWager)
+  // That triggers this subscriber synchronously — no stale render-cycle capture,
+  // no dependency on render timing.
   useEffect(() => {
-    const w = queryClient.getQueryData<Wager>(['wagers', 'last-resolved'])
-    if (!w || !walletAddress) return
-    if (shownResultForRef.current.has(w.id)) return
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated') return
+      const key = event.query.queryKey
+      if (!Array.isArray(key) || key[0] !== 'wagers' || key[1] !== 'last-resolved') return
 
-    const isParticipant = w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress
-    if (!isParticipant) return
+      const w = event.query.state.data as Wager | undefined
+      if (!w || !walletAddress) return
+      if (shownResultForRef.current.has(w.id)) return
 
-    shownResultForRef.current.add(w.id)
+      const isParticipant = w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress
+      if (!isParticipant) return
 
-    // Close LiveGameModal if it was showing this wager
-    if (liveGameWagerId === w.id) {
-      setLiveGameModalOpen(false)
-      liveWagerSnapshotRef.current = null
-    }
+      shownResultForRef.current.add(w.id)
 
-    // Open result modal with the captured wager data
-    setGameResultWager(w)
-    setGameResultOpen(true)
+      // Close LiveGameModal if it was open for this wager
+      if (liveGameWagerId === w.id) {
+        setLiveGameModalOpen(false)
+        setLiveGameWagerId(null)
+      }
 
-    // Clear last-resolved so it doesn't re-trigger on re-render
-    queryClient.removeQueries({ queryKey: ['wagers', 'last-resolved'] })
-  }, [lastResolvedWager, walletAddress])
+      setGameResultWager(w)
+      setGameResultOpen(true)
+
+      // Clear so it doesn't re-trigger on future cache events
+      queryClient.removeQueries({ queryKey: ['wagers', 'last-resolved'] })
+    })
+  }, [queryClient, walletAddress, liveGameWagerId])
 
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
   const { data: player } = usePlayer()
@@ -275,7 +280,6 @@ export default function ArenaPage() {
   const editWagerMutation = useEditWager()
   const deleteWagerMutation = useDeleteWager()
   const setReadyMutation = useSetReady()
-  const startGameMutation = useStartGame()
   const { isComplete: profileComplete, needsSetup } = useIsProfileComplete()
   const { data: searchedPlayers } = useSearchPlayers(searchQuery)
 
@@ -376,33 +380,9 @@ export default function ArenaPage() {
     }
   }
 
-  // ── START GAME EFFECT (fixed: no synchronous early-fire, min 1s delay) ──────
-  useEffect(() => {
-    if (
-      readyRoomWager?.ready_player_a &&
-      readyRoomWager?.ready_player_b &&
-      readyRoomWager?.countdown_started_at &&
-      readyRoomWager?.status === 'joined'
-    ) {
-      const startTime = new Date(readyRoomWager.countdown_started_at).getTime()
-      const elapsed = Date.now() - startTime
-      const remaining = 13000 - elapsed
-
-      // Always wait at least 1s — prevents firing synchronously on re-renders
-      // before the server's 11s gate has passed
-      const delay = Math.max(remaining, 1000)
-
-      const go = () => {
-        startGameMutation.mutate({ wagerId: readyRoomWager.id }, {
-          onSuccess: () => { toast.success('Game started! Good luck!'); setReadyRoomWagerId(null) },
-          onError: (err: any) => toast.error(err.message || 'Failed to start game')
-        })
-      }
-
-      const timer = setTimeout(go, delay)
-      return () => clearTimeout(timer)
-    }
-  }, [readyRoomWager?.ready_player_a, readyRoomWager?.ready_player_b, readyRoomWager?.countdown_started_at, readyRoomWager?.status])
+  // NOTE: startGame is intentionally NOT called from arena/page.tsx.
+  // ReadyRoomModal v4 owns the full deposit → startGame flow. Calling startGame
+  // here too caused the wager to flip to 'voting' before either player deposited.
 
   const handleCreateWager = () => {
     if (needsSetup) { toast.error('Please set up your username first'); return }
@@ -676,7 +656,7 @@ export default function ArenaPage() {
         currentWallet={walletAddress}
       />
 
-      {/* GameResultModal — pops automatically when wager resolves */}
+      {/* GameResultModal — pops automatically when wager resolves via realtime */}
       <GameResultModal
         open={gameResultOpen}
         onOpenChange={setGameResultOpen}
