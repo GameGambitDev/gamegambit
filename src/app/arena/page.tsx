@@ -203,6 +203,29 @@ export default function ArenaPage() {
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const shownResultForRef = useRef<Set<string>>(new Set())
 
+  // ── localStorage helpers ───────────────────────────────────────────────────
+  // Key format: `pending-result:<walletAddress>` → JSON Wager
+  // Written when realtime fires, read on mount, cleared when user dismisses.
+  const pendingResultKey = walletAddress ? `pending-result:${walletAddress}` : null
+
+  const savePendingResult = (w: Wager) => {
+    if (!pendingResultKey) return
+    try { localStorage.setItem(pendingResultKey, JSON.stringify(w)) } catch { }
+  }
+
+  const clearPendingResult = () => {
+    if (!pendingResultKey) return
+    try { localStorage.removeItem(pendingResultKey) } catch { }
+  }
+
+  const loadPendingResult = (): Wager | null => {
+    if (!pendingResultKey) return null
+    try {
+      const raw = localStorage.getItem(pendingResultKey)
+      return raw ? (JSON.parse(raw) as Wager) : null
+    } catch { return null }
+  }
+
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
 
@@ -237,6 +260,20 @@ export default function ArenaPage() {
     return () => clearInterval(interval)
   }, [liveWagers])
 
+  // ── On mount: restore any pending result that survived a refresh ─────────
+  useEffect(() => {
+    if (!walletAddress) return
+    const w = loadPendingResult()
+    if (!w) return
+    if (shownResultForRef.current.has(w.id)) return
+    // Wager must be recent — ignore results older than 10 minutes
+    const age = w.resolved_at ? Date.now() - new Date(w.resolved_at).getTime() : Infinity
+    if (age > 10 * 60 * 1000) { clearPendingResult(); return }
+    shownResultForRef.current.add(w.id)
+    setGameResultWager(w)
+    setGameResultOpen(true)
+  }, [walletAddress])
+
   // ── RESULTS MODAL: subscribe directly to query cache ──────────────────────
   // When useLiveWagers realtime handler receives a 'resolved' wager it calls:
   //   queryClient.setQueryData(['wagers', 'last-resolved'], updatedWager)
@@ -257,7 +294,8 @@ export default function ArenaPage() {
 
       shownResultForRef.current.add(w.id)
 
-      // Close LiveGameModal if it was open for this wager
+      // Persist so result survives a page refresh (cleared on dismiss)
+      savePendingResult(w)
       if (liveGameWagerId === w.id) {
         setLiveGameModalOpen(false)
         setLiveGameWagerId(null)
@@ -656,10 +694,14 @@ export default function ArenaPage() {
         currentWallet={walletAddress}
       />
 
-      {/* GameResultModal — pops automatically when wager resolves via realtime */}
+      {/* GameResultModal — pops automatically when wager resolves via realtime.
+          Persists across refresh via localStorage; cleared on dismiss. */}
       <GameResultModal
         open={gameResultOpen}
-        onOpenChange={setGameResultOpen}
+        onOpenChange={(open) => {
+          setGameResultOpen(open)
+          if (!open) clearPendingResult()
+        }}
         result={gameResultType}
         winnerWallet={gameResultWager?.winner_wallet}
         winnerUsername={gameResultWinnerUsername}
@@ -669,6 +711,7 @@ export default function ArenaPage() {
         refundAmount={gameResultWager?.stake_lamports}
         onViewDetails={() => {
           setGameResultOpen(false)
+          clearPendingResult()
           if (gameResultWager) handleViewDetails(gameResultWager)
         }}
       />
