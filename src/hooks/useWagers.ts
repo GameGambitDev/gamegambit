@@ -116,21 +116,34 @@ export function useLiveWagers() {
         },
         (payload) => {
           const updated = payload.new as Wager;
+
+          // Always keep the per-wager cache fresh
           queryClient.setQueryData(['wagers', updated.id], updated);
 
           if (updated.status === 'resolved') {
-            // Store resolved wager BEFORE removing from live list so arena page
-            // can show GameResultModal with full wager data.
-            // setQueryData triggers the queryCache subscriber in arena/page.tsx.
+            // ── CRITICAL ORDER ──────────────────────────────────────────────
+            // 1. Write last-resolved FIRST so arena/page.tsx cache subscriber
+            //    can read the full wager before it disappears from the live list.
             queryClient.setQueryData(['wagers', 'last-resolved'], updated);
 
-            // Now remove from live list
+            // 2. Remove from live list only after last-resolved is written.
             queryClient.setQueryData<Wager[]>(['wagers', 'live'], (old) =>
               old ? old.filter((w) => w.id !== updated.id) : old
             );
+
+            // 3. Refresh winners sidebar
             queryClient.invalidateQueries({ queryKey: ['wagers', 'winners'] });
           } else {
-            queryClient.invalidateQueries({ queryKey: ['wagers', 'live'] });
+            // For all other status transitions, update in-place so the live
+            // list reflects the latest state without a full refetch round-trip.
+            queryClient.setQueryData<Wager[]>(['wagers', 'live'], (old) => {
+              if (!old) return old;
+              const idx = old.findIndex((w) => w.id === updated.id);
+              if (idx === -1) return old;
+              const next = [...old];
+              next[idx] = updated;
+              return next;
+            });
           }
         }
       )
@@ -365,6 +378,7 @@ export function useStartGame() {
 }
 
 export function useCheckGameComplete() {
+  const queryClient = useQueryClient();
   const { getSessionToken } = useWalletAuth();
 
   return useMutation({
@@ -372,32 +386,30 @@ export function useCheckGameComplete() {
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
 
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-      // Fire-and-forget — the server resolves the wager and updates the DB.
-      // The client learns about resolution via the Supabase realtime subscription
-      // in useLiveWagers, which sets ['wagers', 'last-resolved'] in the cache,
-      // which the queryCache subscriber in arena/page.tsx picks up immediately.
-      fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-          'X-Session-Token': sessionToken,
-        },
-        body: JSON.stringify({ action: 'checkGameComplete', wagerId }),
-      }).catch(() => { });
-
-      return { gameComplete: false, message: 'check triggered' } as {
+      // ── AWAIT the full response (was fire-and-forget before) ────────────
+      // The old implementation returned immediately with { gameComplete: false }
+      // before the edge function even finished, so onSuccess in arena/page.tsx
+      // could never see a resolved wager. Now we wait for the real result.
+      const result = await invokeSecureWager<{
         gameComplete: boolean;
         status?: string;
         winner?: string;
-        winnerWallet?: string;
+        winnerWallet?: string | null;
         resultType?: 'playerA' | 'playerB' | 'draw' | 'unknown';
+        isDraw?: boolean;
         message?: string;
         wager?: Wager;
-      };
+        txSignature?: string | null;
+        explorerUrl?: string | null;
+      }>({ action: 'checkGameComplete', wagerId }, sessionToken, 30000);
+
+      // If resolved, proactively write into last-resolved so BOTH trigger
+      // paths in arena/page.tsx work (direct onSuccess + cache subscriber).
+      if (result.gameComplete && result.wager?.status === 'resolved') {
+        queryClient.setQueryData(['wagers', 'last-resolved'], result.wager);
+      }
+
+      return result;
     },
   });
 }
