@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useWalletReady } from '@/app/providers'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -184,6 +185,7 @@ function EmptyState({ title, description }: { title: string; description: string
 
 export default function ArenaPage() {
   const { connected, publicKey } = useWallet()
+  const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58()
   const [searchQuery, setSearchQuery] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -194,14 +196,11 @@ export default function ArenaPage() {
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
 
-  // LiveGameModal — keep wager ID so we can pull fresh data from the query cache
   const [liveGameWagerId, setLiveGameWagerId] = useState<string | null>(null)
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
 
-  // GameResultModal
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
-  // Track which wager IDs we've already shown the result modal for (survives re-renders)
   const shownResultForRef = useRef<Set<string>>(new Set())
 
   const queryClient = useQueryClient()
@@ -210,14 +209,11 @@ export default function ArenaPage() {
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
 
-  // Always pull live wager from cache so it stays fresh
   const liveGameWager = useMemo(() => {
     if (!liveGameWagerId) return null
     return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
   }, [liveGameWagerId, liveWagers])
 
-  // ─── showResult: central function that triggers the result modal ────────────
-  // Always call this instead of setting state directly so we de-duplicate.
   const showResult = useCallback((w: Wager) => {
     if (!walletAddress) return
     if (shownResultForRef.current.has(w.id)) return
@@ -227,7 +223,6 @@ export default function ArenaPage() {
 
     shownResultForRef.current.add(w.id)
 
-    // Close LiveGameModal if it was watching this wager
     if (liveGameWagerId === w.id) {
       setLiveGameModalOpen(false)
       setLiveGameWagerId(null)
@@ -237,11 +232,8 @@ export default function ArenaPage() {
     setGameResultOpen(true)
   }, [walletAddress, liveGameWagerId])
 
-  // Track in-flight wager IDs to prevent concurrent duplicate checks
   const inFlightChecksRef = useRef<Set<string>>(new Set())
 
-  // Poll voting wagers every 8s — when the edge function returns a resolved wager,
-  // DIRECTLY trigger the result modal instead of relying on cache subscriptions.
   useEffect(() => {
     const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
     if (votingWagers.length === 0) return
@@ -253,12 +245,9 @@ export default function ArenaPage() {
 
         checkGameComplete.mutate({ wagerId: w.id }, {
           onSuccess: (result: any) => {
-            // The edge function returns { gameComplete, wager, ... }
-            // If the game just resolved, show the modal immediately.
             if (result?.gameComplete && result?.wager && result.wager.status === 'resolved') {
               showResult(result.wager)
             }
-            // Always refresh the wager lists so the UI stays current
             queryClient.invalidateQueries({ queryKey: ['wagers'] })
           },
           onSettled: () => {
@@ -271,10 +260,6 @@ export default function ArenaPage() {
     return () => clearInterval(interval)
   }, [liveWagers, showResult, queryClient])
 
-  // ── BACKUP: subscribe to query cache for realtime-pushed resolutions ──────
-  // useLiveWagers realtime handler may call:
-  //   queryClient.setQueryData(['wagers', 'last-resolved'], updatedWager)
-  // This catches that path too.
   useEffect(() => {
     return queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated') return
@@ -285,15 +270,10 @@ export default function ArenaPage() {
       if (!w) return
 
       showResult(w)
-
-      // Clear so it doesn't re-trigger on future cache events
       queryClient.removeQueries({ queryKey: ['wagers', 'last-resolved'] })
     })
   }, [queryClient, showResult])
 
-  // ── BACKUP: watch the liveWagers list itself for wagers that flip to resolved ─
-  // When a realtime update changes a wager's status inside the live list,
-  // this catches it even if the cache key approach above misses it.
   const prevLiveWagersRef = useRef<Wager[]>([])
   useEffect(() => {
     if (!liveWagers || !walletAddress) return
@@ -302,10 +282,7 @@ export default function ArenaPage() {
     liveWagers.forEach(w => {
       if (w.status !== 'resolved' && (w.status as string) !== 'closed') return
       const wasLive = prev.find(p => p.id === w.id && p.status !== 'resolved' && (p.status as string) !== 'closed')
-      if (wasLive) {
-        // This wager just transitioned to resolved — show the modal
-        showResult(w)
-      }
+      if (wasLive) showResult(w)
     })
 
     prevLiveWagersRef.current = liveWagers
@@ -446,7 +423,6 @@ export default function ArenaPage() {
     }
   }
 
-  // Derive GameResultModal props
   const gameResultTotalPot = (gameResultWager?.stake_lamports ?? 0) * 2
   const gameResultPlatformFee = Math.floor(gameResultTotalPot * 0.1)
   const gameResultPayout = gameResultTotalPot - gameResultPlatformFee
@@ -456,6 +432,17 @@ export default function ArenaPage() {
     : gameResultWager?.winner_wallet === walletAddress
       ? 'win'
       : 'lose'
+
+  // Still waiting for autoConnect to resolve — don't flash the connect screen
+  if (!walletReady) {
+    return (
+      <div className="py-8 pb-16">
+        <div className="container px-4 flex justify-center items-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    )
+  }
 
   if (!connected) {
     return (
@@ -527,7 +514,6 @@ export default function ArenaPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
-            {/* Live Matches */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
               <div className="flex items-center gap-2 mb-4">
                 <span className="relative flex h-2 w-2">
@@ -558,7 +544,6 @@ export default function ArenaPage() {
               )}
             </motion.div>
 
-            {/* Open Wagers */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="font-gaming text-lg">Open Wagers</h2>
@@ -589,7 +574,6 @@ export default function ArenaPage() {
             </motion.div>
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-6">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
               <Card variant="gaming" className="p-4">
@@ -645,11 +629,8 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      {/* ── Modals ── */}
       <CreateWagerModal open={createModalOpen} onOpenChange={setCreateModalOpen} onSuccess={() => setCreateModalOpen(false)} />
-
       <QuickMatchModal open={quickMatchModalOpen} onOpenChange={setQuickMatchModalOpen} onMatch={handleQuickMatchSubmit} isPending={quickMatch.isPending} />
-
       <WagerDetailsModal
         wager={selectedWager}
         open={detailsModalOpen}
@@ -659,7 +640,6 @@ export default function ArenaPage() {
         onDelete={handleDeleteWager}
         isJoining={joinWager.isPending}
       />
-
       <ReadyRoomModal
         wager={readyRoomWager || null}
         open={!!readyRoomWagerId}
@@ -671,7 +651,6 @@ export default function ArenaPage() {
         isSettingReady={setReadyMutation.isPending}
         currentWallet={walletAddress}
       />
-
       <EditWagerModal
         wager={editWager}
         open={editModalOpen}
@@ -680,8 +659,6 @@ export default function ArenaPage() {
         isSaving={editWagerMutation.isPending}
         canEditGameId={editWager?.status === 'created'}
       />
-
-      {/* LiveGameModal — receives fresh wager from query cache */}
       <LiveGameModal
         wager={liveGameWager}
         open={liveGameModalOpen}
@@ -691,13 +668,6 @@ export default function ArenaPage() {
         }}
         currentWallet={walletAddress}
       />
-
-      {/* GameResultModal — fires automatically when a wager resolves.
-          Three paths trigger it:
-          1. checkGameComplete polling returns a resolved wager (primary)
-          2. useLiveWagers realtime sets ['wagers','last-resolved'] in cache (backup)
-          3. liveWagers list itself shows a wager flipping to resolved (backup)
-      */}
       <GameResultModal
         open={gameResultOpen}
         onOpenChange={setGameResultOpen}
