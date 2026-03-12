@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useWalletReady } from '@/app/providers'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -31,8 +32,22 @@ const getGameData = (game: string) => {
   }
 }
 
+function WalletLoader() {
+  return (
+    <div className="py-8 pb-16 min-h-screen flex flex-col items-center justify-center">
+      <div className="container px-4">
+        <div className="max-w-sm mx-auto text-center py-12">
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-sm text-muted-foreground font-gaming">Connecting wallet...</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const { connected, publicKey } = useWallet()
+  const walletReady = useWalletReady()
   const { data: player, isLoading: playerLoading } = usePlayer()
   const { data: wagers, isLoading: wagersLoading } = useMyWagers()
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
@@ -47,6 +62,9 @@ export default function DashboardPage() {
     : 0
 
   const displayName = player?.username || (publicKey ? truncateAddress(publicKey.toBase58(), 4) : '')
+
+  // Still waiting for autoConnect to resolve — don't flash the connect screen
+  if (!walletReady) return <WalletLoader />
 
   if (!connected) {
     return (
@@ -63,7 +81,7 @@ export default function DashboardPage() {
                 <Activity className="h-12 w-12 text-primary" />
               </div>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -149,12 +167,12 @@ export default function DashboardPage() {
             >
               <Card variant="gaming" className="p-4 transition-all hover:border-primary/30">
                 <div className="flex items-center gap-3">
-                  <div className={`p - 2 rounded - lg ${stat.bgColor} `}>
-                    <stat.icon className={`h - 5 w - 5 ${stat.color} `} />
+                  <div className={`p-2 rounded-lg ${stat.bgColor}`}>
+                    <stat.icon className={`h-5 w-5 ${stat.color}`} />
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground uppercase">{stat.label}</p>
-                    <p className={`text - xl font - gaming font - bold ${stat.color} `}>{stat.value}</p>
+                    <p className={`text-xl font-gaming font-bold ${stat.color}`}>{stat.value}</p>
                   </div>
                 </div>
               </Card>
@@ -251,7 +269,7 @@ export default function DashboardPage() {
                               <Badge variant={won ? 'success' : 'destructive'}>
                                 {won ? 'WIN' : 'LOSS'}
                               </Badge>
-                              <p className={`text - sm font - gaming mt - 1 ${amount > 0 ? 'text-success' : 'text-destructive'} `}>
+                              <p className={`text-sm font-gaming mt-1 ${amount > 0 ? 'text-success' : 'text-destructive'}`}>
                                 {amount > 0 ? '+' : ''}{formatSol(Math.abs(amount))} SOL
                               </p>
                             </div>

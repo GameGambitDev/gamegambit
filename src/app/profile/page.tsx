@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useWalletReady } from '@/app/providers'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -26,16 +27,17 @@ import { AchievementBadges } from '@/components/AchievementBadges'
 
 export default function ProfilePage() {
   const { connected, publicKey } = useWallet()
+  const walletReady = useWalletReady()
   const currentUserWallet = publicKey?.toBase58()
   const viewingWallet = currentUserWallet
-  
+
   const { data: player, isLoading } = usePlayer()
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
   const createPlayer = useCreatePlayer()
   const updatePlayer = useUpdatePlayer()
-  
+
   const { data: lichessUserData } = useLichessUser(player?.lichess_username)
-  
+
   const [platformUsername, setPlatformUsername] = useState('')
   const [isEditingUsername, setIsEditingUsername] = useState(false)
   const [copiedAddress, setCopiedAddress] = useState(false)
@@ -101,9 +103,20 @@ export default function ProfilePage() {
     }
   }
 
-  const winRate = player && (player.total_wins + player.total_losses) > 0 
-    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+  const winRate = player && (player.total_wins + player.total_losses) > 0
+    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
     : 0
+
+  // Still waiting for autoConnect to resolve — don't flash the connect screen
+  if (!walletReady) {
+    return (
+      <div className="py-8 pb-16">
+        <div className="container px-4 flex justify-center items-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    )
+  }
 
   if (!connected) {
     return (
@@ -149,7 +162,7 @@ export default function ProfilePage() {
         >
           <Card variant="gaming" className="p-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-              <motion.div 
+              <motion.div
                 whileHover={{ scale: 1.05 }}
                 className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-primary/30"
               >
@@ -302,8 +315,8 @@ export default function ProfilePage() {
                     { label: 'Best Streak', value: `${player?.best_streak || 0} wins` },
                     { label: 'Current Streak', value: `${player?.current_streak || 0} wins` },
                   ].map((stat, index) => (
-                    <motion.div 
-                      key={stat.label} 
+                    <motion.div
+                      key={stat.label}
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: 0.25 + index * 0.03 }}
@@ -353,8 +366,8 @@ export default function ProfilePage() {
                       disabled={!isEditingUsername && !!player?.username}
                     />
                     {player?.username && !isEditingUsername ? (
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         onClick={() => setIsEditingUsername(true)}
                         className="hover:border-primary/50 hover:shadow-neon transition-all"
                       >
@@ -362,8 +375,8 @@ export default function ProfilePage() {
                         Edit
                       </Button>
                     ) : (
-                      <Button 
-                        variant="neon" 
+                      <Button
+                        variant="neon"
                         disabled={!platformUsername.trim() || updatePlayer.isPending}
                         onClick={handleUpdateUsername}
                       >
@@ -378,8 +391,8 @@ export default function ProfilePage() {
                       </Button>
                     )}
                     {isEditingUsername && (
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         onClick={() => {
                           setIsEditingUsername(false)
                           setPlatformUsername(player?.username || '')
