@@ -216,18 +216,21 @@ export default function ArenaPage() {
     return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
   }, [liveGameWagerId, liveWagers])
 
-  // Background polling — runs even when LiveGameModal is closed
+  // Track in-flight wager IDs to prevent concurrent duplicate checks
+  const inFlightChecksRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
     if (votingWagers.length === 0) return
     const interval = setInterval(() => {
       votingWagers.forEach(w => {
+        // Skip if a check is already in flight for this wager
+        if (inFlightChecksRef.current.has(w.id)) return
+        inFlightChecksRef.current.add(w.id)
         checkGameComplete.mutate({ wagerId: w.id }, {
-          onSuccess: (data) => {
-            if (data.gameComplete) {
-              queryClient.invalidateQueries({ queryKey: ['wagers'] })
-              queryClient.invalidateQueries({ queryKey: ['wager', w.id] })
-            }
+          onSettled: () => {
+            inFlightChecksRef.current.delete(w.id)
+            queryClient.invalidateQueries({ queryKey: ['wagers'] })
           }
         })
       })

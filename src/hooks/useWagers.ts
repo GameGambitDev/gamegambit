@@ -364,7 +364,6 @@ export function useStartGame() {
 }
 
 export function useCheckGameComplete() {
-  const queryClient = useQueryClient();
   const { getSessionToken } = useWalletAuth();
 
   return useMutation({
@@ -375,9 +374,6 @@ export function useCheckGameComplete() {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
       const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-      // Fire-and-forget: kick off the edge function but don't wait for the full
-      // Lichess + on-chain resolution to complete. The realtime subscription in
-      // useLiveWagers will pick up the DB update when it lands.
       fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
         method: 'POST',
         headers: {
@@ -386,15 +382,8 @@ export function useCheckGameComplete() {
           'X-Session-Token': sessionToken,
         },
         body: JSON.stringify({ action: 'checkGameComplete', wagerId }),
-        // No signal/timeout — let the edge function run to completion server-side.
-        // ERR_CONNECTION_CLOSED is expected and harmless; the DB update arrives
-        // via the Supabase realtime channel.
-      }).catch(() => {
-        // Swallow network errors (connection closed after edge fn times out).
-        // Resolution is confirmed via the realtime DB subscription, not this response.
-      });
+      }).catch(() => { });
 
-      // Return immediately so the polling interval isn't blocked.
       return { gameComplete: false, message: 'check triggered' } as {
         gameComplete: boolean;
         status?: string;
@@ -404,11 +393,6 @@ export function useCheckGameComplete() {
         message?: string;
         wager?: Wager;
       };
-    },
-    onSuccess: (data) => {
-      if (data.gameComplete) {
-        queryClient.invalidateQueries({ queryKey: ['wagers'] });
-      }
     },
   });
 }

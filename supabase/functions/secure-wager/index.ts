@@ -19,7 +19,6 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-// ── Solana constants ──────────────────────────────────────────────────────────
 const PROGRAM_ID = "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR";
 const PLATFORM_WALLET = "3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY";
 const PLATFORM_FEE_BPS = 1000;
@@ -110,12 +109,12 @@ async function resolveOnChain(
             const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey);
             txSig = await sendAndConfirm(connection, authority, ix);
             console.log(`[secure-wager] close_wager (draw) tx: ${txSig}`);
-            const { error: drawInsertError } = await supabase.from('wager_transactions').insert([
+            const { error: drawInsertError } = await supabase.from('wager_transactions').upsert([
                 { wager_id: wagerId, tx_type: 'draw_refund', wallet_address: wager.player_a_wallet, amount_lamports: stake, tx_signature: txSig, status: 'confirmed' },
                 { wager_id: wagerId, tx_type: 'draw_refund', wallet_address: wager.player_b_wallet, amount_lamports: stake, tx_signature: txSig, status: 'confirmed' },
-            ]);
+            ], { onConflict: 'tx_signature', ignoreDuplicates: true });
             if (drawInsertError) {
-                console.error('[secure-wager] wager_transactions draw insert failed:', JSON.stringify(drawInsertError));
+                console.error('[secure-wager] wager_transactions draw upsert failed:', JSON.stringify(drawInsertError));
             }
         } else {
             const totalPot = stake * 2;
@@ -126,12 +125,12 @@ async function resolveOnChain(
             const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
             txSig = await sendAndConfirm(connection, authority, ix);
             console.log(`[secure-wager] resolve_wager tx: ${txSig}`);
-            const { error: txInsertError } = await supabase.from('wager_transactions').insert([
+            const { error: txInsertError } = await supabase.from('wager_transactions').upsert([
                 { wager_id: wagerId, tx_type: 'winner_payout', wallet_address: winnerWallet, amount_lamports: winnerPayout, tx_signature: txSig, status: 'confirmed' },
                 { wager_id: wagerId, tx_type: 'platform_fee', wallet_address: PLATFORM_WALLET, amount_lamports: platformFee, tx_signature: txSig, status: 'confirmed' },
-            ]);
+            ], { onConflict: 'tx_signature', ignoreDuplicates: true });
             if (txInsertError) {
-                console.error('[secure-wager] wager_transactions insert failed:', JSON.stringify(txInsertError));
+                console.error('[secure-wager] wager_transactions upsert failed:', JSON.stringify(txInsertError));
             }
             const loserWallet = winnerWallet === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
             await supabase.rpc('update_winner_stats', { p_wallet: winnerWallet, p_stake: stake, p_earnings: winnerPayout })
@@ -151,8 +150,6 @@ async function resolveOnChain(
         return null;
     }
 }
-
-// ── Session validation ────────────────────────────────────────────────────────
 
 async function validateSessionToken(token: string): Promise<string | null> {
     try {
@@ -178,8 +175,6 @@ async function validateSessionToken(token: string): Promise<string | null> {
         return null;
     }
 }
-
-// ── Main handler ──────────────────────────────────────────────────────────────
 
 serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { status: 200, headers: corsHeaders });
@@ -316,7 +311,6 @@ serve(async (req) => {
             return respond({ wager: updatedWager });
         }
 
-        // CHECK GAME COMPLETE — inlined on-chain resolution
         if (action === 'checkGameComplete') {
             const { wagerId } = data;
             if (!wagerId) return respond({ error: 'Wager ID required' }, 400);
@@ -393,16 +387,24 @@ serve(async (req) => {
                     });
                 }
 
-                // Update DB
+                // ── ATOMIC STATUS GUARD — only one concurrent instance proceeds ──
                 const { data: updatedWager, error: updateError } = await supabase.from('wagers')
-                    .update({ status: 'resolved', winner_wallet: resultType === 'draw' ? null : winnerWallet, resolved_at: new Date().toISOString() })
-                    .eq('id', wagerId).select().single();
+                    .update({
+                        status: 'resolved',
+                        winner_wallet: resultType === 'draw' ? null : winnerWallet,
+                        resolved_at: new Date().toISOString(),
+                    })
+                    .eq('id', wagerId)
+                    .in('status', ['voting', 'joined']) // atomic: only succeeds if still active
+                    .select()
+                    .single();
 
-                if (updateError) {
-                    return respond({ gameComplete: true, status: game.status, resultType, winnerWallet, error: 'Failed to update wager status' });
+                if (updateError || !updatedWager) {
+                    // Another concurrent instance already resolved this wager — bail out cleanly
+                    console.log(`[secure-wager] Wager ${wagerId} already resolved by concurrent request, skipping on-chain`);
+                    return respond({ gameComplete: true, message: 'Already resolved by concurrent request' });
                 }
 
-                // On-chain resolution — awaited, inlined, no HTTP hop
                 console.log(`[secure-wager] Resolving on-chain: ${resultType} for wager ${wagerId}`);
                 const txSig = await resolveOnChain(supabase, wager, winnerWallet, resultType as 'playerA' | 'playerB' | 'draw');
                 console.log(`[secure-wager] On-chain ${txSig ? 'SUCCESS: ' + txSig : 'FAILED — see wager_transactions error log'}`);
@@ -449,7 +451,6 @@ serve(async (req) => {
                 amount_lamports: 0, status: 'confirmed',
             }).catch(() => { });
 
-            // Inline on-chain refund
             if (wager.player_b_wallet) {
                 try {
                     const rpcUrl = Deno.env.get('SOLANA_RPC_URL') || 'https://api.devnet.solana.com';
@@ -463,12 +464,12 @@ serve(async (req) => {
                         const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey);
                         const txSig = await sendAndConfirm(connection, authority, ix);
                         console.log(`[secure-wager] Cancel refund tx: ${txSig}`);
-                        const { error: cancelInsertError } = await supabase.from('wager_transactions').insert([
+                        const { error: cancelInsertError } = await supabase.from('wager_transactions').upsert([
                             { wager_id: wagerId, tx_type: 'cancel_refund', wallet_address: wager.player_a_wallet, amount_lamports: wager.stake_lamports, tx_signature: txSig, status: 'confirmed' },
                             { wager_id: wagerId, tx_type: 'cancel_refund', wallet_address: wager.player_b_wallet, amount_lamports: wager.stake_lamports, tx_signature: txSig, status: 'confirmed' },
-                        ]);
+                        ], { onConflict: 'tx_signature', ignoreDuplicates: true });
                         if (cancelInsertError) {
-                            console.error('[secure-wager] cancel_refund insert failed:', JSON.stringify(cancelInsertError));
+                            console.error('[secure-wager] cancel_refund upsert failed:', JSON.stringify(cancelInsertError));
                         }
                     }
                 } catch (e: unknown) {
