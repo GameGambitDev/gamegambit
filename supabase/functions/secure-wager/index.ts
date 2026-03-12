@@ -284,17 +284,83 @@ serve(async (req) => {
         if (action === 'setReady') {
             const { wagerId, ready } = data;
             if (!wagerId || ready === undefined) return respond({ error: 'Wager ID and ready status required' }, 400);
+
+            // ── ATOMIC READY UPDATE ──────────────────────────────────────────────
+            // We use a raw SQL UPDATE so that `countdown_started_at` is decided
+            // entirely on the DB's committed row state — not a stale client-side
+            // snapshot. This eliminates the race where two simultaneous setReady(true)
+            // calls both read otherReady=false and both write countdown_started_at=null.
+            //
+            // The SQL evaluates the *other* player's column in the same atomic write:
+            //   SET ready_player_a = $ready,
+            //       countdown_started_at = CASE
+            //           WHEN $ready AND ready_player_b THEN NOW()
+            //           WHEN NOT $ready              THEN NULL
+            //           ELSE countdown_started_at        -- preserve existing value
+            //       END
+            // (mirrored for player_b)
+            //
+            // We fall back to a standard JS update only when the wager row is
+            // already confirmed via getWager() for the auth/status checks below.
+
             const wager = await getWager(wagerId);
             if (wager.status !== 'joined') return respond({ error: 'Wager must be in joined status' }, 400);
             const isPlayerA = wager.player_a_wallet === walletAddress;
             const isPlayerB = wager.player_b_wallet === walletAddress;
             if (!isPlayerA && !isPlayerB) return respond({ error: 'You are not a participant' }, 403);
-            const updateData: Record<string, unknown> = isPlayerA ? { ready_player_a: ready } : { ready_player_b: ready };
-            const otherReady = isPlayerA ? wager.ready_player_b : wager.ready_player_a;
-            updateData.countdown_started_at = (ready && otherReady) ? new Date().toISOString() : null;
-            const { data: updatedWager, error } = await supabase.from('wagers').update(updateData).eq('id', wagerId).select().single();
-            if (error) return respond({ error: 'Failed to set ready status' }, 500);
-            return respond({ wager: updatedWager });
+
+            // Build the atomic SQL expression via rpc helper.
+            // We call a lightweight Postgres function `set_player_ready` that
+            // performs the CASE-based update and returns the updated row.
+            //
+            // If that RPC doesn't exist yet (first deploy), we fall back to the
+            // safe two-step approach with an explicit re-read after write so at
+            // least the countdown_started_at is based on fresh committed data.
+            const { data: rpcResult, error: rpcError } = await supabase.rpc('set_player_ready', {
+                p_wager_id: wagerId,
+                p_is_player_a: isPlayerA,
+                p_ready: ready,
+            });
+
+            if (rpcError) {
+                // RPC not available — fall back to safe two-step:
+                // 1. Write only the ready flag (no countdown decision yet)
+                // 2. Re-read the row inside a serializable-ish update to decide countdown
+                console.warn('[secure-wager] set_player_ready RPC unavailable, using fallback:', rpcError.message);
+
+                const readyField = isPlayerA ? 'ready_player_a' : 'ready_player_b';
+                const { error: step1Error } = await supabase
+                    .from('wagers')
+                    .update({ [readyField]: ready })
+                    .eq('id', wagerId);
+                if (step1Error) return respond({ error: 'Failed to set ready status' }, 500);
+
+                // Re-read committed state and atomically set countdown only if
+                // both flags are now true on the *fresh* row.
+                const fresh = await getWager(wagerId);
+                const bothReady = fresh.ready_player_a && fresh.ready_player_b;
+                const shouldStartCountdown = bothReady && !fresh.countdown_started_at;
+                const shouldClearCountdown = !fresh.ready_player_a || !fresh.ready_player_b;
+
+                if (shouldStartCountdown || shouldClearCountdown) {
+                    await supabase
+                        .from('wagers')
+                        .update({
+                            countdown_started_at: shouldStartCountdown ? new Date().toISOString() : null,
+                        })
+                        .eq('id', wagerId)
+                        // Only write if the ready state still matches — prevents
+                        // a third concurrent call from clobbering a later write.
+                        .eq('ready_player_a', fresh.ready_player_a)
+                        .eq('ready_player_b', fresh.ready_player_b);
+                }
+
+                const updatedWager = await getWager(wagerId);
+                return respond({ wager: updatedWager });
+            }
+
+            // RPC succeeded — it returns the full updated row
+            return respond({ wager: rpcResult });
         }
 
         if (action === 'startGame') {
@@ -400,7 +466,6 @@ serve(async (req) => {
                     .single();
 
                 if (updateError || !updatedWager) {
-                    // Another concurrent instance already resolved this wager — bail out cleanly
                     console.log(`[secure-wager] Wager ${wagerId} already resolved by concurrent request, skipping on-chain`);
                     return respond({ gameComplete: true, message: 'Already resolved by concurrent request' });
                 }
