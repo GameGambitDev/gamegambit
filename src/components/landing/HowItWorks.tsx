@@ -31,7 +31,7 @@ const steps = [
   },
   {
     icon: Trophy,
-    title: 'Winner Takes All',
+    title: 'Winner Takes 90%',
     description: 'Matching votes = instant payout. Disputes go to random moderators.',
   },
 ]
@@ -42,7 +42,7 @@ export function HowItWorks() {
       {/* Background */}
       <div className="absolute inset-0 bg-gradient-to-b from-background via-card/30 to-background" />
       <div className="absolute inset-0 cyber-grid opacity-10" />
-      
+
       <div className="container relative z-10 px-4">
         {/* Header */}
         <div className="text-center mb-16">
@@ -61,7 +61,7 @@ export function HowItWorks() {
             transition={{ delay: 0.1 }}
             className="text-lg text-muted-foreground max-w-2xl mx-auto text-balance"
           >
-            From wallet connect to winner payout in minutes. 
+            From wallet connect to winner payout in minutes.
             No middlemen, no fees, no trust required.
           </motion.p>
         </div>

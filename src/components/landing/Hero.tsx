@@ -95,7 +95,7 @@ export function Hero() {
             className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto text-balance"
           >
             The first trustless P2P gaming wager platform on Solana. 
-            Challenge anyone. Stake real SOL. Winner takes all.
+            Challenge anyone. Stake real SOL. Winner takes 90%.
           </motion.p>
 
           {/* CTA Buttons */}

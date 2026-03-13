@@ -5,7 +5,7 @@ const CACHE_NAME = 'gamegambit-v1'
 const urlsToCache = [
   '/',
   '/logo.png',
-  '/favicon.png',
+  '/favicon.ico',
   '/manifest.json',
 ]
 
@@ -158,7 +158,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || 'New notification from Game Gambit',
     icon: '/logo.png',
-    badge: '/favicon.png',
+    badge: '/favicon.ico',
     tag: data.tag || 'gamegambit-notification',
     requireInteraction: data.requireInteraction || false,
     data: {

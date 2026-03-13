@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useWalletReady } from '@/app/providers'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -90,7 +91,6 @@ function WagerRow({
                 <span>•</span>
                 <span>{isChallenger ? 'Challenger' : 'Opponent'}</span>
 
-                {/* Lichess link */}
                 {gameLink && (
                   <>
                     <span>•</span>
@@ -106,7 +106,6 @@ function WagerRow({
                   </>
                 )}
 
-                {/* On-chain proof link — only rendered when a confirmed sig exists */}
                 {txSig && (
                   <>
                     <span>•</span>
@@ -165,6 +164,7 @@ function EmptyState({ message }: { message: string }) {
 
 export default function MyWagersPage() {
   const { connected, publicKey } = useWallet()
+  const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58() || ''
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
@@ -177,10 +177,8 @@ export default function MyWagersPage() {
   const startGameMutation = useStartGame()
   const editWagerMutation = useEditWager()
 
-  // Reuse existing hook — single query for all my transactions
   const { data: myTransactions } = useMyTransactions(200)
 
-  // wagerId → first confirmed payout/refund tx_signature
   const txSigByWagerId = useMemo(() => {
     const map: Record<string, string> = {}
     const payoutTypes = new Set(['winner_payout', 'draw_refund', 'cancel_refund'])
@@ -244,6 +242,17 @@ export default function MyWagersPage() {
         }
       )
     }
+  }
+
+  // Still waiting for autoConnect to resolve — don't flash the connect screen
+  if (!walletReady) {
+    return (
+      <div className="py-8 pb-16">
+        <div className="container px-4 flex justify-center items-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    )
   }
 
   if (!connected) {
