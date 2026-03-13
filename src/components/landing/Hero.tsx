@@ -17,68 +17,39 @@ const WalletMultiButton = dynamic(
 export function Hero() {
   const { connected } = useWallet()
   const [mounted, setMounted] = useState(false)
-  const [installDismissed, setInstallDismissed] = useState(false)
   const { canInstall, install } = usePWA()
 
   useEffect(() => {
     setMounted(true)
-    const dismissed = localStorage.getItem('pwa-banner-dismissed')
-    if (dismissed) setInstallDismissed(true)
   }, [])
 
-  const handleDismiss = () => {
-    setInstallDismissed(true)
-    localStorage.setItem('pwa-banner-dismissed', '1')
-  }
-
-  const handleInstall = async () => {
-    await install()
-    setInstallDismissed(true)
-  }
-
-  const showBanner = mounted && canInstall && !installDismissed
+  const showBanner = mounted && canInstall
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Cyber Grid Background */}
       <div className="absolute inset-0 cyber-grid opacity-30" />
-
-      {/* Background Effects */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-background" />
       <div className="absolute inset-0 scanline opacity-20" />
 
-      {/* Animated Orbs */}
       <motion.div
-        animate={{
-          y: [0, -30, 0],
-          opacity: [0.2, 0.5, 0.2],
-          scale: [1, 1.1, 1],
-        }}
+        animate={{ y: [0, -30, 0], opacity: [0.2, 0.5, 0.2], scale: [1, 1.1, 1] }}
         transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
         className="absolute top-1/4 left-1/4 w-72 h-72 rounded-full bg-gradient-radial from-primary/30 to-transparent blur-3xl"
       />
       <motion.div
-        animate={{
-          y: [0, 30, 0],
-          opacity: [0.15, 0.4, 0.15],
-          scale: [1, 1.15, 1],
-        }}
+        animate={{ y: [0, 30, 0], opacity: [0.15, 0.4, 0.15], scale: [1, 1.15, 1] }}
         transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
         className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-gradient-radial from-secondary/25 to-transparent blur-3xl"
       />
       <motion.div
-        animate={{
-          x: [0, 20, 0],
-          opacity: [0.1, 0.3, 0.1],
-        }}
+        animate={{ x: [0, 20, 0], opacity: [0.1, 0.3, 0.1] }}
         transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
         className="absolute top-1/2 right-1/3 w-64 h-64 rounded-full bg-gradient-radial from-accent/20 to-transparent blur-3xl"
       />
 
-      {/* Content */}
       <div className="container relative z-10 px-4 py-32">
         <div className="max-w-4xl mx-auto text-center">
-          {/* Badge */}
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -92,7 +63,6 @@ export function Hero() {
             <span className="text-sm font-medium text-primary">Live on Solana Devnet</span>
           </motion.div>
 
-          {/* Main Headline */}
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -104,7 +74,6 @@ export function Hero() {
             <span className="gradient-text-gold text-glow-gold">Win.</span>
           </motion.h1>
 
-          {/* Subheadline */}
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -115,7 +84,6 @@ export function Hero() {
             Challenge anyone. Stake real SOL. Winner takes 90%.
           </motion.p>
 
-          {/* CTA Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -124,11 +92,7 @@ export function Hero() {
           >
             {mounted && connected ? (
               <Link href="/arena">
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="rounded-xl animate-glow-pulse"
-                >
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="rounded-xl animate-glow-pulse">
                   <Button variant="neon" size="xl" className="group relative overflow-hidden">
                     <motion.span
                       className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
@@ -153,7 +117,7 @@ export function Hero() {
             </Link>
           </motion.div>
 
-          {/* PWA Install Banner */}
+          {/* PWA Install Banner — always visible when installable, no dismiss button */}
           <AnimatePresence>
             {showBanner && (
               <motion.div
@@ -171,29 +135,19 @@ export function Hero() {
                       <span className="text-muted-foreground"> — get match alerts instantly</span>
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button
-                      size="sm"
-                      variant="neon"
-                      className="h-7 text-xs px-3"
-                      onClick={handleInstall}
-                    >
-                      Install
-                    </Button>
-                    <button
-                      onClick={handleDismiss}
-                      className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
-                      aria-label="Dismiss"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="neon"
+                    className="h-7 text-xs px-3 flex-shrink-0"
+                    onClick={install}
+                  >
+                    Install
+                  </Button>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Stats/Features */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -224,7 +178,6 @@ export function Hero() {
         </div>
       </div>
 
-      {/* Bottom Gradient */}
       <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
     </section>
   )
