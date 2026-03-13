@@ -22,6 +22,11 @@ export const metadata: Metadata = {
   keywords: ['gaming', 'wagers', 'solana', 'competitive', 'esports', 'chess', 'codm', 'pubg'],
   authors: [{ name: 'Game Gambit Team' }],
   manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Game Gambit',
+  },
   icons: {
     icon: '/favicon.png',
     shortcut: '/favicon.png',
@@ -46,15 +51,20 @@ export const metadata: Metadata = {
     description: 'Competitive Gaming Wagers on Solana',
     images: ['/logo.png'],
   },
+  formatDetection: {
+    telephone: false,
+  },
 }
 
 export const viewport: Viewport = {
   themeColor: '#9945FF',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  minimumScale: 1,
+  userScalable: true,
   viewportFit: 'cover',
+  colorScheme: 'dark',
 }
 
 export default function RootLayout({
