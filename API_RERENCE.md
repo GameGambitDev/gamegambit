@@ -310,7 +310,7 @@ Get player stats and profile information.
   "current_streak": 12,
   "best_streak": 28,
   "skill_rating": 1840,
-  "lichess_username": "ChessMaster2024",
+  "lichess_username": "ChessMaster2026",
   "codm_username": "CM_Warfare",
   "pubg_username": "ChessMaster_PUBG",
   "last_active": "2026-03-09T10:35:00Z",
@@ -365,7 +365,7 @@ Initialize a new player account.
   "username": "NewPlayer",
   "bio": "Just getting started!",
   "preferred_game": "chess",
-  "lichess_username": "NewPlayer2024"
+  "lichess_username": "NewPlayer2026"
 }
 ```
 
