@@ -2,11 +2,12 @@
 
 import dynamic from 'next/dynamic'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { motion } from 'framer-motion'
-import { ArrowRight, Zap, Shield, Users, Sparkles } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowRight, Zap, Shield, Users, Sparkles, Download } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { useEffect, useState } from 'react'
+import { usePWA } from '@/contexts/PWAContext'
 
 const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
@@ -16,16 +17,32 @@ const WalletMultiButton = dynamic(
 export function Hero() {
   const { connected } = useWallet()
   const [mounted, setMounted] = useState(false)
+  const [installDismissed, setInstallDismissed] = useState(false)
+  const { canInstall, install } = usePWA()
 
   useEffect(() => {
     setMounted(true)
+    const dismissed = localStorage.getItem('pwa-banner-dismissed')
+    if (dismissed) setInstallDismissed(true)
   }, [])
+
+  const handleDismiss = () => {
+    setInstallDismissed(true)
+    localStorage.setItem('pwa-banner-dismissed', '1')
+  }
+
+  const handleInstall = async () => {
+    await install()
+    setInstallDismissed(true)
+  }
+
+  const showBanner = mounted && canInstall && !installDismissed
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Cyber Grid Background */}
       <div className="absolute inset-0 cyber-grid opacity-30" />
-      
+
       {/* Background Effects */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-background" />
       <div className="absolute inset-0 scanline opacity-20" />
@@ -94,7 +111,7 @@ export function Hero() {
             transition={{ delay: 0.3 }}
             className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto text-balance"
           >
-            The first trustless P2P gaming wager platform on Solana. 
+            The first trustless P2P gaming wager platform on Solana.
             Challenge anyone. Stake real SOL. Winner takes 90%.
           </motion.p>
 
@@ -103,7 +120,7 @@ export function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="flex flex-col sm:flex-row gap-4 justify-center mb-16"
+            className="flex flex-col sm:flex-row gap-4 justify-center mb-8"
           >
             {mounted && connected ? (
               <Link href="/arena">
@@ -136,6 +153,46 @@ export function Hero() {
             </Link>
           </motion.div>
 
+          {/* PWA Install Banner */}
+          <AnimatePresence>
+            {showBanner && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: -10, height: 0 }}
+                transition={{ duration: 0.3 }}
+                className="mb-10 mx-auto max-w-md"
+              >
+                <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/10 backdrop-blur-sm">
+                  <div className="flex items-center gap-3">
+                    <Download className="h-4 w-4 text-primary flex-shrink-0" />
+                    <p className="text-sm text-left">
+                      <span className="font-semibold text-foreground">Install GameGambit</span>
+                      <span className="text-muted-foreground"> — get match alerts instantly</span>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="neon"
+                      className="h-7 text-xs px-3"
+                      onClick={handleInstall}
+                    >
+                      Install
+                    </Button>
+                    <button
+                      onClick={handleDismiss}
+                      className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+                      aria-label="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Stats/Features */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -144,7 +201,7 @@ export function Hero() {
             className="grid grid-cols-1 sm:grid-cols-3 gap-6"
           >
             {[
-              { icon: Zap, label: 'Instant Payouts', desc: 'Winner gets 100% of the pot' },
+              { icon: Zap, label: 'Instant Payouts', desc: 'Winner gets 90% of the pot' },
               { icon: Shield, label: 'Trustless', desc: 'Smart contract secured' },
               { icon: Users, label: 'P2P Moderation', desc: 'Community-driven disputes' },
             ].map((feature, i) => (

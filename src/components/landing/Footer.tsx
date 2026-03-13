@@ -12,7 +12,7 @@ const footerLinks = {
   resources: [
     { label: 'How It Works', href: '/#how-it-works' },
     { label: 'FAQ', href: '/faq' },
-    { label: 'Support', href: '/support' },
+    { label: 'Support', href: '/faq' },
   ],
   legal: [
     { label: 'Terms of Service', href: '/terms' },
@@ -21,9 +21,9 @@ const footerLinks = {
 }
 
 const socials = [
-  { icon: Twitter, href: 'https://twitter.com', label: 'Twitter' },
+  { icon: Twitter, href: 'https://x.com/gamegambit_', label: 'Twitter' },
   { icon: MessageCircle, href: 'https://discord.com', label: 'Discord' },
-  { icon: Github, href: 'https://github.com', label: 'GitHub' },
+  { icon: Github, href: 'https://github.com/gamegambitdev-hub/gamegambit', label: 'GitHub' },
 ]
 
 export function Footer() {
@@ -121,7 +121,7 @@ export function Footer() {
         <div className="mt-12 pt-8 border-t border-border/50">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <p className="text-sm text-muted-foreground">
-              © 2024 Game Gambit. All rights reserved.
+              © 2025–2026 Game Gambit. All rights reserved.
             </p>
             <p className="text-sm text-muted-foreground">
               Built on <span className="text-primary">Solana</span> • Live on Devnet
