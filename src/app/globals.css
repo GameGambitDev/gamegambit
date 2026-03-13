@@ -769,10 +769,6 @@
 }
 
 /* Wallet dropdown (disconnect menu) must also sit above the header */
-.wallet-adapter-dropdown {
-  position: fixed !important;
-  z-index: 9999 !important;
-}
 
 .wallet-adapter-dropdown-list {
   z-index: 9999 !important;
