@@ -123,7 +123,7 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <PWAContext.Provider value={{ canInstall: !isInstalled, install }}>
+        <PWAContext.Provider value={{ canInstall: true, install }}>
             {children}
             {showManual && <ManualInstallModal onClose={() => setShowManual(false)} />}
         </PWAContext.Provider>
