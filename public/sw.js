@@ -1,7 +1,8 @@
 // Service Worker for Game Gambit PWA
 // Handles offline functionality, caching, and push notifications
 
-const CACHE_NAME = 'gamegambit-v1'
+const CACHE_VERSION = 'v1'
+const CACHE_NAME = `gamegambit-${CACHE_VERSION}`
 const urlsToCache = [
   '/',
   '/logo.png',
@@ -13,7 +14,9 @@ const urlsToCache = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(urlsToCache)
+      return cache.addAll(urlsToCache).catch(() => {
+        console.log('[SW] Some files failed to cache on install')
+      })
     })
   )
   // Skip waiting to activate immediately
