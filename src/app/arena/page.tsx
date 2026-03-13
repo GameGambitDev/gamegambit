@@ -476,7 +476,7 @@ export default function ArenaPage() {
           className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8"
         >
           <div>
-            <h1 className="text-3xl font-bold mb-2 font-gaming"><span className="gradient-text">Arena</span></h1>
+            <h1 className="text-3xl font-bold mb-2 font-gaming"><span className="text-primary">Arena</span></h1>
             <p className="text-muted-foreground">Find opponents and stake your claim</p>
           </div>
           <div className="flex gap-3">

@@ -286,9 +286,11 @@ export default function MyWagersPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="text-3xl font-bold mb-2 font-gaming text-foreground">
-            My <span className="gradient-text">Wagers</span>
+          <h1 className="text-3xl font-bold mb-2 font-gaming">
+            <span className="text-foreground">My </span>
+            <span className="text-primary">Wagers</span>
           </h1>
+
           <p className="text-muted-foreground">Track all your active and completed matches</p>
         </motion.div>
 

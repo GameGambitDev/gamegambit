@@ -48,10 +48,10 @@ function EmptyLeaderboard() {
 }
 
 function LeaderboardRow({ player, rank, sortBy }: { player: Player; rank: number; sortBy: string }) {
-  const winRate = player.total_wins + player.total_losses > 0 
-    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+  const winRate = player.total_wins + player.total_losses > 0
+    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
     : 0
-    
+
   return (
     <Card variant="wager" className={`${getRankStyle(rank)} hover:border-primary/40 transition-all`}>
       <CardContent className="p-3 sm:p-4">
@@ -77,9 +77,9 @@ function LeaderboardRow({ player, rank, sortBy }: { player: Player; rank: number
                 {sortBy === 'earnings' ? 'Earned' : sortBy === 'wins' ? 'Wins' : 'Streak'}
               </div>
               <div className="font-gaming text-sm sm:text-lg text-accent">
-                {sortBy === 'earnings' 
+                {sortBy === 'earnings'
                   ? `${formatSol(player.total_earnings)}`
-                  : sortBy === 'wins' 
+                  : sortBy === 'wins'
                     ? player.total_wins
                     : player.current_streak}
               </div>
@@ -99,19 +99,19 @@ function LeaderboardRow({ player, rank, sortBy }: { player: Player; rank: number
 
 function Podium({ players }: { players: Player[] }) {
   if (players.length < 3) return null
-  
+
   const top3 = [players[1], players[0], players[2]]
   const heights = ['h-24 sm:h-32', 'h-32 sm:h-40', 'h-20 sm:h-28']
   const positions = [2, 1, 3]
-  
+
   return (
     <div className="flex justify-center items-end gap-2 sm:gap-4 mb-8 sm:mb-12 px-4">
       {top3.map((player, index) => {
         if (!player) return null
-        const winRate = player.total_wins + player.total_losses > 0 
-          ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100) 
+        const winRate = player.total_wins + player.total_losses > 0
+          ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
           : 0
-          
+
         return (
           <motion.div
             key={player.wallet_address}
@@ -154,7 +154,7 @@ export default function LeaderboardPage() {
             animate={{ opacity: 1, y: 0 }}
             className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4 font-gaming"
           >
-            <span className="gradient-text-gold">Leaderboard</span>
+            <span className="text-primary">Leaderboard</span>
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
