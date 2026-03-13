@@ -95,7 +95,6 @@
   }
 
   p,
-  span,
   li {
     @apply font-inter text-foreground;
   }
@@ -825,7 +824,7 @@ main {
     max-width: 100%;
   }
 
-  p, span, h1, h2, h3, h4, h5, h6 {
+  p, h1, h2, h3, h4, h5, h6 {
     word-break: break-word;
     overflow-wrap: break-word;
     hyphens: auto;
@@ -907,3 +906,8 @@ main {
     font-size: 0.875rem;
   }
 }
+
+p, li {
+  @apply font-inter text-foreground;
+}
+
