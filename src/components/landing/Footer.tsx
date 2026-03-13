@@ -1,7 +1,9 @@
 'use client'
 
-import { Gamepad2, Twitter, MessageCircle, Github } from 'lucide-react'
+import { Gamepad2, Twitter, MessageCircle, Github, Download } from 'lucide-react'
 import Link from 'next/link'
+import { usePWA } from '@/contexts/PWAContext'
+import { Button } from '@/components/ui/button'
 
 const footerLinks = {
   platform: [
@@ -27,6 +29,8 @@ const socials = [
 ]
 
 export function Footer() {
+  const { canInstall, install } = usePWA()
+
   return (
     <footer className="border-t border-border/50 bg-card/30">
       <div className="container px-4 py-16">
@@ -57,6 +61,19 @@ export function Footer() {
                 </a>
               ))}
             </div>
+
+            {/* PWA Install Button — always visible when installable */}
+            {canInstall && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={install}
+                className="mt-6 gap-2 hover:border-primary/50 hover:text-primary transition-all"
+              >
+                <Download className="h-4 w-4" />
+                Install App
+              </Button>
+            )}
           </div>
 
           {/* Platform Links */}
@@ -67,10 +84,7 @@ export function Footer() {
             <ul className="space-y-3">
               {footerLinks.platform.map((link) => (
                 <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
-                  >
+                  <Link href={link.href} className="text-sm text-muted-foreground hover:text-primary transition-colors">
                     {link.label}
                   </Link>
                 </li>
@@ -86,10 +100,7 @@ export function Footer() {
             <ul className="space-y-3">
               {footerLinks.resources.map((link) => (
                 <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
-                  >
+                  <Link href={link.href} className="text-sm text-muted-foreground hover:text-primary transition-colors">
                     {link.label}
                   </Link>
                 </li>
@@ -105,10 +116,7 @@ export function Footer() {
             <ul className="space-y-3">
               {footerLinks.legal.map((link) => (
                 <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
-                  >
+                  <Link href={link.href} className="text-sm text-muted-foreground hover:text-primary transition-colors">
                     {link.label}
                   </Link>
                 </li>
