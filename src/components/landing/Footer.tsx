@@ -25,11 +25,11 @@ const footerLinks = {
 const socials = [
   { icon: Twitter, href: 'https://x.com/gamegambit_', label: 'Twitter' },
   { icon: MessageCircle, href: 'https://discord.com', label: 'Discord' },
-  { icon: Github, href: 'https://github.com/gamegambitdev-hub/gamegambit', label: 'GitHub' },
+  { icon: Github, href: 'https://github.com/GameGambitDev/gamegambit', label: 'GitHub' },
 ]
 
 export function Footer() {
-  const { canInstall, install } = usePWA()
+  const { install } = usePWA()
 
   return (
     <footer className="border-t border-border/50 bg-card/30">
@@ -62,18 +62,16 @@ export function Footer() {
               ))}
             </div>
 
-            {/* PWA Install Button — always visible when installable */}
-            {canInstall && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={install}
-                className="mt-6 gap-2 hover:border-primary/50 hover:text-primary transition-all"
-              >
-                <Download className="h-4 w-4" />
-                Install App
-              </Button>
-            )}
+            {/* PWA Install Button — always visible, no condition */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={install}
+              className="mt-6 gap-2 hover:border-primary/50 hover:text-primary transition-all"
+            >
+              <Download className="h-4 w-4" />
+              Install App
+            </Button>
           </div>
 
           {/* Platform Links */}
