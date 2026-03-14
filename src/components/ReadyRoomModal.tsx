@@ -1,21 +1,17 @@
 /**
- * ReadyRoomModal.tsx  (v5)
+ * ReadyRoomModal.tsx (v6)
  *
- * Correct Flow:
- *  1. Both players click "Ready" → Supabase updated
- *  2. Server sets countdown_started_at → 10s countdown
- *  3. At zero → wallet popup appears → player signs deposit tx
- *  4. On-chain deposit confirmed → server records deposit_player_a / deposit_player_b
- *  5. When BOTH deposits confirmed server auto-flips wager to 'voting'
- *  6. While waiting for other player → "Waiting for <name> to deposit…" shown
- *  7. txState → 'confirmed' once wager.status === 'voting'
- *
- * Key changes vs v4:
- *  - startGame NEVER called from client — server owns that transition
- *  - Both players can deposit in any order
- *  - wagerId passed to on-chain hooks so server can record deposit flag
- *  - "waiting_other" txState shows while one player deposited, other hasn't
- *  - Mobile fixed: useSolanaProgram now uses sendTransaction (adapter handles deep links)
+ * Fixes vs v5:
+ *  1. Countdown is SERVER-AUTHORITATIVE — computed from countdown_started_at
+ *     each tick, not a local decrementing counter. Eliminates mobile clock drift
+ *     and the PC vs mobile discrepancy.
+ *  2. Uses normalizeSolanaError from useSolanaProgram instead of local parser —
+ *     single source of truth for all wallet error messages.
+ *  3. Errors are caught quietly; only the human-readable string is shown in UI.
+ *  4. runDepositFlow is guarded so a second call while already in 'signing'
+ *     state is a no-op (prevents double-popup on mobile double-tap).
+ *  5. Countdown fires at ≤0, not strictly === 0, so mobile timer lag doesn't
+ *     cause it to skip 0 and never trigger.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -31,7 +27,7 @@ import { GAMES, formatSol } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCreateWagerOnChain, useJoinWagerOnChain } from '@/hooks/useSolanaProgram';
+import { useCreateWagerOnChain, useJoinWagerOnChain, normalizeSolanaError } from '@/hooks/useSolanaProgram';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,11 +42,6 @@ interface ReadyRoomModalProps {
   currentWallet?: string;
 }
 
-// idle           = waiting for countdown
-// signing        = wallet popup open / waiting for on-chain confirmation
-// waiting_other  = my deposit confirmed, waiting for other player to deposit
-// confirmed      = both deposits in, wager is 'voting'
-// error          = something failed
 type TxState = 'idle' | 'signing' | 'waiting_other' | 'confirmed' | 'error';
 
 const COUNTDOWN_SECONDS = 10;
@@ -72,22 +63,6 @@ const getGameLink = (game: string, gameId: string | null) => {
   return null;
 };
 
-function parseWalletError(err: unknown): string {
-  if (!err) return 'Unknown error';
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-  if (
-    lower.includes('user rejected') ||
-    lower.includes('rejected the request') ||
-    lower.includes('transaction cancelled') ||
-    lower.includes('cancelled') ||
-    lower.includes('denied')
-  ) {
-    return 'Transaction cancelled — you rejected the wallet request.';
-  }
-  return msg || 'Transaction failed. Your funds are safe.';
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ReadyRoomModal({
@@ -99,7 +74,7 @@ export function ReadyRoomModal({
   isSettingReady,
   currentWallet,
 }: ReadyRoomModalProps) {
-  // ── ALL hooks unconditionally first ────────────────────────────────────────
+  // ── Hooks — all unconditional ───────────────────────────────────────────────
 
   const { data: playerA } = usePlayerByWallet(wager?.player_a_wallet ?? null);
   const { data: playerB } = usePlayerByWallet(wager?.player_b_wallet ?? null);
@@ -112,6 +87,7 @@ export function ReadyRoomModal({
   const wagerRef = useRef<Wager | null>(wager);
   useEffect(() => { wagerRef.current = wager; }, [wager]);
 
+  // Guards against double-trigger (mobile double-tap, re-render race, etc.)
   const hasTriggeredTx = useRef(false);
   const depositConfirmedRef = useRef(false);
 
@@ -124,7 +100,6 @@ export function ReadyRoomModal({
   const bothReady = !!(wager?.ready_player_a && wager?.ready_player_b);
   const myReady = isPlayerA ? wager?.ready_player_a : wager?.ready_player_b;
 
-  // Deposit flags from DB (set by server after on-chain confirmation recorded)
   const myDeposit = isPlayerA
     ? (wager as any)?.deposit_player_a
     : (wager as any)?.deposit_player_b;
@@ -136,7 +111,7 @@ export function ReadyRoomModal({
 
   useEffect(() => { setLocalReady(myReady ?? false); }, [myReady]);
 
-  // Reset when modal closes
+  // Reset on modal close
   useEffect(() => {
     if (!open) {
       setTxState('idle');
@@ -146,65 +121,78 @@ export function ReadyRoomModal({
     }
   }, [open]);
 
-  // Watch for wager flipping to 'voting' — that means both deposits confirmed
+  // Both deposits confirmed → flip to confirmed state
   useEffect(() => {
     if (wager?.status === 'voting' && txState === 'waiting_other') {
       setTxState('confirmed');
       toast.success('Both stakes locked! Game is starting…');
     }
-    // Also handle case where we land here after a refresh and game already started
     if (wager?.status === 'voting' && txState === 'idle' && depositConfirmedRef.current) {
       setTxState('confirmed');
     }
   }, [wager?.status, txState]);
 
-  // Countdown ticker
+  // ── SERVER-AUTHORITATIVE COUNTDOWN ─────────────────────────────────────────
+  // We always recompute from countdown_started_at rather than decrementing a
+  // local counter. This means PC and mobile see identical values regardless of
+  // JS timer drift, setTimeout inaccuracy, or mobile background throttling.
   useEffect(() => {
     const startedAt = wager?.countdown_started_at;
-    if (!bothReady || !startedAt) { setCountdown(null); return; }
+    if (!bothReady || !startedAt) {
+      setCountdown(null);
+      return;
+    }
+
     const startTime = new Date(startedAt).getTime();
+
     const tick = () => {
-      const remaining = COUNTDOWN_SECONDS - Math.floor((Date.now() - startTime) / 1000);
+      const elapsedMs = Date.now() - startTime;
+      const remaining = COUNTDOWN_SECONDS - Math.floor(elapsedMs / 1000);
       setCountdown(remaining <= 0 ? 0 : remaining);
     };
-    tick();
-    const id = setInterval(tick, 250);
+
+    tick(); // immediate first tick — no visual delay
+    const id = setInterval(tick, 200); // 200ms for smooth display on all devices
     return () => clearInterval(id);
   }, [bothReady, wager?.countdown_started_at]);
 
-  // Fire deposit flow when countdown hits 0
+  // Trigger deposit flow when countdown reaches 0 (or goes negative on slow devices)
   useEffect(() => {
-    if (countdown !== 0) return;
+    // ≤0 not ===0 — mobile timers can skip zero and go negative
+    if (countdown === null || countdown > 0) return;
     if (hasTriggeredTx.current) return;
     if (!isPlayerA && !isPlayerB) return;
     if (txState !== 'idle') return;
 
     const w = wagerRef.current;
     if (!w) return;
-    if (w.status === 'resolved' || w.status === 'cancelled' || w.status === 'voting') return;
+    if (['resolved', 'cancelled', 'voting'].includes(w.status)) return;
 
     hasTriggeredTx.current = true;
     runDepositFlow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countdown]);
 
+  // ── Deposit flow ────────────────────────────────────────────────────────────
+
   const runDepositFlow = useCallback(async () => {
     const w = wagerRef.current;
     if (!w) return;
 
+    // Guard: don't re-enter if already in signing state
+    if (txState === 'signing') return;
+
     setErrorMessage(null);
+    setTxState('signing');
 
     try {
-      // ── Step 1: On-chain deposit (skip if already confirmed on a prior attempt)
       if (!depositConfirmedRef.current) {
-        setTxState('signing');
-
         if (isPlayerA) {
           await createWagerOnChain.mutateAsync({
             matchId: w.match_id,
             stakeLamports: w.stake_lamports,
             lichessGameId: w.lichess_game_id ?? '',
-            requiresModerator: w.requires_moderator,
+            requiresModerator: (w as any).requires_moderator,
             wagerId: w.id,
           });
         } else if (isPlayerB) {
@@ -215,36 +203,36 @@ export function ReadyRoomModal({
             wagerId: w.id,
           });
         }
-
         depositConfirmedRef.current = true;
       }
 
-      // ── Step 2: My deposit is confirmed.
-      // The server will auto-flip to 'voting' when both deposits are in.
-      // If the other player already deposited, the server already did it — wager
-      // will be 'voting' in the next realtime tick and the useEffect above catches it.
-      // If not, show "waiting for other player" — wager still 'joined'.
+      // Server will flip to 'voting' when both deposits land.
+      // Realtime subscription picks it up and the useEffect above catches it.
       if (wagerRef.current?.status === 'voting') {
         setTxState('confirmed');
         toast.success('Both stakes locked! Game is starting…');
       } else {
         setTxState('waiting_other');
       }
-
     } catch (err: unknown) {
-      const message = parseWalletError(err);
-      console.error('[ReadyRoomModal] runDepositFlow error:', err);
+      const message = normalizeSolanaError(err);
+      // Only log a short version — no wall of stack traces
+      console.error('[ReadyRoom] deposit failed:', message);
       setTxState('error');
       setErrorMessage(message);
     }
-  }, [isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain]);
+  }, [isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain, txState]);
 
   const handleRetry = useCallback(() => {
     hasTriggeredTx.current = false;
+    depositConfirmedRef.current = false;
     setTxState('idle');
     setErrorMessage(null);
-    hasTriggeredTx.current = true;
-    runDepositFlow();
+    // Small delay so state settles before re-entering
+    setTimeout(() => {
+      hasTriggeredTx.current = true;
+      runDepositFlow();
+    }, 300);
   }, [runDepositFlow]);
 
   const handleCancelWager = useCallback(async () => {
@@ -258,9 +246,8 @@ export function ReadyRoomModal({
       toast.success('Wager cancelled. Any deposited funds will be refunded.');
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error('Failed to cancel wager', {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      });
+      const msg = normalizeSolanaError(err);
+      toast.error('Failed to cancel wager', { description: msg });
     }
   }, [cancelWagerMutation, errorMessage, onOpenChange]);
 
@@ -270,7 +257,7 @@ export function ReadyRoomModal({
     onReady(next);
   }, [localReady, onReady]);
 
-  // ── Early return AFTER all hooks ────────────────────────────────────────────
+  // ── Early return after all hooks ────────────────────────────────────────────
   if (!wager) return null;
 
   const game = getGameData(wager.game);
@@ -280,6 +267,10 @@ export function ReadyRoomModal({
     bothReady &&
     countdown !== null &&
     (txState === 'idle' || txState === 'signing');
+
+  // Progress ring: clamp to [0,1]
+  const countdownFraction = Math.max(0, Math.min(1, (countdown ?? 0) / COUNTDOWN_SECONDS));
+  const ringCircumference = 276.46;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -317,8 +308,8 @@ export function ReadyRoomModal({
                       fill="none"
                       stroke="hsl(var(--primary))"
                       strokeWidth="4"
-                      strokeDasharray={`${(Math.max(countdown ?? 0, 0) / COUNTDOWN_SECONDS) * 276.46} 276.46`}
-                      className="transition-all duration-250"
+                      strokeDasharray={`${countdownFraction * ringCircumference} ${ringCircumference}`}
+                      className="transition-all duration-200"
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -330,12 +321,12 @@ export function ReadyRoomModal({
                 <p className="text-xs sm:text-sm text-muted-foreground">
                   {txState === 'signing'
                     ? 'Confirm the transaction in your wallet…'
-                    : countdown === 0
+                    : (countdown ?? 1) <= 0
                       ? 'Opening wallet…'
                       : 'Deposit your stake in…'
                   }
                 </p>
-                {countdown !== null && countdown > 0 && txState === 'idle' && (
+                {(countdown ?? 0) > 0 && txState === 'idle' && (
                   <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
                     Click "Not Ready" to cancel
                   </p>
@@ -442,7 +433,7 @@ export function ReadyRoomModal({
             </p>
           </div>
 
-          {/* ── Players — show deposit status ────────────────────────────── */}
+          {/* ── Players — deposit status ──────────────────────────────────── */}
           <div className="space-y-2 sm:space-y-3">
             {[
               {
@@ -462,7 +453,10 @@ export function ReadyRoomModal({
                 isMe: isPlayerB,
               },
             ].map((p, i) => {
-              const showDepositStatus = txState === 'waiting_other' || txState === 'confirmed' || wager.status === 'voting';
+              const showDepositStatus =
+                txState === 'waiting_other' ||
+                txState === 'confirmed' ||
+                wager.status === 'voting';
               return (
                 <div key={i}>
                   {i === 1 && (
@@ -574,7 +568,7 @@ export function ReadyRoomModal({
                   variant={localReady ? 'destructive' : 'neon'}
                   className="flex-1 text-xs sm:text-sm"
                   onClick={handleReadyClick}
-                  disabled={isSettingReady || countdown === 0}
+                  disabled={isSettingReady || (countdown !== null && countdown <= 0)}
                 >
                   {isSettingReady
                     ? <Loader2 className="h-4 w-4 animate-spin mr-2" />

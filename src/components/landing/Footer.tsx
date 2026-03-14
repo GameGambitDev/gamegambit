@@ -127,7 +127,7 @@ export function Footer() {
         <div className="mt-12 pt-8 border-t border-border/50">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <p className="text-sm text-muted-foreground">
-              © 2025–2026 Game Gambit. All rights reserved.
+              © 2026 Game Gambit. All rights reserved.
             </p>
             <p className="text-sm text-muted-foreground">
               Built on <span className="text-primary">Solana</span> • Live on Devnet
