@@ -1,6 +1,5 @@
 'use client'
 
-import dynamic from 'next/dynamic'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { motion } from 'framer-motion'
 import { Menu, X, User } from 'lucide-react'
@@ -13,11 +12,7 @@ import { cn } from '@/lib/utils'
 import { truncateAddress } from '@/lib/constants'
 import { NotificationsDropdown } from '@/components/NotificationsDropdown'
 import { ThemeToggle } from '@/components/ThemeToggle'
-
-const WalletMultiButton = dynamic(
-  () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
-  { ssr: false }
-)
+import { WalletButton } from '@/components/WalletButton'
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: '📊' },
@@ -36,7 +31,7 @@ export function Header() {
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
-          {/* Logo - Responsive */}
+          {/* Logo */}
           <Link href="/" className="flex items-center gap-0 group flex-shrink-0">
             <motion.div
               whileHover={{ rotate: 5, scale: 1.05 }}
@@ -59,7 +54,7 @@ export function Header() {
             </span>
           </Link>
 
-          {/* Desktop Navigation - Full width on lg, icons only on md */}
+          {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href
@@ -83,8 +78,6 @@ export function Header() {
                     <span className="text-base">{item.icon}</span>
                     <span className="hidden lg:inline">{item.label}</span>
                   </Link>
-
-                  {/* Tooltip on md screens when hovering */}
                   {hoveredIcon === item.href && (
                     <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 bg-card border border-border rounded text-xs whitespace-nowrap text-foreground pointer-events-none z-50 lg:hidden">
                       {item.label}
@@ -115,10 +108,8 @@ export function Header() {
               </>
             )}
 
-            {/* Custom styled wallet button - Always visible */}
-            <div className="relative z-50 [&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-8 [&_.wallet-adapter-button]:sm:!h-9 [&_.wallet-adapter-button]:md:!h-10 [&_.wallet-adapter-button]:!px-2 [&_.wallet-adapter-button]:sm:!px-3 [&_.wallet-adapter-button]:md:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all [&_.wallet-adapter-button-trigger]:!h-8 [&_.wallet-adapter-button-trigger]:sm:!h-9 [&_.wallet-adapter-button-trigger]:md:!h-10 [&_.wallet-adapter-dropdown-list]:z-[9999]">
-              <WalletMultiButton />
-            </div>
+            {/* Custom wallet button — handles mobile/desktop differently */}
+            <WalletButton />
 
             {/* Mobile Menu Toggle */}
             <Button
@@ -141,7 +132,6 @@ export function Header() {
             className="md:hidden border-t border-border py-3"
           >
             <nav className="flex flex-col gap-1">
-              {/* Profile link in mobile menu */}
               {connected && (
                 <Link
                   href="/profile"
@@ -162,7 +152,6 @@ export function Header() {
                   )}
                 </Link>
               )}
-
               {navItems.map((item) => {
                 const isActive = pathname === item.href
                 return (
