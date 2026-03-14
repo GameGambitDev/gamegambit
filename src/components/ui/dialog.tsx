@@ -43,7 +43,7 @@ const DialogContent = React.forwardRef<
         // On sm+: centered with translate, max width, rounded
         "sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-lg sm:rounded-lg sm:w-[calc(100%-2rem)]",
         // Sizing and scroll
-        "max-h-[90vh] overflow-y-auto",
+        "max-h-[90vh] overflow-hidden flex flex-col",
         // Appearance
         "bg-background border border-border shadow-lg p-4 sm:p-6",
         // Animations
@@ -58,7 +58,7 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
     >
-      {children}
+      <div className="overflow-y-auto flex-1 overscroll-contain">{children}</div>
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-accent data-[state=open]:text-muted-foreground hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
