@@ -1,9 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 
-// localStorage so the token survives tab closes, PWA restarts, and mobile
-// browser session resets. sessionStorage was wiping the token on every new
-// visit and causing verifyWallet() → signMessage() to fire automatically.
 const STORAGE_KEY = 'gg_wallet_session';
 
 function readToken(): string | null {
@@ -22,13 +19,11 @@ export function useWalletAuth() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Hydrate from localStorage once on mount
   useEffect(() => {
     setSessionToken(readToken());
     setIsHydrated(true);
   }, []);
 
-  // Clear token when wallet disconnects or changes
   useEffect(() => {
     if (!isHydrated) return;
     if (!publicKey) {
@@ -37,14 +32,9 @@ export function useWalletAuth() {
     }
   }, [publicKey, isHydrated]);
 
-  // verifyWallet — must be called EXPLICITLY by user action, never auto-called.
-  // Calling signMessage automatically on connect triggers the mobile wallet
-  // adapter error modal ("Can't find a wallet") and the Phantom signing popup
-  // on desktop on every single page visit.
   const verifyWallet = useCallback(async (): Promise<string | null> => {
     if (!publicKey || !signMessage) return null;
 
-    // Already have a valid token for this wallet — skip signing
     const existing = readToken();
     if (existing) {
       setSessionToken(existing);
@@ -72,7 +62,10 @@ export function useWalletAuth() {
       }
 
       const { message } = await nonceRes.json();
-      const signature = await signMessage(Buffer.from(message));
+
+      // FIX: Buffer.from() is Node.js only and crashes in Phantom/Solflare
+      // mobile in-app browser. TextEncoder works everywhere.
+      const signature = await signMessage(new TextEncoder().encode(message));
 
       const verifyRes = await fetch(`${supabaseUrl}/functions/v1/verify-wallet`, {
         method: 'POST',
@@ -115,7 +108,6 @@ export function useWalletAuth() {
     removeToken();
   }, []);
 
-  // getSessionToken — returns cached token or triggers verify (explicit flow only)
   const getSessionToken = useCallback(async (): Promise<string | null> => {
     const stored = readToken();
     if (stored) return stored;
