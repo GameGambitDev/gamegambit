@@ -1,13 +1,13 @@
 /**
  * useSolanaProgram.ts
  *
- * Mobile fixes applied:
- *  1. initPlayer is sent as a SEPARATE tx before create_wager — batching them
- *     causes "Missing signature for pubkey" because the PDA created in ix1
- *     is a signer in ix2 simulation, confusing mobile wallets.
- *  2. sendTransaction options updated with skipPreflight + correct commitment.
- *  3. All errors caught and normalized — no raw console screaming.
- *  4. join_wager idempotency: PDA balance check instead of catching revert.
+ * Mobile fixes:
+ *  - ALL Buffer usage replaced with Uint8Array — Buffer is Node.js only and
+ *    crashes silently in Phantom/Solflare mobile in-app browser.
+ *  - initPlayer sent as separate tx before create_wager (no batching).
+ *  - skipPreflight:true for mobile RPC lag.
+ *  - normalizeSolanaError logs the RAW error before normalizing so you can
+ *    actually debug what's happening on mobile.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -27,55 +27,65 @@ import {
 } from '@/lib/solana-config';
 import { toast } from 'sonner';
 
-// ── PDA derivation ────────────────────────────────────────────────────────────
+// ── PDA derivation — NO Buffer, uses Uint8Array only ─────────────────────────
 
 export function deriveWagerPda(playerA: PublicKey, matchId: bigint): [PublicKey, number] {
-  const matchIdBuffer = Buffer.alloc(8);
-  matchIdBuffer.writeBigUInt64LE(matchId);
+  const matchIdBuffer = new Uint8Array(8);
+  new DataView(matchIdBuffer.buffer).setBigUint64(0, matchId, true); // little-endian
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('wager'), playerA.toBuffer(), matchIdBuffer],
+    [new TextEncoder().encode('wager'), playerA.toBytes(), matchIdBuffer],
     new PublicKey(PROGRAM_ID)
   );
 }
 
 export function derivePlayerProfilePda(player: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('player'), player.toBuffer()],
+    [new TextEncoder().encode('player'), player.toBytes()],
     new PublicKey(PROGRAM_ID)
   );
 }
 
-// ── Instruction data builder ──────────────────────────────────────────────────
+// ── Instruction data builder — NO Buffer ─────────────────────────────────────
 
 function buildInstructionData(
   discriminator: readonly number[],
   ...args: (bigint | boolean | string | PublicKey)[]
-): Buffer {
-  const buffers: Buffer[] = [Buffer.from(discriminator as number[])];
+): Uint8Array {
+  const parts: Uint8Array[] = [new Uint8Array(discriminator as number[])];
 
   for (const arg of args) {
     if (typeof arg === 'bigint') {
-      const buf = Buffer.alloc(8);
-      buf.writeBigUInt64LE(arg);
-      buffers.push(buf);
+      const buf = new Uint8Array(8);
+      new DataView(buf.buffer).setBigUint64(0, arg, true);
+      parts.push(buf);
     } else if (typeof arg === 'boolean') {
-      buffers.push(Buffer.from([arg ? 1 : 0]));
+      parts.push(new Uint8Array([arg ? 1 : 0]));
     } else if (typeof arg === 'string') {
-      const strBuf = Buffer.from(arg, 'utf8');
-      const lenBuf = Buffer.alloc(4);
-      lenBuf.writeUInt32LE(strBuf.length);
-      buffers.push(lenBuf, strBuf);
+      const strBytes = new TextEncoder().encode(arg);
+      const lenBuf = new Uint8Array(4);
+      new DataView(lenBuf.buffer).setUint32(0, strBytes.length, true);
+      parts.push(lenBuf, strBytes);
     } else if (arg instanceof PublicKey) {
-      buffers.push(arg.toBuffer());
+      parts.push(arg.toBytes());
     }
   }
 
-  return Buffer.concat(buffers);
+  const total = parts.reduce((sum, p) => sum + p.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    result.set(p, offset);
+    offset += p.length;
+  }
+  return result;
 }
 
-// ── Error normalizer — silences wall-of-text mobile wallet errors ─────────────
+// ── Error normalizer — logs RAW error so you can debug, then shows clean msg ──
 
 export function normalizeSolanaError(err: unknown): string {
+  // Log the full raw error so it's visible in browser devtools / Supabase logs
+  console.error('[SolanaError RAW]', err);
+
   if (!err) return 'Unknown error';
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
@@ -99,24 +109,19 @@ export function normalizeSolanaError(err: unknown): string {
     return 'Wallet signing failed. Please try again or reconnect your wallet.';
 
   if (lower.includes('already in use') || lower.includes('already deposited'))
-    return 'already_deposited'; // sentinel — caller handles this
+    return 'already_deposited';
 
-  // Truncate long raw RPC/simulation errors so they don't flood the screen
-  if (msg.length > 120) return msg.slice(0, 120) + '…';
+  // Return full message (not truncated) so you can see exactly what failed
   return msg;
 }
 
-// ── Send a single-instruction tx via wallet adapter ───────────────────────────
-//
-// MOBILE KEY: skipPreflight=true avoids simulation mismatches on mobile RPC
-// nodes that are slightly behind. confirmTransaction still verifies on-chain.
+// ── Send tx via wallet adapter ────────────────────────────────────────────────
 
 async function sendAndConfirmViaAdapter(
   instructions: TransactionInstruction | TransactionInstruction[],
   payer: PublicKey,
   sendTransaction: (tx: Transaction, connection: any, opts?: any) => Promise<string>,
   connection: any,
-  { skipPreflight = true }: { skipPreflight?: boolean } = {}
 ): Promise<string> {
   const ixs = Array.isArray(instructions) ? instructions : [instructions];
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
@@ -126,10 +131,8 @@ async function sendAndConfirmViaAdapter(
   tx.recentBlockhash = blockhash;
   tx.feePayer = payer;
 
-  // skipPreflight=true is the key mobile fix — Phantom/Solflare on mobile
-  // sometimes fail preflight simulation even when the tx would succeed on-chain.
   const signature = await sendTransaction(tx, connection, {
-    skipPreflight,
+    skipPreflight: true,
     preflightCommitment: 'confirmed',
   });
 
@@ -140,12 +143,7 @@ async function sendAndConfirmViaAdapter(
   return signature;
 }
 
-// ── Init player profile — SEPARATE tx (never batched with create_wager) ───────
-//
-// Batching initPlayer + createWager fails on mobile because the newly created
-// player PDA in ix1 appears as a signer in ix2's account list, causing
-// "Missing signature for pubkey <newPda>" during simulation.
-// Solution: send initPlayer in its own tx first, await confirmation, then proceed.
+// ── Init player profile — separate tx, never batched ─────────────────────────
 
 async function ensurePlayerProfileExists(
   player: PublicKey,
@@ -155,13 +153,8 @@ async function ensurePlayerProfileExists(
   const [profilePda] = derivePlayerProfilePda(player);
 
   let existing = null;
-  try {
-    existing = await connection.getAccountInfo(profilePda);
-  } catch {
-    // RPC hiccup — assume it doesn't exist and try to create
-  }
-
-  if (existing) return; // already initialized
+  try { existing = await connection.getAccountInfo(profilePda); } catch { /* ok */ }
+  if (existing) return;
 
   toast.info('Creating your on-chain profile (one-time setup)…');
 
@@ -172,7 +165,7 @@ async function ensurePlayerProfileExists(
       { pubkey: player, isSigner: true, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(INSTRUCTION_DISCRIMINATORS.initialize_player as number[]),
+    data: new Uint8Array(INSTRUCTION_DISCRIMINATORS.initialize_player as number[]),
   });
 
   try {
@@ -180,7 +173,6 @@ async function ensurePlayerProfileExists(
     toast.success('Profile created!');
   } catch (err: unknown) {
     const normalized = normalizeSolanaError(err);
-    // "already in use" means a race — profile was created concurrently, fine.
     if (!normalized.includes('already')) throw err;
   }
 }
@@ -223,14 +215,13 @@ export function useInitializePlayer() {
     onError: (error: Error) => {
       const msg = normalizeSolanaError(error);
       if (!msg.includes('already')) {
-        console.error('[InitPlayer]', msg);
         toast.error('Failed to initialize player profile', { description: msg });
       }
     },
   });
 }
 
-// ── 2. Create wager (Player A deposits stake into PDA escrow) ─────────────────
+// ── 2. Create wager ───────────────────────────────────────────────────────────
 
 export function useCreateWagerOnChain() {
   const { publicKey, sendTransaction } = useWallet();
@@ -260,7 +251,6 @@ export function useCreateWagerOnChain() {
       const [wagerPda] = deriveWagerPda(publicKey, matchIdBigInt);
       const [playerProfilePda] = derivePlayerProfilePda(publicKey);
 
-      // ── IDEMPOTENCY: PDA already exists → prior tx succeeded, just notify DB
       let existingPda = null;
       try { existingPda = await connection.getAccountInfo(wagerPda); } catch { /* ok */ }
 
@@ -270,7 +260,6 @@ export function useCreateWagerOnChain() {
         console.log('[createWager] PDA exists — skipping tx, notifying DB');
         signature = 'already_deposited';
       } else {
-        // ── MOBILE FIX: init player in its OWN tx first, never batched ──────
         await ensurePlayerProfileExists(publicKey, sendTransaction, connection);
 
         const createIx = new TransactionInstruction({
@@ -293,7 +282,6 @@ export function useCreateWagerOnChain() {
         signature = await sendAndConfirmViaAdapter(createIx, publicKey, sendTransaction, connection);
       }
 
-      // ── Notify DB regardless of whether we sent a new tx ─────────────────
       const token = await getSessionToken();
       if (token) {
         try {
@@ -310,10 +298,9 @@ export function useCreateWagerOnChain() {
             },
             headers: { 'X-Session-Token': token },
           });
-          if (error) console.warn('[createWager] recordOnChainCreate DB notify failed:', error.message);
+          if (error) console.warn('[createWager] recordOnChainCreate failed:', error.message);
         } catch (dbErr) {
           console.warn('[createWager] recordOnChainCreate threw:', dbErr);
-          // Don't rethrow — on-chain deposit succeeded
         }
       }
 
@@ -326,13 +313,12 @@ export function useCreateWagerOnChain() {
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
     },
     onError: (error: Error) => {
-      // ReadyRoomModal displays the error — just log a short version here
       console.error('[createWager]', normalizeSolanaError(error));
     },
   });
 }
 
-// ── 3. Join wager (Player B deposits matching stake) ──────────────────────────
+// ── 3. Join wager ─────────────────────────────────────────────────────────────
 
 export function useJoinWagerOnChain() {
   const { publicKey, sendTransaction } = useWallet();
@@ -361,11 +347,8 @@ export function useJoinWagerOnChain() {
       const [wagerPda] = deriveWagerPda(playerA, matchIdBigInt);
       const [playerBProfilePda] = derivePlayerProfilePda(publicKey);
 
-      // ── IDEMPOTENCY: check PDA balance — if ≥ 2x stake, B already deposited
       let pdaBalance = 0;
-      try {
-        pdaBalance = await connection.getBalance(wagerPda);
-      } catch { /* ok */ }
+      try { pdaBalance = await connection.getBalance(wagerPda); } catch { /* ok */ }
 
       let signature: string;
 
@@ -373,7 +356,6 @@ export function useJoinWagerOnChain() {
         console.log('[joinWager] PDA already fully funded — skipping tx, notifying DB');
         signature = 'already_deposited';
       } else {
-        // ── MOBILE FIX: init player in its OWN tx first, never batched ──────
         await ensurePlayerProfileExists(publicKey, sendTransaction, connection);
 
         const joinIx = new TransactionInstruction({
@@ -391,17 +373,14 @@ export function useJoinWagerOnChain() {
           signature = await sendAndConfirmViaAdapter(joinIx, publicKey, sendTransaction, connection);
         } catch (err: unknown) {
           const normalized = normalizeSolanaError(err);
-          // 'already_deposited' sentinel means PDA revert — prior attempt succeeded
           if (normalized === 'already_deposited') {
-            console.log('[joinWager] on-chain revert suggests already deposited — notifying DB');
             signature = 'already_deposited';
           } else {
-            throw err; // real error (rejected, insufficient funds…)
+            throw err;
           }
         }
       }
 
-      // ── Notify DB ─────────────────────────────────────────────────────────
       const token = await getSessionToken();
       if (token) {
         try {
@@ -416,7 +395,7 @@ export function useJoinWagerOnChain() {
             },
             headers: { 'X-Session-Token': token },
           });
-          if (error) console.warn('[joinWager] recordOnChainJoin DB notify failed:', error.message);
+          if (error) console.warn('[joinWager] recordOnChainJoin failed:', error.message);
         } catch (dbErr) {
           console.warn('[joinWager] recordOnChainJoin threw:', dbErr);
         }
@@ -478,7 +457,6 @@ export function useSubmitVoteOnChain() {
     },
     onError: (error: Error) => {
       const msg = normalizeSolanaError(error);
-      console.error('[submitVote]', msg);
       toast.error('Failed to submit vote', { description: msg });
     },
   });
@@ -523,13 +501,12 @@ export function useRetractVoteOnChain() {
     },
     onError: (error: Error) => {
       const msg = normalizeSolanaError(error);
-      console.error('[retractVote]', msg);
       toast.error('Failed to retract vote', { description: msg });
     },
   });
 }
 
-// ── 6. Check player profile exists on-chain ───────────────────────────────────
+// ── 6. Check player profile ───────────────────────────────────────────────────
 
 export function useCheckPlayerProfile() {
   const { publicKey } = useWallet();
