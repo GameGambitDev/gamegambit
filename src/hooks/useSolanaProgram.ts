@@ -1,14 +1,12 @@
 /**
  * useSolanaProgram.ts
  *
- * Mobile fixes:
- *  - PDA derivation uses Uint8Array/TextEncoder — Buffer is Node.js only and
- *    crashes in Phantom/Solflare mobile in-app browser.
- *  - buildInstructionData returns Buffer.from(Uint8Array) for TS compatibility
- *    with TransactionInstruction which expects Buffer type.
- *  - initPlayer sent as separate tx before create_wager (no batching).
- *  - skipPreflight:true for mobile RPC lag.
- *  - normalizeSolanaError logs RAW error before normalizing for debugging.
+ * Mobile WalletConnect fix:
+ *  - sendTransaction from wallet adapter doesn't trigger Phantom signing popup
+ *    properly on mobile WalletConnect — tx gets sent unsigned.
+ *  - Fix: use signTransaction explicitly, then sendRawTransaction manually.
+ *    This forces Phantom to open and sign before the tx is sent.
+ *  - signTransaction is passed alongside sendTransaction to sendAndConfirmViaAdapter.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -29,11 +27,10 @@ import {
 import { toast } from 'sonner';
 
 // ── PDA derivation — NO Buffer, uses Uint8Array only ─────────────────────────
-// Buffer.from() crashes in Phantom/Solflare mobile in-app browser (Node.js only)
 
 export function deriveWagerPda(playerA: PublicKey, matchId: bigint): [PublicKey, number] {
   const matchIdBuffer = new Uint8Array(8);
-  new DataView(matchIdBuffer.buffer).setBigUint64(0, matchId, true); // little-endian
+  new DataView(matchIdBuffer.buffer).setBigUint64(0, matchId, true);
   return PublicKey.findProgramAddressSync(
     [new TextEncoder().encode('wager'), playerA.toBytes(), matchIdBuffer],
     new PublicKey(PROGRAM_ID)
@@ -48,8 +45,6 @@ export function derivePlayerProfilePda(player: PublicKey): [PublicKey, number] {
 }
 
 // ── Instruction data builder ──────────────────────────────────────────────────
-// Builds as Uint8Array internally (mobile safe), wraps in Buffer.from() at the
-// end because TransactionInstruction.data expects Buffer type in TypeScript.
 
 function buildInstructionData(
   discriminator: readonly number[],
@@ -84,7 +79,7 @@ function buildInstructionData(
   return Buffer.from(result);
 }
 
-// ── Error normalizer — logs RAW error so you can debug, then shows clean msg ──
+// ── Error normalizer ──────────────────────────────────────────────────────────
 
 export function normalizeSolanaError(err: unknown): string {
   console.error('[SolanaError RAW]', err);
@@ -117,13 +112,22 @@ export function normalizeSolanaError(err: unknown): string {
   return msg;
 }
 
-// ── Send tx via wallet adapter ────────────────────────────────────────────────
+// ── Send tx — uses signTransaction explicitly to fix WalletConnect mobile ─────
+//
+// ROOT CAUSE OF "Missing signature" on mobile WalletConnect:
+// sendTransaction() from the adapter sends the tx without properly triggering
+// the Phantom signing popup on mobile WalletConnect sessions.
+//
+// FIX: use signTransaction() first (forces Phantom to open and sign),
+// then send the signed tx manually via sendRawTransaction.
+// Falls back to sendTransaction if signTransaction is not available.
 
 async function sendAndConfirmViaAdapter(
   instructions: TransactionInstruction | TransactionInstruction[],
   payer: PublicKey,
   sendTransaction: (tx: Transaction, connection: any, opts?: any) => Promise<string>,
   connection: any,
+  signTransaction?: (tx: Transaction) => Promise<Transaction>,
 ): Promise<string> {
   const ixs = Array.isArray(instructions) ? instructions : [instructions];
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
@@ -133,10 +137,21 @@ async function sendAndConfirmViaAdapter(
   tx.recentBlockhash = blockhash;
   tx.feePayer = payer;
 
-  const signature = await sendTransaction(tx, connection, {
-    skipPreflight: true,
-    preflightCommitment: 'confirmed',
-  });
+  let signature: string;
+
+  if (signTransaction) {
+    // Explicit sign then send — fixes WalletConnect mobile missing signature
+    const signed = await signTransaction(tx);
+    signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: true,
+    });
+  } else {
+    // Fallback for adapters that don't expose signTransaction
+    signature = await sendTransaction(tx, connection, {
+      skipPreflight: true,
+      preflightCommitment: 'confirmed',
+    });
+  }
 
   await connection.confirmTransaction(
     { signature, blockhash, lastValidBlockHeight },
@@ -151,6 +166,7 @@ async function ensurePlayerProfileExists(
   player: PublicKey,
   sendTransaction: (tx: Transaction, connection: any, opts?: any) => Promise<string>,
   connection: any,
+  signTransaction?: (tx: Transaction) => Promise<Transaction>,
 ): Promise<void> {
   const [profilePda] = derivePlayerProfilePda(player);
 
@@ -171,7 +187,7 @@ async function ensurePlayerProfileExists(
   });
 
   try {
-    await sendAndConfirmViaAdapter(ix, player, sendTransaction, connection);
+    await sendAndConfirmViaAdapter(ix, player, sendTransaction, connection, signTransaction);
     toast.success('Profile created!');
   } catch (err: unknown) {
     const normalized = normalizeSolanaError(err);
@@ -182,7 +198,7 @@ async function ensurePlayerProfileExists(
 // ── 1. Initialize player profile ──────────────────────────────────────────────
 
 export function useInitializePlayer() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const queryClient = useQueryClient();
 
@@ -205,7 +221,9 @@ export function useInitializePlayer() {
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.initialize_player),
       });
 
-      const signature = await sendAndConfirmViaAdapter(instruction, publicKey, sendTransaction, connection);
+      const signature = await sendAndConfirmViaAdapter(
+        instruction, publicKey, sendTransaction, connection, signTransaction
+      );
       return { alreadyExists: false, signature, pda: playerProfilePda.toBase58() };
     },
     onSuccess: (data) => {
@@ -226,7 +244,7 @@ export function useInitializePlayer() {
 // ── 2. Create wager ───────────────────────────────────────────────────────────
 
 export function useCreateWagerOnChain() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const { getSessionToken } = useWalletAuth();
   const queryClient = useQueryClient();
@@ -262,7 +280,7 @@ export function useCreateWagerOnChain() {
         console.log('[createWager] PDA exists — skipping tx, notifying DB');
         signature = 'already_deposited';
       } else {
-        await ensurePlayerProfileExists(publicKey, sendTransaction, connection);
+        await ensurePlayerProfileExists(publicKey, sendTransaction, connection, signTransaction);
 
         const createIx = new TransactionInstruction({
           programId: new PublicKey(PROGRAM_ID),
@@ -281,7 +299,9 @@ export function useCreateWagerOnChain() {
           ),
         });
 
-        signature = await sendAndConfirmViaAdapter(createIx, publicKey, sendTransaction, connection);
+        signature = await sendAndConfirmViaAdapter(
+          createIx, publicKey, sendTransaction, connection, signTransaction
+        );
       }
 
       const token = await getSessionToken();
@@ -323,7 +343,7 @@ export function useCreateWagerOnChain() {
 // ── 3. Join wager ─────────────────────────────────────────────────────────────
 
 export function useJoinWagerOnChain() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const { getSessionToken } = useWalletAuth();
   const queryClient = useQueryClient();
@@ -358,7 +378,7 @@ export function useJoinWagerOnChain() {
         console.log('[joinWager] PDA already fully funded — skipping tx, notifying DB');
         signature = 'already_deposited';
       } else {
-        await ensurePlayerProfileExists(publicKey, sendTransaction, connection);
+        await ensurePlayerProfileExists(publicKey, sendTransaction, connection, signTransaction);
 
         const joinIx = new TransactionInstruction({
           programId: new PublicKey(PROGRAM_ID),
@@ -372,7 +392,9 @@ export function useJoinWagerOnChain() {
         });
 
         try {
-          signature = await sendAndConfirmViaAdapter(joinIx, publicKey, sendTransaction, connection);
+          signature = await sendAndConfirmViaAdapter(
+            joinIx, publicKey, sendTransaction, connection, signTransaction
+          );
         } catch (err: unknown) {
           const normalized = normalizeSolanaError(err);
           if (normalized === 'already_deposited') {
@@ -420,7 +442,7 @@ export function useJoinWagerOnChain() {
 // ── 4. Submit vote ────────────────────────────────────────────────────────────
 
 export function useSubmitVoteOnChain() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const queryClient = useQueryClient();
 
@@ -450,7 +472,9 @@ export function useSubmitVoteOnChain() {
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.submit_vote, votedWinner),
       });
 
-      const signature = await sendAndConfirmViaAdapter(instruction, publicKey, sendTransaction, connection);
+      const signature = await sendAndConfirmViaAdapter(
+        instruction, publicKey, sendTransaction, connection, signTransaction
+      );
       return { signature };
     },
     onSuccess: () => {
@@ -467,7 +491,7 @@ export function useSubmitVoteOnChain() {
 // ── 5. Retract vote ───────────────────────────────────────────────────────────
 
 export function useRetractVoteOnChain() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const queryClient = useQueryClient();
 
@@ -494,7 +518,9 @@ export function useRetractVoteOnChain() {
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.retract_vote),
       });
 
-      const signature = await sendAndConfirmViaAdapter(instruction, publicKey, sendTransaction, connection);
+      const signature = await sendAndConfirmViaAdapter(
+        instruction, publicKey, sendTransaction, connection, signTransaction
+      );
       return { signature };
     },
     onSuccess: () => {
