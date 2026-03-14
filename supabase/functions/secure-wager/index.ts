@@ -364,16 +364,41 @@ serve(async (req) => {
         }
 
         if (action === 'startGame') {
+            // Fallback: called when both deposits confirmed but auto-start didn't fire
+            // (e.g. race condition where recordOnChainCreate/Join were concurrent).
             const { wagerId } = data;
             if (!wagerId) return respond({ error: 'Wager ID required' }, 400);
             const wager = await getWager(wagerId);
+
+            // Already started — idempotent, return success
+            if (wager.status === 'voting') return respond({ wager });
+
             if (!wager.ready_player_a || !wager.ready_player_b) return respond({ error: 'Both players must be ready' }, 400);
             if (!wager.countdown_started_at) return respond({ error: 'Countdown not started' }, 400);
+
+            // Require both deposits confirmed OR elapsed time (graceful fallback)
+            const bothDeposited = wager.deposit_player_a && wager.deposit_player_b;
             const elapsed = Date.now() - new Date(wager.countdown_started_at).getTime();
-            if (elapsed < 11_000) return respond({ error: 'Countdown not complete', elapsed, required: 11000 }, 400);
-            const { data: updatedWager, error } = await supabase.from('wagers').update({ status: 'voting' }).eq('id', wagerId).select().single();
-            if (error) return respond({ error: 'Failed to start game' }, 500);
-            console.log(`[secure-wager] Game started for wager ${wagerId} (elapsed=${elapsed}ms)`);
+            if (!bothDeposited && elapsed < 11_000) {
+                return respond({ error: 'Waiting for both players to deposit', elapsed, bothDeposited }, 400);
+            }
+
+            // Atomic update — only flip if still in 'joined' to prevent double-flip
+            const { data: updatedWager, error } = await supabase
+                .from('wagers')
+                .update({ status: 'voting' })
+                .eq('id', wagerId)
+                .eq('status', 'joined')
+                .select()
+                .single();
+
+            if (error || !updatedWager) {
+                // Already flipped by recordOnChain auto-start — that's fine
+                const fresh = await getWager(wagerId);
+                return respond({ wager: fresh });
+            }
+
+            console.log(`[secure-wager] Game started for wager ${wagerId} (elapsed=${elapsed}ms, bothDeposited=${bothDeposited})`);
             return respond({ wager: updatedWager });
         }
 
@@ -488,9 +513,68 @@ serve(async (req) => {
             }
         }
 
-        if (action === 'recordOnChainCreate' || action === 'recordOnChainJoin') {
-            console.log(`[secure-wager] ${action} recorded`);
-            return respond({ success: true });
+        if (action === 'recordOnChainCreate') {
+            // Player A's on-chain deposit confirmed — set deposit_player_a=true.
+            // If Player B already deposited, auto-flip status to 'voting' (game starts).
+            const { wagerId, txSignature } = data;
+            if (!wagerId) return respond({ error: 'wagerId required' }, 400);
+
+            const wager = await getWager(wagerId);
+            const isPlayerA = wager.player_a_wallet === walletAddress;
+            if (!isPlayerA) return respond({ error: 'Only Player A can record create deposit' }, 403);
+
+            const updatePayload: Record<string, unknown> = { deposit_player_a: true };
+            if (txSignature) updatePayload.tx_signature_a = txSignature;
+
+            // If Player B already deposited, start the game atomically in the same update
+            const bothDeposited = wager.deposit_player_b === true;
+            if (bothDeposited) {
+                updatePayload.status = 'voting';
+                console.log(`[secure-wager] Both deposited — auto-starting game for wager ${wagerId}`);
+            }
+
+            const { data: updated, error: updateErr } = await supabase
+                .from('wagers')
+                .update(updatePayload)
+                .eq('id', wagerId)
+                .select()
+                .single();
+
+            if (updateErr) return respond({ error: 'Failed to record deposit' }, 500);
+            console.log(`[secure-wager] recordOnChainCreate: deposit_player_a=true, bothDeposited=${bothDeposited}`);
+            return respond({ success: true, wager: updated, gameStarted: bothDeposited });
+        }
+
+        if (action === 'recordOnChainJoin') {
+            // Player B's on-chain deposit confirmed — set deposit_player_b=true.
+            // If Player A already deposited, auto-flip status to 'voting' (game starts).
+            const { wagerId, txSignature } = data;
+            if (!wagerId) return respond({ error: 'wagerId required' }, 400);
+
+            const wager = await getWager(wagerId);
+            const isPlayerB = wager.player_b_wallet === walletAddress;
+            if (!isPlayerB) return respond({ error: 'Only Player B can record join deposit' }, 403);
+
+            const updatePayload: Record<string, unknown> = { deposit_player_b: true };
+            if (txSignature) updatePayload.tx_signature_b = txSignature;
+
+            // If Player A already deposited, start the game atomically
+            const bothDeposited = wager.deposit_player_a === true;
+            if (bothDeposited) {
+                updatePayload.status = 'voting';
+                console.log(`[secure-wager] Both deposited — auto-starting game for wager ${wagerId}`);
+            }
+
+            const { data: updated, error: updateErr } = await supabase
+                .from('wagers')
+                .update(updatePayload)
+                .eq('id', wagerId)
+                .select()
+                .single();
+
+            if (updateErr) return respond({ error: 'Failed to record deposit' }, 500);
+            console.log(`[secure-wager] recordOnChainJoin: deposit_player_b=true, bothDeposited=${bothDeposited}`);
+            return respond({ success: true, wager: updated, gameStarted: bothDeposited });
         }
 
         if (action === 'cancelWager') {

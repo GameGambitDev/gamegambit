@@ -1,24 +1,21 @@
 /**
- * ReadyRoomModal.tsx  (v4)
+ * ReadyRoomModal.tsx  (v5)
  *
  * Correct Flow:
  *  1. Both players click "Ready" → Supabase updated
- *  2. Server sets countdown_started_at → 10s countdown begins
- *  3. At zero → wallet popup appears → user signs deposit tx
- *  4. On-chain deposit CONFIRMED in PDA
- *  5. Player A (only) calls startGame → wager flips to 'voting'
- *     Player B skips startGame (wager already voting, or will be shortly)
- *  6. txState → 'confirmed' → game link shown
+ *  2. Server sets countdown_started_at → 10s countdown
+ *  3. At zero → wallet popup appears → player signs deposit tx
+ *  4. On-chain deposit confirmed → server records deposit_player_a / deposit_player_b
+ *  5. When BOTH deposits confirmed server auto-flips wager to 'voting'
+ *  6. While waiting for other player → "Waiting for <name> to deposit…" shown
+ *  7. txState → 'confirmed' once wager.status === 'voting'
  *
- * Key fixes vs v2/v3:
- *  - wagerRef keeps a always-fresh ref to wager — no stale closures in async callbacks
- *  - startGame called by Player A ONLY — eliminates dual-call race
- *  - depositConfirmedRef tracks whether deposit landed so retry skips wallet popup
- *  - Wallet rejection / cancel errors caught and shown cleanly via parseWalletError
- *  - hasTriggeredTx guards against double-fire from re-renders
- *
- * ⚠️  React Rules of Hooks: ALL hooks called unconditionally at the top.
- *     `if (!wager) return null` lives AFTER all hooks.
+ * Key changes vs v4:
+ *  - startGame NEVER called from client — server owns that transition
+ *  - Both players can deposit in any order
+ *  - wagerId passed to on-chain hooks so server can record deposit flag
+ *  - "waiting_other" txState shows while one player deposited, other hasn't
+ *  - Mobile fixed: useSolanaProgram now uses sendTransaction (adapter handles deep links)
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -27,9 +24,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Check, X, Clock, ExternalLink, Swords,
-  Loader2, AlertCircle, ShieldCheck, Ban,
+  Loader2, AlertCircle, ShieldCheck, Ban, Hourglass,
 } from 'lucide-react';
-import { Wager, useStartGame, useCancelWager } from '@/hooks/useWagers';
+import { Wager, useCancelWager } from '@/hooks/useWagers';
 import { GAMES, formatSol } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
@@ -49,12 +46,12 @@ interface ReadyRoomModalProps {
   currentWallet?: string;
 }
 
-// idle          = waiting for countdown
-// signing       = wallet popup open / waiting for on-chain confirmation
-// starting_game = deposit confirmed, calling startGame (Player A only)
-// confirmed     = all done
-// error         = something failed — show retry/cancel
-type TxState = 'idle' | 'signing' | 'starting_game' | 'confirmed' | 'error';
+// idle           = waiting for countdown
+// signing        = wallet popup open / waiting for on-chain confirmation
+// waiting_other  = my deposit confirmed, waiting for other player to deposit
+// confirmed      = both deposits in, wager is 'voting'
+// error          = something failed
+type TxState = 'idle' | 'signing' | 'waiting_other' | 'confirmed' | 'error';
 
 const COUNTDOWN_SECONDS = 10;
 
@@ -75,7 +72,6 @@ const getGameLink = (game: string, gameId: string | null) => {
   return null;
 };
 
-/** Normalise wallet adapter rejection errors into a clean user-facing message */
 function parseWalletError(err: unknown): string {
   if (!err) return 'Unknown error';
   const msg = err instanceof Error ? err.message : String(err);
@@ -112,59 +108,55 @@ export function ReadyRoomModal({
   const [localReady, setLocalReady] = useState(false);
   const [txState, setTxState] = useState<TxState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [otherPlayerInError, setOtherPlayerInError] = useState(false);
 
-  // Always-fresh ref to wager — avoids stale closure bugs in async callbacks
   const wagerRef = useRef<Wager | null>(wager);
   useEffect(() => { wagerRef.current = wager; }, [wager]);
 
-  // Guards against double-firing the deposit flow on re-renders
   const hasTriggeredTx = useRef(false);
-  // Tracks whether the deposit landed on-chain so retry can skip the wallet popup
   const depositConfirmedRef = useRef(false);
 
   const createWagerOnChain = useCreateWagerOnChain();
   const joinWagerOnChain = useJoinWagerOnChain();
-  const startGameMutation = useStartGame();
   const cancelWagerMutation = useCancelWager();
 
-  // Derived
   const isPlayerA = currentWallet === wager?.player_a_wallet;
   const isPlayerB = currentWallet === wager?.player_b_wallet;
   const bothReady = !!(wager?.ready_player_a && wager?.ready_player_b);
   const myReady = isPlayerA ? wager?.ready_player_a : wager?.ready_player_b;
 
+  // Deposit flags from DB (set by server after on-chain confirmation recorded)
+  const myDeposit = isPlayerA
+    ? (wager as any)?.deposit_player_a
+    : (wager as any)?.deposit_player_b;
+  const otherDeposit = isPlayerA
+    ? (wager as any)?.deposit_player_b
+    : (wager as any)?.deposit_player_a;
+  const otherPlayer = isPlayerA ? playerB : playerA;
+  const otherWallet = isPlayerA ? wager?.player_b_wallet : wager?.player_a_wallet;
+
   useEffect(() => { setLocalReady(myReady ?? false); }, [myReady]);
 
-  // Reset everything when modal closes
+  // Reset when modal closes
   useEffect(() => {
     if (!open) {
       setTxState('idle');
       setErrorMessage(null);
-      setOtherPlayerInError(false);
       hasTriggeredTx.current = false;
       depositConfirmedRef.current = false;
     }
   }, [open]);
 
-  // Clear otherPlayerInError when wager resolves or countdown resets
+  // Watch for wager flipping to 'voting' — that means both deposits confirmed
   useEffect(() => {
-    if (wager?.status === 'voting' || !bothReady) {
-      setOtherPlayerInError(false);
+    if (wager?.status === 'voting' && txState === 'waiting_other') {
+      setTxState('confirmed');
+      toast.success('Both stakes locked! Game is starting…');
     }
-  }, [wager?.status, bothReady]);
-
-  // Flag otherPlayerInError after 30s if wager still 'joined' and we're idle
-  useEffect(() => {
-    if (!wager || !bothReady || !wager.countdown_started_at) return;
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - new Date(wager.countdown_started_at!).getTime();
-      if (elapsed > 30_000 && wager.status === 'joined' && txState === 'idle') {
-        setOtherPlayerInError(true);
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [wager, bothReady, wager?.countdown_started_at, txState]);
+    // Also handle case where we land here after a refresh and game already started
+    if (wager?.status === 'voting' && txState === 'idle' && depositConfirmedRef.current) {
+      setTxState('confirmed');
+    }
+  }, [wager?.status, txState]);
 
   // Countdown ticker
   useEffect(() => {
@@ -180,8 +172,7 @@ export function ReadyRoomModal({
     return () => clearInterval(id);
   }, [bothReady, wager?.countdown_started_at]);
 
-  // ── MAIN FLOW: fire when countdown hits 0 ─────────────────────────────────
-  // Reads wagerRef (always fresh) — NOT the stale closure value of `wager`.
+  // Fire deposit flow when countdown hits 0
   useEffect(() => {
     if (countdown !== 0) return;
     if (hasTriggeredTx.current) return;
@@ -190,22 +181,13 @@ export function ReadyRoomModal({
 
     const w = wagerRef.current;
     if (!w) return;
-    if (w.status === 'resolved' || w.status === 'cancelled') return;
+    if (w.status === 'resolved' || w.status === 'cancelled' || w.status === 'voting') return;
 
     hasTriggeredTx.current = true;
     runDepositFlow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countdown]);
 
-  /**
-   * The deposit flow. Reads wager from wagerRef so it's always current.
-   *
-   * Step 1: On-chain deposit  — throws immediately on wallet reject/cancel
-   * Step 2: startGame API     — Player A ONLY, only after deposit confirmed
-   *
-   * If depositConfirmedRef is already true (prior attempt succeeded), step 1
-   * is skipped so the user isn't shown a second wallet popup on retry.
-   */
   const runDepositFlow = useCallback(async () => {
     const w = wagerRef.current;
     if (!w) return;
@@ -213,7 +195,7 @@ export function ReadyRoomModal({
     setErrorMessage(null);
 
     try {
-      // ── Step 1: On-chain deposit ──────────────────────────────────────────
+      // ── Step 1: On-chain deposit (skip if already confirmed on a prior attempt)
       if (!depositConfirmedRef.current) {
         setTxState('signing');
 
@@ -223,6 +205,7 @@ export function ReadyRoomModal({
             stakeLamports: w.stake_lamports,
             lichessGameId: w.lichess_game_id ?? '',
             requiresModerator: w.requires_moderator,
+            wagerId: w.id,
           });
         } else if (isPlayerB) {
           await joinWagerOnChain.mutateAsync({
@@ -233,37 +216,33 @@ export function ReadyRoomModal({
           });
         }
 
-        // Only set this AFTER mutateAsync resolves (i.e. on-chain confirmed)
         depositConfirmedRef.current = true;
       }
 
-      // ── Step 2: startGame — Player A ONLY ────────────────────────────────
-      // Player B never calls startGame. Player A is responsible for flipping
-      // the wager to 'voting'. If it's already 'voting' (e.g. on retry), skip.
-      if (isPlayerA && wagerRef.current?.status !== 'voting') {
-        setTxState('starting_game');
-        await startGameMutation.mutateAsync({ wagerId: w.id });
+      // ── Step 2: My deposit is confirmed.
+      // The server will auto-flip to 'voting' when both deposits are in.
+      // If the other player already deposited, the server already did it — wager
+      // will be 'voting' in the next realtime tick and the useEffect above catches it.
+      // If not, show "waiting for other player" — wager still 'joined'.
+      if (wagerRef.current?.status === 'voting') {
+        setTxState('confirmed');
+        toast.success('Both stakes locked! Game is starting…');
+      } else {
+        setTxState('waiting_other');
       }
-
-      setTxState('confirmed');
-      toast.success('Stake locked in escrow! Game starting…');
 
     } catch (err: unknown) {
       const message = parseWalletError(err);
       console.error('[ReadyRoomModal] runDepositFlow error:', err);
       setTxState('error');
       setErrorMessage(message);
-      // Don't reset hasTriggeredTx here — handleRetry does it explicitly
     }
-  }, [isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain, startGameMutation]);
+  }, [isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain]);
 
   const handleRetry = useCallback(() => {
-    // Reset the trigger guard so runDepositFlow can be called again
     hasTriggeredTx.current = false;
     setTxState('idle');
     setErrorMessage(null);
-    // depositConfirmedRef intentionally NOT reset:
-    // if deposit already landed on a prior attempt, retry skips the wallet popup
     hasTriggeredTx.current = true;
     runDepositFlow();
   }, [runDepositFlow]);
@@ -300,12 +279,12 @@ export function ReadyRoomModal({
   const showCountdown =
     bothReady &&
     countdown !== null &&
-    (txState === 'idle' || txState === 'signing' || txState === 'starting_game');
+    (txState === 'idle' || txState === 'signing');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-lg border-primary/30 bg-card"
+        className="sm:max-w-lg border-primary/30 bg-card max-h-[90vh] overflow-y-auto"
         aria-describedby={undefined}
       >
         <DialogHeader>
@@ -344,21 +323,16 @@ export function ReadyRoomModal({
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <span className="text-2xl sm:text-3xl font-gaming font-bold text-primary">
-                      {txState === 'starting_game'
-                        ? <Loader2 className="h-8 w-8 animate-spin" />
-                        : countdown
-                      }
+                      {countdown}
                     </span>
                   </div>
                 </div>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  {txState === 'starting_game'
-                    ? 'Starting game…'
-                    : txState === 'signing'
-                      ? 'Confirm the transaction in your wallet…'
-                      : countdown === 0
-                        ? 'Opening wallet…'
-                        : 'Game starting in…'
+                  {txState === 'signing'
+                    ? 'Confirm the transaction in your wallet…'
+                    : countdown === 0
+                      ? 'Opening wallet…'
+                      : 'Deposit your stake in…'
                   }
                 </p>
                 {countdown !== null && countdown > 0 && txState === 'idle' && (
@@ -384,55 +358,62 @@ export function ReadyRoomModal({
               </motion.div>
             )}
 
+            {txState === 'waiting_other' && (
+              <motion.div key="waiting_other" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                className="flex flex-col items-center gap-3 py-4"
+              >
+                <div className="relative">
+                  <ShieldCheck className="h-10 w-10 text-success" />
+                  <Hourglass className="h-4 w-4 text-muted-foreground absolute -bottom-1 -right-1" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-success">Your stake is locked ✓</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Waiting for{' '}
+                    <span className="font-medium text-foreground">
+                      {otherPlayer?.username || (otherWallet ? `${otherWallet.slice(0, 4)}…${otherWallet.slice(-4)}` : 'opponent')}
+                    </span>
+                    {' '}to deposit their stake…
+                  </p>
+                </div>
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </motion.div>
+            )}
+
             {txState === 'confirmed' && (
               <motion.div key="confirmed" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
                 className="flex flex-col items-center gap-2 py-4"
               >
                 <ShieldCheck className="h-8 w-8 text-success" />
-                <p className="text-sm font-medium text-success">Stake locked in escrow!</p>
+                <p className="text-sm font-medium text-success">Both stakes locked in escrow!</p>
                 <p className="text-xs text-muted-foreground">
                   Funds release automatically to the winner after the game.
                 </p>
               </motion.div>
             )}
 
-            {(txState === 'error' || otherPlayerInError) && (
+            {txState === 'error' && (
               <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                 className="p-4 rounded-lg bg-destructive/10 border border-destructive/30 space-y-3"
               >
                 <div className="flex items-start gap-2">
                   <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-destructive">
-                      {otherPlayerInError && txState !== 'error'
-                        ? 'Waiting for other player…'
-                        : 'Transaction Failed'
-                      }
-                    </p>
+                    <p className="text-sm font-medium text-destructive">Transaction Failed</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {otherPlayerInError && txState !== 'error'
-                        ? 'The other player has not deposited yet. Wait for them to retry, or cancel the wager.'
-                        : errorMessage || 'Make sure you have enough SOL and try again.'
-                      }
+                      {errorMessage || 'Make sure you have enough SOL and try again.'}
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  {txState === 'error' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 text-xs"
-                      onClick={handleRetry}
-                    >
-                      <Loader2 className="h-3 w-3 mr-1" />
-                      Retry
-                    </Button>
-                  )}
+                  <Button size="sm" variant="outline" className="flex-1 text-xs" onClick={handleRetry}>
+                    <Loader2 className="h-3 w-3 mr-1" />
+                    Retry
+                  </Button>
                   <Button
                     size="sm"
                     variant="destructive"
-                    className={txState !== 'error' ? 'w-full text-xs' : 'flex-1 text-xs'}
+                    className="flex-1 text-xs"
                     onClick={handleCancelWager}
                     disabled={cancelWagerMutation.isPending}
                   >
@@ -444,7 +425,7 @@ export function ReadyRoomModal({
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground text-center">
-                  Cancelling will refund all deposited funds to both players.
+                  Your funds are safe. Cancelling refunds both players.
                 </p>
               </motion.div>
             )}
@@ -461,44 +442,80 @@ export function ReadyRoomModal({
             </p>
           </div>
 
-          {/* ── Players ──────────────────────────────────────────────────── */}
+          {/* ── Players — show deposit status ────────────────────────────── */}
           <div className="space-y-2 sm:space-y-3">
             {[
-              { wallet: wager.player_a_wallet, ready: wager.ready_player_a, player: playerA, label: 'Challenger', isMe: isPlayerA },
-              { wallet: wager.player_b_wallet ?? '', ready: wager.ready_player_b, player: playerB, label: 'Opponent', isMe: isPlayerB },
-            ].map((p, i) => (
-              <div key={i}>
-                {i === 1 && (
-                  <div className="flex items-center justify-center my-2">
-                    <Swords className="h-5 w-5 text-primary" />
-                  </div>
-                )}
-                <div className={`flex items-center justify-between p-3 sm:p-4 rounded-lg border-2 transition-colors ${p.ready ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
-                  }`}>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className={`p-1.5 sm:p-2 rounded-full ${p.ready ? 'bg-success/20' : 'bg-muted'}`}>
-                      {p.ready
-                        ? <Check className="h-4 w-4 sm:h-5 sm:w-5 text-success" />
-                        : <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
+              {
+                wallet: wager.player_a_wallet,
+                ready: wager.ready_player_a,
+                deposited: (wager as any).deposit_player_a,
+                player: playerA,
+                label: 'Challenger',
+                isMe: isPlayerA,
+              },
+              {
+                wallet: wager.player_b_wallet ?? '',
+                ready: wager.ready_player_b,
+                deposited: (wager as any).deposit_player_b,
+                player: playerB,
+                label: 'Opponent',
+                isMe: isPlayerB,
+              },
+            ].map((p, i) => {
+              const showDepositStatus = txState === 'waiting_other' || txState === 'confirmed' || wager.status === 'voting';
+              return (
+                <div key={i}>
+                  {i === 1 && (
+                    <div className="flex items-center justify-center my-2">
+                      <Swords className="h-5 w-5 text-primary" />
+                    </div>
+                  )}
+                  <div className={`flex items-center justify-between p-3 sm:p-4 rounded-lg border-2 transition-colors ${showDepositStatus
+                      ? p.deposited ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
+                      : p.ready ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
+                    }`}>
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className={`p-1.5 sm:p-2 rounded-full ${showDepositStatus
+                          ? p.deposited ? 'bg-success/20' : 'bg-muted'
+                          : p.ready ? 'bg-success/20' : 'bg-muted'
+                        }`}>
+                        {showDepositStatus
+                          ? p.deposited
+                            ? <ShieldCheck className="h-4 w-4 sm:h-5 sm:w-5 text-success" />
+                            : <Hourglass className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
+                          : p.ready
+                            ? <Check className="h-4 w-4 sm:h-5 sm:w-5 text-success" />
+                            : <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
+                        }
+                      </div>
+                      <div>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">
+                          {p.label} {p.isMe && '(You)'}
+                        </p>
+                        <PlayerLink
+                          walletAddress={p.wallet}
+                          username={p.player?.username}
+                          className="font-medium text-xs sm:text-sm"
+                        />
+                      </div>
+                    </div>
+                    <Badge
+                      variant={
+                        showDepositStatus
+                          ? p.deposited ? 'success' : 'secondary'
+                          : p.ready ? 'success' : 'secondary'
                       }
-                    </div>
-                    <div>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">
-                        {p.label} {p.isMe && '(You)'}
-                      </p>
-                      <PlayerLink
-                        walletAddress={p.wallet}
-                        username={p.player?.username}
-                        className="font-medium text-xs sm:text-sm"
-                      />
-                    </div>
+                      className="text-[10px] sm:text-xs"
+                    >
+                      {showDepositStatus
+                        ? p.deposited ? 'Deposited ✓' : 'Pending…'
+                        : p.ready ? 'Ready' : 'Waiting'
+                      }
+                    </Badge>
                   </div>
-                  <Badge variant={p.ready ? 'success' : 'secondary'} className="text-[10px] sm:text-xs">
-                    {p.ready ? 'Ready' : 'Waiting'}
-                  </Badge>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* ── Game link ────────────────────────────────────────────────── */}
@@ -539,7 +556,7 @@ export function ReadyRoomModal({
                   Edit Wager
                 </Button>
               )}
-              {(txState === 'signing' || txState === 'starting_game') ? (
+              {txState === 'signing' || txState === 'waiting_other' ? (
                 <Button
                   variant="destructive"
                   className="flex-1 text-xs sm:text-sm"
