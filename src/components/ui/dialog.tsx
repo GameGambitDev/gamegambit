@@ -5,11 +5,8 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const Dialog = DialogPrimitive.Root;
-
 const DialogTrigger = DialogPrimitive.Trigger;
-
 const DialogPortal = DialogPrimitive.Portal;
-
 const DialogClose = DialogPrimitive.Close;
 
 const DialogOverlay = React.forwardRef<
@@ -36,17 +33,11 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        // Position: centered but uses margin auto instead of translate on mobile
         "fixed z-50 left-0 right-0 mx-auto",
-        // On mobile: slide up from bottom, full width with padding
         "bottom-0 w-full rounded-t-2xl",
-        // On sm+: centered with translate, max width, rounded
         "sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-lg sm:rounded-lg sm:w-[calc(100%-2rem)]",
-        // Sizing and scroll
         "max-h-[90vh] overflow-hidden flex flex-col",
-        // Appearance
-        "bg-background border border-border shadow-lg p-4 sm:p-6",
-        // Animations
+        "bg-background border border-border shadow-lg",
         "duration-200",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
@@ -58,8 +49,17 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
     >
-      <div className="overflow-y-auto flex-1 overscroll-contain">{children}</div>
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-accent data-[state=open]:text-muted-foreground hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+      {/* Drag handle for mobile */}
+      <div className="sm:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+        <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+      </div>
+
+      {/* Scrollable content area */}
+      <div className="overflow-y-auto overscroll-contain flex-1 p-4 sm:p-6">
+        {children}
+      </div>
+
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
@@ -94,7 +94,11 @@ const DialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Description ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
 ));
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
