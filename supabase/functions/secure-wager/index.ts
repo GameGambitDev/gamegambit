@@ -142,11 +142,13 @@ async function resolveOnChain(
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[secure-wager] resolveOnChain failed:', msg);
-        await supabase.from('wager_transactions').insert({
-            wager_id: wager.id, tx_type: 'error_on_chain_resolve',
-            wallet_address: wager.player_a_wallet as string,
-            amount_lamports: 0, status: 'failed', error_message: msg,
-        });
+        try {
+            await supabase.from('wager_transactions').insert({
+                wager_id: wager.id, tx_type: 'error_on_chain_resolve',
+                wallet_address: wager.player_a_wallet as string,
+                amount_lamports: 0, status: 'failed', error_message: msg,
+            });
+        } catch { /* ignore */ }
         return null;
     }
 }
@@ -284,38 +286,12 @@ serve(async (req) => {
         if (action === 'setReady') {
             const { wagerId, ready } = data;
             if (!wagerId || ready === undefined) return respond({ error: 'Wager ID and ready status required' }, 400);
-
-            // ── ATOMIC READY UPDATE ──────────────────────────────────────────────
-            // We use a raw SQL UPDATE so that `countdown_started_at` is decided
-            // entirely on the DB's committed row state — not a stale client-side
-            // snapshot. This eliminates the race where two simultaneous setReady(true)
-            // calls both read otherReady=false and both write countdown_started_at=null.
-            //
-            // The SQL evaluates the *other* player's column in the same atomic write:
-            //   SET ready_player_a = $ready,
-            //       countdown_started_at = CASE
-            //           WHEN $ready AND ready_player_b THEN NOW()
-            //           WHEN NOT $ready              THEN NULL
-            //           ELSE countdown_started_at        -- preserve existing value
-            //       END
-            // (mirrored for player_b)
-            //
-            // We fall back to a standard JS update only when the wager row is
-            // already confirmed via getWager() for the auth/status checks below.
-
             const wager = await getWager(wagerId);
             if (wager.status !== 'joined') return respond({ error: 'Wager must be in joined status' }, 400);
             const isPlayerA = wager.player_a_wallet === walletAddress;
             const isPlayerB = wager.player_b_wallet === walletAddress;
             if (!isPlayerA && !isPlayerB) return respond({ error: 'You are not a participant' }, 403);
 
-            // Build the atomic SQL expression via rpc helper.
-            // We call a lightweight Postgres function `set_player_ready` that
-            // performs the CASE-based update and returns the updated row.
-            //
-            // If that RPC doesn't exist yet (first deploy), we fall back to the
-            // safe two-step approach with an explicit re-read after write so at
-            // least the countdown_started_at is based on fresh committed data.
             const { data: rpcResult, error: rpcError } = await supabase.rpc('set_player_ready', {
                 p_wager_id: wagerId,
                 p_is_player_a: isPlayerA,
@@ -323,9 +299,6 @@ serve(async (req) => {
             });
 
             if (rpcError) {
-                // RPC not available — fall back to safe two-step:
-                // 1. Write only the ready flag (no countdown decision yet)
-                // 2. Re-read the row inside a serializable-ish update to decide countdown
                 console.warn('[secure-wager] set_player_ready RPC unavailable, using fallback:', rpcError.message);
 
                 const readyField = isPlayerA ? 'ready_player_a' : 'ready_player_b';
@@ -335,8 +308,6 @@ serve(async (req) => {
                     .eq('id', wagerId);
                 if (step1Error) return respond({ error: 'Failed to set ready status' }, 500);
 
-                // Re-read committed state and atomically set countdown only if
-                // both flags are now true on the *fresh* row.
                 const fresh = await getWager(wagerId);
                 const bothReady = fresh.ready_player_a && fresh.ready_player_b;
                 const shouldStartCountdown = bothReady && !fresh.countdown_started_at;
@@ -346,11 +317,13 @@ serve(async (req) => {
                     await supabase
                         .from('wagers')
                         .update({
-                            countdown_started_at: shouldStartCountdown ? new Date().toISOString() : null,
+                            // FIX: subtract 1s so clients that receive the realtime
+                            // event ~1s late still see "10" not "11" on countdown.
+                            countdown_started_at: shouldStartCountdown
+                                ? new Date(Date.now() - 1000).toISOString()
+                                : null,
                         })
                         .eq('id', wagerId)
-                        // Only write if the ready state still matches — prevents
-                        // a third concurrent call from clobbering a later write.
                         .eq('ready_player_a', fresh.ready_player_a)
                         .eq('ready_player_b', fresh.ready_player_b);
                 }
@@ -359,31 +332,21 @@ serve(async (req) => {
                 return respond({ wager: updatedWager });
             }
 
-            // RPC succeeded — it returns the full updated row
             return respond({ wager: rpcResult });
         }
 
         if (action === 'startGame') {
-            // Fallback: called when both deposits confirmed but auto-start didn't fire
-            // (e.g. race condition where recordOnChainCreate/Join were concurrent).
             const { wagerId } = data;
             if (!wagerId) return respond({ error: 'Wager ID required' }, 400);
             const wager = await getWager(wagerId);
-
-            // Already started — idempotent, return success
             if (wager.status === 'voting') return respond({ wager });
-
             if (!wager.ready_player_a || !wager.ready_player_b) return respond({ error: 'Both players must be ready' }, 400);
             if (!wager.countdown_started_at) return respond({ error: 'Countdown not started' }, 400);
-
-            // Require both deposits confirmed OR elapsed time (graceful fallback)
             const bothDeposited = wager.deposit_player_a && wager.deposit_player_b;
             const elapsed = Date.now() - new Date(wager.countdown_started_at).getTime();
             if (!bothDeposited && elapsed < 11_000) {
                 return respond({ error: 'Waiting for both players to deposit', elapsed, bothDeposited }, 400);
             }
-
-            // Atomic update — only flip if still in 'joined' to prevent double-flip
             const { data: updatedWager, error } = await supabase
                 .from('wagers')
                 .update({ status: 'voting' })
@@ -391,13 +354,10 @@ serve(async (req) => {
                 .eq('status', 'joined')
                 .select()
                 .single();
-
             if (error || !updatedWager) {
-                // Already flipped by recordOnChain auto-start — that's fine
                 const fresh = await getWager(wagerId);
                 return respond({ wager: fresh });
             }
-
             console.log(`[secure-wager] Game started for wager ${wagerId} (elapsed=${elapsed}ms, bothDeposited=${bothDeposited})`);
             return respond({ wager: updatedWager });
         }
@@ -406,44 +366,35 @@ serve(async (req) => {
             const { wagerId } = data;
             if (!wagerId) return respond({ error: 'Wager ID required' }, 400);
             const wager = await getWager(wagerId);
-
             if (!['voting', 'joined'].includes(wager.status)) {
                 return respond({ gameComplete: false, message: 'Wager not in active game state' });
             }
             if (wager.game !== 'chess' || !wager.lichess_game_id) {
                 return respond({ gameComplete: false, message: 'No Lichess game linked' });
             }
-
             try {
                 const lichessResponse = await fetch(
                     `https://lichess.org/api/game/${wager.lichess_game_id}`,
                     { headers: { Accept: 'application/json' } }
                 );
                 if (!lichessResponse.ok) return respond({ gameComplete: false, message: 'Could not fetch game from Lichess' });
-
                 const game = await lichessResponse.json();
                 console.log(`[secure-wager] Lichess ${wager.lichess_game_id}: status=${game.status} winner=${game.winner}`);
-
                 const finishedStatuses = ['mate', 'resign', 'outoftime', 'draw', 'stalemate', 'timeout', 'cheat', 'noStart', 'aborted'];
                 if (!finishedStatuses.includes(game.status)) {
                     return respond({ gameComplete: false, status: game.status, message: 'Game still in progress' });
                 }
-
                 const [{ data: pA }, { data: pB }] = await Promise.all([
                     supabase.from('players').select('lichess_username').eq('wallet_address', wager.player_a_wallet).single(),
                     supabase.from('players').select('lichess_username').eq('wallet_address', wager.player_b_wallet).single(),
                 ]);
-
                 const playerAUsername = (pA?.lichess_username || '').toLowerCase().trim();
                 const playerBUsername = (pB?.lichess_username || '').toLowerCase().trim();
                 const whiteUser = (game.players?.white?.userId || game.players?.white?.user?.id || game.players?.white?.user?.name || '').toLowerCase().trim();
                 const blackUser = (game.players?.black?.userId || game.players?.black?.user?.id || game.players?.black?.user?.name || '').toLowerCase().trim();
-
                 console.log(`[secure-wager] Lichess: white="${whiteUser}" black="${blackUser}" | DB: A="${playerAUsername}" B="${playerBUsername}"`);
-
                 let winnerWallet: string | null = null;
                 let resultType: 'playerA' | 'playerB' | 'draw' | 'unknown' = 'unknown';
-
                 const drawStatuses = ['draw', 'stalemate', 'aborted', 'noStart'];
                 if (drawStatuses.includes(game.status) || !game.winner) {
                     resultType = 'draw';
@@ -452,7 +403,6 @@ serve(async (req) => {
                     const loserSide = winnerSide === 'white' ? 'black' : 'white';
                     const winnerLichessUser = winnerSide === 'white' ? whiteUser : blackUser;
                     const loserLichessUser = loserSide === 'white' ? whiteUser : blackUser;
-
                     if (playerAUsername && winnerLichessUser === playerAUsername) {
                         winnerWallet = wager.player_a_wallet; resultType = 'playerA';
                     } else if (playerBUsername && winnerLichessUser === playerBUsername) {
@@ -470,35 +420,22 @@ serve(async (req) => {
                         resultType = 'unknown';
                     }
                 }
-
                 if (resultType === 'unknown') {
                     return respond({
                         gameComplete: true, status: game.status, winner: game.winner, resultType: 'unknown',
                         message: `Cannot match players. DB: A="${playerAUsername}" B="${playerBUsername}". Lichess: white="${whiteUser}" black="${blackUser}".`,
                     });
                 }
-
-                // ── ATOMIC STATUS GUARD — only one concurrent instance proceeds ──
                 const { data: updatedWager, error: updateError } = await supabase.from('wagers')
-                    .update({
-                        status: 'resolved',
-                        winner_wallet: resultType === 'draw' ? null : winnerWallet,
-                        resolved_at: new Date().toISOString(),
-                    })
-                    .eq('id', wagerId)
-                    .in('status', ['voting', 'joined']) // atomic: only succeeds if still active
-                    .select()
-                    .single();
-
+                    .update({ status: 'resolved', winner_wallet: resultType === 'draw' ? null : winnerWallet, resolved_at: new Date().toISOString() })
+                    .eq('id', wagerId).in('status', ['voting', 'joined']).select().single();
                 if (updateError || !updatedWager) {
                     console.log(`[secure-wager] Wager ${wagerId} already resolved by concurrent request, skipping on-chain`);
                     return respond({ gameComplete: true, message: 'Already resolved by concurrent request' });
                 }
-
                 console.log(`[secure-wager] Resolving on-chain: ${resultType} for wager ${wagerId}`);
                 const txSig = await resolveOnChain(supabase, wager, winnerWallet, resultType as 'playerA' | 'playerB' | 'draw');
                 console.log(`[secure-wager] On-chain ${txSig ? 'SUCCESS: ' + txSig : 'FAILED — see wager_transactions error log'}`);
-
                 return respond({
                     gameComplete: true, status: game.status, winner: game.winner,
                     resultType, winnerWallet: resultType === 'draw' ? null : winnerWallet,
@@ -506,7 +443,6 @@ serve(async (req) => {
                     txSignature: txSig,
                     explorerUrl: txSig ? `https://explorer.solana.com/tx/${txSig}?cluster=devnet` : null,
                 });
-
             } catch (lichessError) {
                 console.error('[secure-wager] Lichess API error:', lichessError);
                 return respond({ gameComplete: false, message: 'Error checking Lichess game' });
@@ -514,64 +450,38 @@ serve(async (req) => {
         }
 
         if (action === 'recordOnChainCreate') {
-            // Player A's on-chain deposit confirmed — set deposit_player_a=true.
-            // If Player B already deposited, auto-flip status to 'voting' (game starts).
             const { wagerId, txSignature } = data;
             if (!wagerId) return respond({ error: 'wagerId required' }, 400);
-
             const wager = await getWager(wagerId);
             const isPlayerA = wager.player_a_wallet === walletAddress;
             if (!isPlayerA) return respond({ error: 'Only Player A can record create deposit' }, 403);
-
             const updatePayload: Record<string, unknown> = { deposit_player_a: true };
             if (txSignature) updatePayload.tx_signature_a = txSignature;
-
-            // If Player B already deposited, start the game atomically in the same update
             const bothDeposited = wager.deposit_player_b === true;
             if (bothDeposited) {
                 updatePayload.status = 'voting';
                 console.log(`[secure-wager] Both deposited — auto-starting game for wager ${wagerId}`);
             }
-
-            const { data: updated, error: updateErr } = await supabase
-                .from('wagers')
-                .update(updatePayload)
-                .eq('id', wagerId)
-                .select()
-                .single();
-
+            const { data: updated, error: updateErr } = await supabase.from('wagers').update(updatePayload).eq('id', wagerId).select().single();
             if (updateErr) return respond({ error: 'Failed to record deposit' }, 500);
             console.log(`[secure-wager] recordOnChainCreate: deposit_player_a=true, bothDeposited=${bothDeposited}`);
             return respond({ success: true, wager: updated, gameStarted: bothDeposited });
         }
 
         if (action === 'recordOnChainJoin') {
-            // Player B's on-chain deposit confirmed — set deposit_player_b=true.
-            // If Player A already deposited, auto-flip status to 'voting' (game starts).
             const { wagerId, txSignature } = data;
             if (!wagerId) return respond({ error: 'wagerId required' }, 400);
-
             const wager = await getWager(wagerId);
             const isPlayerB = wager.player_b_wallet === walletAddress;
             if (!isPlayerB) return respond({ error: 'Only Player B can record join deposit' }, 403);
-
             const updatePayload: Record<string, unknown> = { deposit_player_b: true };
             if (txSignature) updatePayload.tx_signature_b = txSignature;
-
-            // If Player A already deposited, start the game atomically
             const bothDeposited = wager.deposit_player_a === true;
             if (bothDeposited) {
                 updatePayload.status = 'voting';
                 console.log(`[secure-wager] Both deposited — auto-starting game for wager ${wagerId}`);
             }
-
-            const { data: updated, error: updateErr } = await supabase
-                .from('wagers')
-                .update(updatePayload)
-                .eq('id', wagerId)
-                .select()
-                .single();
-
+            const { data: updated, error: updateErr } = await supabase.from('wagers').update(updatePayload).eq('id', wagerId).select().single();
             if (updateErr) return respond({ error: 'Failed to record deposit' }, 500);
             console.log(`[secure-wager] recordOnChainJoin: deposit_player_b=true, bothDeposited=${bothDeposited}`);
             return respond({ success: true, wager: updated, gameStarted: bothDeposited });
@@ -595,10 +505,13 @@ serve(async (req) => {
                 .eq('id', wagerId).select().single();
             if (updateError) return respond({ error: 'Failed to cancel wager' }, 500);
 
-            await supabase.from('wager_transactions').insert({
-                wager_id: wagerId, tx_type: 'cancelled', wallet_address: wager.player_a_wallet,
-                amount_lamports: 0, status: 'confirmed',
-            }).catch(() => { });
+            // FIX: .catch() doesn't exist on PostgREST builder in Deno edge runtime
+            try {
+                await supabase.from('wager_transactions').insert({
+                    wager_id: wagerId, tx_type: 'cancelled', wallet_address: wager.player_a_wallet,
+                    amount_lamports: 0, status: 'confirmed',
+                });
+            } catch { /* non-critical */ }
 
             if (wager.player_b_wallet) {
                 try {
