@@ -8,6 +8,8 @@ import {
 } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
 import { WalletConnectWalletAdapter } from '@solana/wallet-adapter-walletconnect'
 import { clusterApiUrl } from '@solana/web3.js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -77,13 +79,19 @@ export function Providers({ children }: ProvidersProps) {
 
   const wallets = useMemo(() => {
     const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
-    if (!projectId) return []
-    return [
-      new WalletConnectWalletAdapter({
-        network: WalletAdapterNetwork.Devnet,
-        options: { projectId },
-      }),
+    const list: any[] = [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
     ]
+    if (projectId) {
+      list.push(
+        new WalletConnectWalletAdapter({
+          network: WalletAdapterNetwork.Devnet,
+          options: { projectId },
+        })
+      )
+    }
+    return list
   }, [])
 
   return (
