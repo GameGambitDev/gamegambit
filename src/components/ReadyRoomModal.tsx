@@ -215,11 +215,11 @@ export function ReadyRoomModal({
         setTxState('waiting_other');
       }
     } catch (err: unknown) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
       const message = normalizeSolanaError(err);
-      // Only log a short version — no wall of stack traces
       console.error('[ReadyRoom] deposit failed:', message);
       setTxState('error');
-      setErrorMessage(message);
+      setErrorMessage(rawMsg);
     }
   }, [isPlayerA, isPlayerB, createWagerOnChain, joinWagerOnChain, txState]);
 
@@ -465,13 +465,13 @@ export function ReadyRoomModal({
                     </div>
                   )}
                   <div className={`flex items-center justify-between p-3 sm:p-4 rounded-lg border-2 transition-colors ${showDepositStatus
-                      ? p.deposited ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
-                      : p.ready ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
+                    ? p.deposited ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
+                    : p.ready ? 'bg-success/10 border-success/30' : 'bg-muted/30 border-border'
                     }`}>
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className={`p-1.5 sm:p-2 rounded-full ${showDepositStatus
-                          ? p.deposited ? 'bg-success/20' : 'bg-muted'
-                          : p.ready ? 'bg-success/20' : 'bg-muted'
+                        ? p.deposited ? 'bg-success/20' : 'bg-muted'
+                        : p.ready ? 'bg-success/20' : 'bg-muted'
                         }`}>
                         {showDepositStatus
                           ? p.deposited
