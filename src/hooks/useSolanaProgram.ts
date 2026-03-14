@@ -3,21 +3,14 @@
  *
  * All on-chain interactions for GameGambit.
  *
- * Flow:
- *  1. Player A  → useCreateWagerOnChain()  → create_wager  (deposits stake into PDA escrow)
- *  2. Player B  → useJoinWagerOnChain()    → join_wager    (deposits matching stake)
- *  3. [Both players now in ReadyRoom — funds already locked on-chain]
- *  4. Game played
- *  5. Each player → useSubmitVoteOnChain() → submit_vote   (signs who they think won)
- *  6a. Votes agree  → Retractable → after RETRACT_WINDOW → backend calls resolve_wager
- *  6b. Votes disagree → Disputed  → moderator resolves via backend
- *  7. For chess: backend auto-resolves via Lichess API
+ * Mobile fix: uses `sendTransaction` from wallet adapter instead of
+ * `signTransaction` + manual `sendRawTransaction`. The adapter's sendTransaction
+ * handles deep links and in-app browser signing on Phantom/Solflare mobile correctly.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
-  Connection,
   PublicKey,
   Transaction,
   TransactionInstruction,
@@ -28,15 +21,9 @@ import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWalletAuth } from './useWalletAuth';
 import {
   PROGRAM_ID,
-  DEFAULT_RPC_URL,
   INSTRUCTION_DISCRIMINATORS,
-  PLATFORM_WALLET_PUBKEY,
 } from '@/lib/solana-config';
 import { toast } from 'sonner';
-
-// ── RPC connection (shared, one instance) ────────────────────────────────────
-
-const connection = new Connection(DEFAULT_RPC_URL, 'confirmed');
 
 // ── PDA derivation ────────────────────────────────────────────────────────────
 
@@ -59,8 +46,6 @@ export function derivePlayerProfilePda(player: PublicKey): [PublicKey, number] {
 }
 
 // ── Instruction data builder ──────────────────────────────────────────────────
-// Anchor wire format: 8-byte discriminator | borsh-encoded args
-// Supported arg types: bigint (u64 LE), boolean, string (u32 len + utf8), pubkey (32 bytes)
 
 function buildInstructionData(
   discriminator: readonly number[],
@@ -81,7 +66,6 @@ function buildInstructionData(
       lenBuf.writeUInt32LE(strBuf.length);
       buffers.push(lenBuf, strBuf);
     } else if (arg instanceof PublicKey) {
-      // pubkey is encoded as raw 32 bytes in Borsh
       buffers.push(arg.toBuffer());
     }
   }
@@ -89,38 +73,47 @@ function buildInstructionData(
   return Buffer.concat(buffers);
 }
 
-// ── Shared: send + confirm helper ─────────────────────────────────────────────
+// ── Shared: send + confirm via wallet adapter sendTransaction ─────────────────
+//
+// KEY MOBILE FIX: We use `sendTransaction` from the wallet adapter instead of
+// `signTransaction` + `sendRawTransaction`. The adapter's sendTransaction:
+//   - On desktop: signs and sends in one step
+//   - On mobile (Phantom/Solflare): correctly handles deep link signing flow
+//     and in-app browser context without losing the promise reference
+//
+// Accepts one or more instructions batched into a single tx / single popup.
 
-// Accepts one or more instructions — all batched into a single tx with one blockhash/popup
-async function sendAndConfirm(
+async function sendAndConfirmViaAdapter(
   instructions: TransactionInstruction | TransactionInstruction[],
   payer: PublicKey,
-  signTransaction: (tx: Transaction) => Promise<Transaction>
+  sendTransaction: (tx: Transaction, connection: any, opts?: any) => Promise<string>,
+  connection: any
 ): Promise<string> {
   const ixs = Array.isArray(instructions) ? instructions : [instructions];
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
   const tx = new Transaction();
   ixs.forEach(ix => tx.add(ix));
   tx.recentBlockhash = blockhash;
   tx.feePayer = payer;
 
-  const signedTx = await signTransaction(tx);
-  const signature = await connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: false });
+  // sendTransaction handles signing + sending — works on mobile
+  const signature = await sendTransaction(tx, connection, { skipPreflight: false });
   await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
   return signature;
 }
 
-// ── Shared: returns initialize_player ix if profile PDA doesn't exist yet ────
-// Caller batches it with the main instruction in a single tx — one blockhash, one popup.
-// If profile already exists returns null (zero overhead on subsequent wagers).
+// ── Shared: init player ix if profile PDA doesn't exist ──────────────────────
+
 async function getInitPlayerIxIfNeeded(
   player: PublicKey,
+  connection: any,
 ): Promise<TransactionInstruction | null> {
   const [profilePda] = derivePlayerProfilePda(player);
   const existing = await connection.getAccountInfo(profilePda);
-  if (existing) return null; // already initialized — nothing to do
+  if (existing) return null;
 
-  toast.info("First-time setup: your on-chain profile will be created with this transaction");
+  toast.info('First-time setup: your on-chain profile will be created with this transaction');
 
   return new TransactionInstruction({
     programId: new PublicKey(PROGRAM_ID),
@@ -133,20 +126,18 @@ async function getInitPlayerIxIfNeeded(
   });
 }
 
-
 // ── 1. Initialize player profile ──────────────────────────────────────────────
 
 export function useInitializePlayer() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async () => {
-      if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+      if (!publicKey || !sendTransaction) throw new Error('Wallet not connected');
 
       const [playerProfilePda] = derivePlayerProfilePda(publicKey);
-
-      // Check if already initialized to avoid wasting SOL on rent
       const existing = await connection.getAccountInfo(playerProfilePda);
       if (existing) return { alreadyExists: true, pda: playerProfilePda.toBase58() };
 
@@ -160,7 +151,7 @@ export function useInitializePlayer() {
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.initialize_player),
       });
 
-      const signature = await sendAndConfirm(instruction, publicKey, signTransaction);
+      const signature = await sendAndConfirmViaAdapter(instruction, publicKey, sendTransaction, connection);
       return { alreadyExists: false, signature, pda: playerProfilePda.toBase58() };
     },
     onSuccess: (data) => {
@@ -181,7 +172,8 @@ export function useInitializePlayer() {
 // ── 2. Create wager (Player A deposits stake into PDA escrow) ─────────────────
 
 export function useCreateWagerOnChain() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const { getSessionToken } = useWalletAuth();
   const queryClient = useQueryClient();
 
@@ -191,17 +183,17 @@ export function useCreateWagerOnChain() {
       stakeLamports,
       lichessGameId,
       requiresModerator = false,
+      wagerId,
     }: {
       matchId: number;
       stakeLamports: number;
       lichessGameId: string;
       requiresModerator?: boolean;
+      wagerId: string;  // needed to record deposit in DB
     }) => {
-      if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+      if (!publicKey || !sendTransaction) throw new Error('Wallet not connected');
 
-      // Check if profile needs initializing — if so, batch it with create_wager
-      // into ONE transaction so there's a single blockhash and single wallet popup.
-      const initIx = await getInitPlayerIxIfNeeded(publicKey);
+      const initIx = await getInitPlayerIxIfNeeded(publicKey, connection);
 
       const matchIdBigInt = BigInt(matchId);
       const stakeAmount = BigInt(stakeLamports);
@@ -209,8 +201,6 @@ export function useCreateWagerOnChain() {
       const [wagerPda] = deriveWagerPda(publicKey, matchIdBigInt);
       const [playerProfilePda] = derivePlayerProfilePda(publicKey);
 
-      // Account order must match CreateWager context in lib.rs:
-      //   wager (writable, PDA), player_a_profile (PDA, readonly), player_a (signer, writable), system_program
       const createIx = new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -219,7 +209,6 @@ export function useCreateWagerOnChain() {
           { pubkey: publicKey, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        // Args: match_id: u64, stake_lamports: u64, lichess_game_id: string, requires_moderator: bool
         data: buildInstructionData(
           INSTRUCTION_DISCRIMINATORS.create_wager,
           matchIdBigInt,
@@ -229,17 +218,18 @@ export function useCreateWagerOnChain() {
         ),
       });
 
-      // Batch: [initIx (if needed), createIx] — one tx, one blockhash, one popup
       const ixs = initIx ? [initIx, createIx] : [createIx];
-      const signature = await sendAndConfirm(ixs, publicKey, signTransaction);
+      const signature = await sendAndConfirmViaAdapter(ixs, publicKey, sendTransaction, connection);
 
-      // Record in backend so the DB wager gets the on-chain tx signature
+      // ── Record deposit in DB — server sets deposit_player_a=true and
+      //    auto-starts the game if both players have now deposited
       const sessionToken = await getSessionToken();
       if (sessionToken) {
         const supabase = getSupabaseClient();
         await supabase.functions.invoke('secure-wager', {
           body: {
             action: 'recordOnChainCreate',
+            wagerId,
             playerAWallet: publicKey.toBase58(),
             matchId,
             stakeLamports,
@@ -252,14 +242,14 @@ export function useCreateWagerOnChain() {
       return { signature, wagerPda: wagerPda.toBase58(), matchId, stakeLamports };
     },
     onSuccess: (data) => {
-      toast.success('Wager created on-chain!', {
-        description: `${(data.stakeLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL deposited to escrow`,
+      toast.success('Deposit confirmed!', {
+        description: `${(data.stakeLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL locked in escrow`,
       });
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
     },
     onError: (error: Error) => {
       console.error('Create wager on-chain error:', error);
-      toast.error('Failed to create wager', { description: error.message });
+      // Don't double-toast — ReadyRoomModal handles the error display
     },
   });
 }
@@ -267,7 +257,8 @@ export function useCreateWagerOnChain() {
 // ── 3. Join wager (Player B deposits matching stake) ──────────────────────────
 
 export function useJoinWagerOnChain() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const { getSessionToken } = useWalletAuth();
   const queryClient = useQueryClient();
 
@@ -283,10 +274,9 @@ export function useJoinWagerOnChain() {
       stakeLamports: number;
       wagerId: string;
     }) => {
-      if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+      if (!publicKey || !sendTransaction) throw new Error('Wallet not connected');
 
-      // Check if profile needs initializing — batch with join_wager if so
-      const initIx = await getInitPlayerIxIfNeeded(publicKey);
+      const initIx = await getInitPlayerIxIfNeeded(publicKey, connection);
 
       const playerA = new PublicKey(playerAWallet);
       const matchIdBigInt = BigInt(matchId);
@@ -295,8 +285,6 @@ export function useJoinWagerOnChain() {
       const [wagerPda] = deriveWagerPda(playerA, matchIdBigInt);
       const [playerBProfilePda] = derivePlayerProfilePda(publicKey);
 
-      // Account order must match JoinWager context in lib.rs:
-      //   wager (writable, PDA), player_b_profile (PDA, readonly), player_b (signer, writable), system_program
       const joinIx = new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -305,15 +293,14 @@ export function useJoinWagerOnChain() {
           { pubkey: publicKey, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        // Args: stake_lamports: u64
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.join_wager, stakeAmount),
       });
 
-      // Batch: [initIx (if needed), joinIx] — one tx, one blockhash, one popup
       const ixs = initIx ? [initIx, joinIx] : [joinIx];
-      const signature = await sendAndConfirm(ixs, publicKey, signTransaction);
+      const signature = await sendAndConfirmViaAdapter(ixs, publicKey, sendTransaction, connection);
 
-      // Notify backend
+      // ── Record deposit in DB — server sets deposit_player_b=true and
+      //    auto-starts the game if both players have now deposited
       const sessionToken = await getSessionToken();
       if (sessionToken) {
         const supabase = getSupabaseClient();
@@ -330,26 +317,24 @@ export function useJoinWagerOnChain() {
 
       return { signature, wagerId };
     },
-    onSuccess: (data) => {
-      toast.success('Joined wager on-chain!', {
-        description: 'Your stake has been deposited to escrow',
+    onSuccess: () => {
+      toast.success('Deposit confirmed!', {
+        description: 'Your stake has been locked in escrow',
       });
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
     },
     onError: (error: Error) => {
       console.error('Join wager on-chain error:', error);
-      toast.error('Failed to join wager', { description: error.message });
+      // Don't double-toast — ReadyRoomModal handles the error display
     },
   });
 }
 
-// ── 4. Submit vote (each player signs who they think won) ─────────────────────
-//
-// For chess:   this is called automatically by the backend after Lichess confirms the result.
-// For CODM/PUBG: each player submits their vote manually from the UI.
+// ── 4. Submit vote ────────────────────────────────────────────────────────────
 
 export function useSubmitVoteOnChain() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -358,11 +343,11 @@ export function useSubmitVoteOnChain() {
       matchId,
       votedWinnerWallet,
     }: {
-      playerAWallet: string;   // needed to derive the wager PDA
+      playerAWallet: string;
       matchId: number;
       votedWinnerWallet: string;
     }) => {
-      if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+      if (!publicKey || !sendTransaction) throw new Error('Wallet not connected');
 
       const playerA = new PublicKey(playerAWallet);
       const matchIdBigInt = BigInt(matchId);
@@ -370,19 +355,16 @@ export function useSubmitVoteOnChain() {
 
       const [wagerPda] = deriveWagerPda(playerA, matchIdBigInt);
 
-      // Account order must match SubmitVote context in lib.rs:
-      //   wager (writable, PDA), player (signer, writable)
       const instruction = new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
           { pubkey: wagerPda, isSigner: false, isWritable: true },
           { pubkey: publicKey, isSigner: true, isWritable: true },
         ],
-        // Args: voted_winner: pubkey
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.submit_vote, votedWinner),
       });
 
-      const signature = await sendAndConfirm(instruction, publicKey, signTransaction);
+      const signature = await sendAndConfirmViaAdapter(instruction, publicKey, sendTransaction, connection);
       return { signature };
     },
     onSuccess: () => {
@@ -396,10 +378,11 @@ export function useSubmitVoteOnChain() {
   });
 }
 
-// ── 5. Retract vote (only during Retractable window) ─────────────────────────
+// ── 5. Retract vote ───────────────────────────────────────────────────────────
 
 export function useRetractVoteOnChain() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -410,13 +393,12 @@ export function useRetractVoteOnChain() {
       playerAWallet: string;
       matchId: number;
     }) => {
-      if (!publicKey || !signTransaction) throw new Error('Wallet not connected');
+      if (!publicKey || !sendTransaction) throw new Error('Wallet not connected');
 
       const playerA = new PublicKey(playerAWallet);
       const matchIdBigInt = BigInt(matchId);
       const [wagerPda] = deriveWagerPda(playerA, matchIdBigInt);
 
-      // Account order: wager (writable, PDA), player (signer, writable)
       const instruction = new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -426,7 +408,7 @@ export function useRetractVoteOnChain() {
         data: buildInstructionData(INSTRUCTION_DISCRIMINATORS.retract_vote),
       });
 
-      const signature = await sendAndConfirm(instruction, publicKey, signTransaction);
+      const signature = await sendAndConfirmViaAdapter(instruction, publicKey, sendTransaction, connection);
       return { signature };
     },
     onSuccess: () => {
@@ -444,6 +426,7 @@ export function useRetractVoteOnChain() {
 
 export function useCheckPlayerProfile() {
   const { publicKey } = useWallet();
+  const { connection } = useConnection();
 
   return useMutation({
     mutationFn: async (walletOverride?: string) => {
@@ -456,13 +439,3 @@ export function useCheckPlayerProfile() {
     },
   });
 }
-
-// ── NOTE: resolve_wager and close_wager are NEVER called from the frontend ────
-//
-// resolve_wager is called by the backend (edge function / server) using the
-// AUTHORITY wallet secret which lives only in edge function env vars.
-//
-// For chess:      secure-wager edge function polls Lichess API → resolves automatically
-// For CODM/PUBG:  secure-wager edge function resolves once votes agree or moderator decides
-//
-// close_wager is also called by the backend for expired/cancelled wagers.
