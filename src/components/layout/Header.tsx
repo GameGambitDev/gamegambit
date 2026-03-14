@@ -116,7 +116,7 @@ export function Header() {
             )}
 
             {/* Custom styled wallet button - Always visible */}
-            <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-8 [&_.wallet-adapter-button]:sm:!h-9 [&_.wallet-adapter-button]:md:!h-10 [&_.wallet-adapter-button]:!px-2 [&_.wallet-adapter-button]:sm:!px-3 [&_.wallet-adapter-button]:md:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all [&_.wallet-adapter-button-trigger]:!h-8 [&_.wallet-adapter-button-trigger]:sm:!h-9 [&_.wallet-adapter-button-trigger]:md:!h-10">
+            <div className="relative z-50 [&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-8 [&_.wallet-adapter-button]:sm:!h-9 [&_.wallet-adapter-button]:md:!h-10 [&_.wallet-adapter-button]:!px-2 [&_.wallet-adapter-button]:sm:!px-3 [&_.wallet-adapter-button]:md:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all [&_.wallet-adapter-button-trigger]:!h-8 [&_.wallet-adapter-button-trigger]:sm:!h-9 [&_.wallet-adapter-button-trigger]:md:!h-10 [&_.wallet-adapter-dropdown-list]:z-[9999]">
               <WalletMultiButton />
             </div>
 

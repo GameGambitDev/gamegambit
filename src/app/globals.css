@@ -753,6 +753,7 @@
   background-size: 50px 50px;
 }
 
+
 /* Wallet Adapter Styles Override */
 .wallet-adapter-button {
   @apply !bg-transparent !font-gaming;
@@ -772,6 +773,24 @@
 
 .wallet-adapter-dropdown-list {
   z-index: 9999 !important;
+}
+
+.wallet-adapter-dropdown-list-wrapper {
+  z-index: 9999 !important;
+}
+
+/* Ensure all dropdown-related elements appear on top */
+.wallet-adapter-dropdown {
+  z-index: 9999 !important;
+}
+
+.wallet-adapter-dropdown > div {
+  z-index: 9999 !important;
+}
+
+/* Radix UI popper/portal elements for wallet dropdown */
+[data-radix-dialog-overlay] {
+  z-index: 9998 !important;
 }
 
 /* Overlay backdrop must match */
