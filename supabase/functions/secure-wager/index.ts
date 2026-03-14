@@ -146,7 +146,7 @@ async function resolveOnChain(
             wager_id: wager.id, tx_type: 'error_on_chain_resolve',
             wallet_address: wager.player_a_wallet as string,
             amount_lamports: 0, status: 'failed', error_message: msg,
-        }).catch(() => { });
+        });
         return null;
     }
 }
