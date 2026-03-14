@@ -27,7 +27,7 @@ async function verifyNonce(walletAddress: string, timestamp: number, nonce: stri
 async function generateSessionToken(walletAddress: string): Promise<string> {
     const payload = {
         wallet: walletAddress,
-        exp: Date.now() + (60 * 60 * 1000), // 1 hour expiry
+        exp: Date.now() + (24 * 60 * 60 * 1000), // 24 hour expiry
         iat: Date.now(),
     };
 
