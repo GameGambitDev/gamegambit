@@ -125,7 +125,7 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined} className="sm:max-w-2xl border-primary/30 bg-card max-h-[90vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-2xl border-primary/30 bg-card">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">

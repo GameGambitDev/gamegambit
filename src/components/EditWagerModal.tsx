@@ -25,10 +25,10 @@ export interface EditWagerData {
   is_public?: boolean;
 }
 
-export function EditWagerModal({ 
-  wager, 
-  open, 
-  onOpenChange, 
+export function EditWagerModal({
+  wager,
+  open,
+  onOpenChange,
   onSave,
   isSaving,
   canEditGameId = true
@@ -50,26 +50,26 @@ export function EditWagerModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const updates: EditWagerData = {};
-    
+
     const newStakeLamports = parseFloat(stakeAmount) * LAMPORTS_PER_SOL;
     if (canEditGameId && newStakeLamports !== wager?.stake_lamports) {
       updates.stake_lamports = newStakeLamports;
     }
-    
+
     if (canEditGameId && lichessGameId !== (wager?.lichess_game_id || '')) {
       updates.lichess_game_id = lichessGameId || undefined;
     }
-    
+
     if (streamUrl !== (wager?.stream_url || '')) {
       updates.stream_url = streamUrl || undefined;
     }
-    
+
     if (canEditGameId && isPublic !== wager?.is_public) {
       updates.is_public = isPublic;
     }
-    
+
     onSave(updates);
   };
 
@@ -90,7 +90,7 @@ export function EditWagerModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md border-primary/30 bg-card max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-md border-primary/30 bg-card">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="text-3xl">{game?.icon || '🎮'}</div>
@@ -132,9 +132,9 @@ export function EditWagerModal({
               />
               {lichessGameId && (
                 <p className="text-xs text-muted-foreground">
-                  Link: <a 
-                    href={`https://lichess.org/${lichessGameId}`} 
-                    target="_blank" 
+                  Link: <a
+                    href={`https://lichess.org/${lichessGameId}`}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:underline"
                   >
@@ -186,17 +186,17 @@ export function EditWagerModal({
 
           {/* Actions */}
           <div className="flex gap-2 pt-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               className="flex-1"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
-            <Button 
-              type="submit" 
-              variant="neon" 
+            <Button
+              type="submit"
+              variant="neon"
               className="flex-1"
               disabled={isSaving}
             >
