@@ -2,12 +2,13 @@
  * useSolanaProgram.ts
  *
  * Mobile fixes:
- *  - ALL Buffer usage replaced with Uint8Array — Buffer is Node.js only and
- *    crashes silently in Phantom/Solflare mobile in-app browser.
+ *  - PDA derivation uses Uint8Array/TextEncoder — Buffer is Node.js only and
+ *    crashes in Phantom/Solflare mobile in-app browser.
+ *  - buildInstructionData returns Buffer.from(Uint8Array) for TS compatibility
+ *    with TransactionInstruction which expects Buffer type.
  *  - initPlayer sent as separate tx before create_wager (no batching).
  *  - skipPreflight:true for mobile RPC lag.
- *  - normalizeSolanaError logs the RAW error before normalizing so you can
- *    actually debug what's happening on mobile.
+ *  - normalizeSolanaError logs RAW error before normalizing for debugging.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -28,6 +29,7 @@ import {
 import { toast } from 'sonner';
 
 // ── PDA derivation — NO Buffer, uses Uint8Array only ─────────────────────────
+// Buffer.from() crashes in Phantom/Solflare mobile in-app browser (Node.js only)
 
 export function deriveWagerPda(playerA: PublicKey, matchId: bigint): [PublicKey, number] {
   const matchIdBuffer = new Uint8Array(8);
@@ -45,12 +47,14 @@ export function derivePlayerProfilePda(player: PublicKey): [PublicKey, number] {
   );
 }
 
-// ── Instruction data builder — NO Buffer ─────────────────────────────────────
+// ── Instruction data builder ──────────────────────────────────────────────────
+// Builds as Uint8Array internally (mobile safe), wraps in Buffer.from() at the
+// end because TransactionInstruction.data expects Buffer type in TypeScript.
 
 function buildInstructionData(
   discriminator: readonly number[],
   ...args: (bigint | boolean | string | PublicKey)[]
-): Uint8Array {
+): Buffer {
   const parts: Uint8Array[] = [new Uint8Array(discriminator as number[])];
 
   for (const arg of args) {
@@ -77,13 +81,12 @@ function buildInstructionData(
     result.set(p, offset);
     offset += p.length;
   }
-  return result;
+  return Buffer.from(result);
 }
 
 // ── Error normalizer — logs RAW error so you can debug, then shows clean msg ──
 
 export function normalizeSolanaError(err: unknown): string {
-  // Log the full raw error so it's visible in browser devtools / Supabase logs
   console.error('[SolanaError RAW]', err);
 
   if (!err) return 'Unknown error';
@@ -111,7 +114,6 @@ export function normalizeSolanaError(err: unknown): string {
   if (lower.includes('already in use') || lower.includes('already deposited'))
     return 'already_deposited';
 
-  // Return full message (not truncated) so you can see exactly what failed
   return msg;
 }
 
@@ -165,7 +167,7 @@ async function ensurePlayerProfileExists(
       { pubkey: player, isSigner: true, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: new Uint8Array(INSTRUCTION_DISCRIMINATORS.initialize_player as number[]),
+    data: Buffer.from(INSTRUCTION_DISCRIMINATORS.initialize_player as number[]),
   });
 
   try {
