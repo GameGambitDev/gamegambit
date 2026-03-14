@@ -84,7 +84,7 @@ export function DisputeResolutionDialog({
                         initial={{ opacity: 0, scale: 0.95, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                        className="relative z-10 glass rounded-2xl p-6 border border-primary/20 max-w-2xl w-full mx-4 space-y-6 max-h-[90vh] overflow-y-auto"
+                        className="relative z-10 glass rounded-2xl p-6 border border-primary/20 max-w-2xl w-full mx-4 space-y-6 max-h-[85vh] overflow-y-auto"
                     >
                         {/* Header */}
                         <div className="flex items-center justify-between sticky top-0 bg-background/80 backdrop-blur -mx-6 -mt-6 px-6 py-4 mb-2 border-b border-border/50">

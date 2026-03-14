@@ -114,7 +114,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg border-primary/30 bg-card max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg border-primary/30 bg-card">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/20">
