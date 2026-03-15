@@ -5,13 +5,23 @@ import { useWallet } from '@solana/wallet-adapter-react';
 export interface WagerTransaction {
   id: string;
   wager_id: string;
-  tx_type: 'escrow_deposit' | 'escrow_release' | 'winner_payout' | 'draw_refund' | 'platform_fee';
+  tx_type:
+  | 'escrow_deposit'
+  | 'escrow_release'
+  | 'winner_payout'
+  | 'draw_refund'
+  | 'platform_fee'
+  | 'cancel_refund'
+  | 'cancelled'
+  | 'error_on_chain_resolve'
+  | 'error_resolution_call';
   wallet_address: string;
   amount_lamports: number;
   tx_signature: string | null;
   status: 'pending' | 'confirmed' | 'failed';
   error_message: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 // Fetch transactions for a specific wager
@@ -21,13 +31,13 @@ export function useWagerTransactions(wagerId: string | null) {
     queryFn: async () => {
       const supabase = getSupabaseClient();
       if (!wagerId) return [];
-      
+
       const { data, error } = await supabase
         .from('wager_transactions')
         .select('*')
         .eq('wager_id', wagerId)
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as WagerTransaction[];
     },
@@ -45,14 +55,14 @@ export function useMyTransactions(limit: number = 50) {
     queryFn: async () => {
       const supabase = getSupabaseClient();
       if (!walletAddress) return [];
-      
+
       const { data, error } = await supabase
         .from('wager_transactions')
         .select('*')
         .eq('wallet_address', walletAddress)
         .order('created_at', { ascending: false })
         .limit(limit);
-      
+
       if (error) throw error;
       return data as WagerTransaction[];
     },

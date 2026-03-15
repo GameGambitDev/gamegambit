@@ -181,12 +181,10 @@ export default function MyWagersPage() {
 
   const txSigByWagerId = useMemo(() => {
     const map: Record<string, string> = {}
-    const payoutTypes = new Set(['winner_payout', 'draw_refund', 'cancel_refund'])
     myTransactions?.forEach((tx) => {
       if (
         tx.tx_signature &&
         tx.status === 'confirmed' &&
-        payoutTypes.has(tx.tx_type) &&
         !map[tx.wager_id]
       ) {
         map[tx.wager_id] = tx.tx_signature
