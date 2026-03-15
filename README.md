@@ -5,10 +5,10 @@
 [![Anchor](https://img.shields.io/badge/Anchor-0.30-512BD4)](https://anchor-lang.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-2D79C7)](https://typescriptlang.org)
 
-**GameGambit** is a fully deployed, production-grade escrow engine built on Solana. Two players stake SOL on a gaming match. The funds lock in a program-derived account (PDA) on-chain. The winner is verified automatically and the pot releases trustlessly — no middleman, no custody risk.
+**GameGambit** is a fully deployed, production-grade escrow engine built on Solana. Two players stake SOL on a gaming match. The funds lock in a program-derived account (PDA) on-chain. The winner is verified automatically and the pot releases trustlessly — no middleman, no custody risk. Moderators resolve disputes via on-chain settlement with complete audit trails.
 
 > Built for the **Superteam Poland: Rebuild Backend Systems as On-Chain Rust Programs** bounty.  
-> This project demonstrates how a traditional payment escrow backend is replaced entirely by an Anchor program on Solana.
+> This project demonstrates how a traditional payment escrow backend is replaced entirely by an Anchor program on Solana, with role-based admin controls and full compliance logging.
 
 ---
 
@@ -17,6 +17,7 @@
 | | |
 |---|---|
 | **Deployed App** | https://thegamegambit.vercel.app |
+| **Admin Panel** | https://thegamegambit.vercel.app/itszaadminlogin |
 | **Program (Devnet)** | [`E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR`](https://explorer.solana.com/address/E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR?cluster=devnet) |
 | **UI Repo** | https://github.com/GameGambitDev/gamegambit |
 | **Smart Contract Repo** | https://github.com/Web3ProdigyDev/gamegambit-sol |
@@ -54,8 +55,21 @@ A fully deployed Anchor program implementing a stateful escrow engine with 8 ins
 | `close_wager` | On draw or cancel — returns funds to both players |
 | `ban_player` | Authority can ban a player's profile |
 
-### Account Model
-Two program-derived accounts hold all state:
+### Admin Dashboard (Next.js)
+A comprehensive admin panel with role-based access control (RBAC) at `/itszaadminlogin`:
+
+| Feature | Description |
+|---|---|
+| **Admin Authentication** | Email/password auth with PBKDF2 hashing and JWT sessions |
+| **Wallet Binding** | Solana wallet signature verification for admin actions |
+| **Dispute Resolution** | Interface for moderators to resolve voting conflicts |
+| **Player Management** | Ban/flag players, view profiles, see full stats |
+| **Wager Oversight** | Complete wager history, transaction ledger, status tracking |
+| **Audit Logging** | Complete audit trail with before/after state changes |
+| **Role Hierarchy** | Superadmin → Admin → Moderator with granular permissions |
+
+### On-Chain Account Model
+Two program-derived accounts hold all financial state:
 
 **PlayerProfile PDA** — seeds: `["player", player_pubkey]`
 ```
@@ -81,12 +95,12 @@ bump: u8
 ```
 
 ### Full-Stack Client
-A Next.js 15 application that provides the complete user-facing interface:
+A Next.js 15 application providing complete player and admin interfaces:
 - Real-time wager lobby with live status updates via Supabase Realtime
 - Ready Room with countdown timer and on-chain deposit confirmation
 - Automatic chess result verification via Lichess API → triggers `resolve_wager`
 - Transaction history with Solana Explorer links for every on-chain event
-- Admin panel for dispute resolution and moderator actions
+- Admin panel for dispute resolution, player management and audit logging
 
 ---
 
@@ -103,9 +117,16 @@ A Next.js 15 application that provides the complete user-facing interface:
 
 ---
 
-## Architecture
+## Documentation
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full Web2 → Solana design analysis including tradeoffs, constraints, and how each traditional backend pattern maps to Solana's account model.
+| File | Description |
+|---|---|
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Web2 → Solana design analysis, tradeoffs, constraints |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | Complete database schema with all tables and relationships |
+| [`API_REFERENCE.md`](./API_REFERENCE.md) | Full REST API reference including admin endpoints |
+| [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) | Production deployment guide |
+| [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) | Local development setup and workflows |
+| [`CHANGE_LOGS.md`](./CHANGE_LOGS.md) | Version history and release notes |
 
 ---
 

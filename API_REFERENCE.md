@@ -3,11 +3,15 @@ title: Game Gambit API Reference
 description: Complete API documentation for Game Gambit backend endpoints
 ---
 
-# Game Gambit API Reference
+# GameGambit API Reference
 
 ## Overview
 
-Game Gambit provides a REST API for managing wagers, players, and transactions on the Solana blockchain. All endpoints require wallet authentication via signed messages.
+GameGambit provides a comprehensive REST API for managing wagers, players, transactions, and administrative functions on the Solana blockchain.
+
+**Two authentication methods:**
+- **Player API**: Wallet signature verification (for game-related endpoints)
+- **Admin API**: JWT bearer tokens (for administrative endpoints)
 
 ## Authentication
 
@@ -459,6 +463,296 @@ Get all transactions for a player.
 
 ---
 
+### Admin Endpoints
+
+#### Admin Authentication
+Admin endpoints require JWT bearer tokens from email/password authentication.
+
+##### Login
+**POST** `/admin/auth/login`
+
+```json
+{
+  "email": "admin@gamegambit.com",
+  "password": "secure_password"
+}
+```
+
+**Response**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "admin_id": "admin-uuid",
+  "role": "admin",
+  "permissions": ["resolve_disputes", "ban_players", "view_audit_logs"]
+}
+```
+
+##### Signup
+**POST** `/admin/auth/signup`
+
+```json
+{
+  "email": "newadmin@gamegambit.com",
+  "password": "secure_password",
+  "full_name": "Admin Name"
+}
+```
+
+---
+
+#### Admin Dashboard Endpoints
+
+##### Get Dashboard Overview
+**GET** `/admin/dashboard`
+
+**Authorization**: Admin token required
+
+**Response**
+```json
+{
+  "total_wagers": 12542,
+  "active_wagers": 342,
+  "disputed_wagers": 8,
+  "total_users": 5234,
+  "total_volume_sol": 125.34,
+  "platform_fees_sol": 12.53,
+  "recent_disputes": [
+    {
+      "wager_id": "uuid",
+      "players": ["wallet1", "wallet2"],
+      "status": "disputed",
+      "created_at": "2026-03-09T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### Dispute Resolution
+
+##### Get Disputed Wagers
+**GET** `/admin/disputes?limit=50&offset=0`
+
+**Authorization**: Moderator role required
+
+**Response**
+```json
+{
+  "data": [
+    {
+      "wager_id": "uuid",
+      "match_id": 12345,
+      "player_a": "wallet_a",
+      "player_b": "wallet_b",
+      "game": "pubg",
+      "stake_lamports": 5000000000,
+      "vote_a": "wallet_a",
+      "vote_b": "wallet_b",
+      "vote_timestamp": "2026-03-09T10:30:00Z",
+      "requires_moderator": true
+    }
+  ],
+  "total": 8
+}
+```
+
+##### Resolve Dispute
+**POST** `/admin/disputes/{wager_id}/resolve`
+
+**Authorization**: Moderator role required
+
+**Request**
+```json
+{
+  "winner_wallet": "wallet_a",
+  "resolution_notes": "Player A provided stronger evidence"
+}
+```
+
+**Response**
+```json
+{
+  "success": true,
+  "wager_id": "uuid",
+  "winner": "wallet_a",
+  "payout_tx": "5yBGvU...",
+  "resolved_at": "2026-03-09T10:45:00Z"
+}
+```
+
+---
+
+#### Player Management
+
+##### Get Player Details
+**GET** `/admin/players/{wallet_address}`
+
+**Authorization**: Admin role required
+
+**Response**
+```json
+{
+  "wallet_address": "G1R2k...",
+  "username": "PlayerName",
+  "total_wins": 142,
+  "total_losses": 38,
+  "is_banned": false,
+  "flagged_for_review": false,
+  "flagged_at": null,
+  "flagged_by": null,
+  "flag_reason": null,
+  "last_active": "2026-03-09T10:35:00Z",
+  "created_at": "2026-01-15T08:00:00Z",
+  "wager_history": [
+    {
+      "wager_id": "uuid",
+      "opponent": "wallet_b",
+      "result": "won",
+      "resolved_at": "2026-03-09T10:00:00Z"
+    }
+  ]
+}
+```
+
+##### Ban Player
+**POST** `/admin/players/{wallet_address}/ban`
+
+**Authorization**: Admin role required
+
+**Request**
+```json
+{
+  "ban_reason": "Suspicious voting pattern detected"
+}
+```
+
+**Response**
+```json
+{
+  "success": true,
+  "wallet_address": "G1R2k...",
+  "is_banned": true,
+  "ban_reason": "Suspicious voting pattern detected",
+  "banned_at": "2026-03-09T10:50:00Z"
+}
+```
+
+##### Flag Player for Review
+**POST** `/admin/players/{wallet_address}/flag`
+
+**Authorization**: Moderator role required
+
+**Request**
+```json
+{
+  "flag_reason": "Unusual betting pattern"
+}
+```
+
+**Response**
+```json
+{
+  "success": true,
+  "wallet_address": "G1R2k...",
+  "flagged_for_review": true,
+  "flagged_at": "2026-03-09T10:50:00Z"
+}
+```
+
+---
+
+#### Audit Logs
+
+##### Get Audit Logs
+**GET** `/admin/audit-logs?limit=100&offset=0&resource_type=players`
+
+**Authorization**: Admin role required
+
+**Query Parameters**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `action_type` | string | Type of action performed |
+| `resource_type` | string | What was affected (players, wagers) |
+| `admin_id` | string | Filter by specific admin |
+| `limit` | number | Results per page (max 500) |
+
+**Response**
+```json
+{
+  "data": [
+    {
+      "id": "audit-uuid",
+      "admin_id": "admin-uuid",
+      "action_type": "ban_player",
+      "resource_type": "players",
+      "resource_id": "wallet_address",
+      "old_values": {
+        "is_banned": false
+      },
+      "new_values": {
+        "is_banned": true,
+        "ban_reason": "Suspicious activity"
+      },
+      "ip_address": "192.168.1.1",
+      "user_agent": "Mozilla/5.0...",
+      "created_at": "2026-03-09T10:50:00Z"
+    }
+  ],
+  "total": 1245
+}
+```
+
+---
+
+#### Wallet Binding
+
+##### Bind Admin Wallet
+**POST** `/admin/wallet/bind`
+
+**Authorization**: Admin token required
+
+**Request**
+```json
+{
+  "wallet_address": "G1R2k...",
+  "verification_signature": "5yBGvU..."
+}
+```
+
+**Response**
+```json
+{
+  "success": true,
+  "wallet_address": "G1R2k...",
+  "verified": true,
+  "verified_at": "2026-03-09T10:50:00Z"
+}
+```
+
+##### List Admin Wallets
+**GET** `/admin/wallet/list`
+
+**Authorization**: Admin role required
+
+**Response**
+```json
+{
+  "data": [
+    {
+      "wallet_address": "G1R2k...",
+      "verified": true,
+      "is_primary": true,
+      "verified_at": "2026-03-09T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
 ### Voting (Dispute Resolution)
 
 #### Submit Vote
@@ -640,5 +934,25 @@ await gamegambit.wagers.join(wagerId)
 
 ---
 
-**Last Updated**: March 2026  
-**API Version**: 1.0.0
+## Admin Panel
+
+Access the admin dashboard at `/itszaadminlogin/`
+
+**Features:**
+- Dispute resolution interface
+- Player management and banning
+- Wager oversight and history
+- Audit logs with before/after tracking
+- Admin wallet binding and verification
+- Session management with JWT tokens
+
+**Required Roles:**
+- Superadmin: Full system access
+- Admin: Dispute resolution, player management
+- Moderator: Dispute resolution only
+
+---
+
+**Last Updated**: March 15, 2026  
+**API Version**: 1.5.0  
+**Database Schema**: 1.0 (Supabase PostgreSQL)

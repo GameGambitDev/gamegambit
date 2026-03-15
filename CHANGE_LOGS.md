@@ -10,50 +10,100 @@ All notable changes to Game Gambit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] - March 15, 2026
+
+### Major Updates
+
+#### Database Schema v1.0 (Complete Overhaul)
+- Added comprehensive admin panel tables: `admin_users`, `admin_sessions`, `admin_wallet_bindings`, `admin_audit_logs`, `admin_logs`, `admin_notes`
+- Extended `wagers` table with dual deposit tracking: `deposit_player_a`, `deposit_player_b`, `tx_signature_a`, `tx_signature_b`
+- Enhanced `wager_transactions` with complete transaction lifecycle tracking
+- Added admin role-based access control system (moderator, admin, superadmin)
+- Implemented full audit trail for all admin actions and disputes
+- Match ID now serves as PDA seed for deterministic on-chain addressing
+
+#### Admin Panel Implementation
+- Full-featured admin dashboard with role-based access control
+- Dispute resolution interface for moderators
+- Player management with ban/flag functionality
+- Wager history and transaction auditing
+- Admin wallet binding and verification system
+- Comprehensive audit logging for all actions
+- Two-factor authentication support (2FA)
+- Session management with JWT tokens
+
+#### Security & Compliance
+- Admin authentication via email/password with PBKDF2 hashing
+- Wallet signature verification for admin actions
+- Complete audit trail of all admin activities
+- IP address and user-agent logging
+- Transaction signature uniqueness constraints (prevents duplicates)
+- Row-level security policies for sensitive data
 
 ### Added
-- Multi-game wager support (Chess, Call of Duty Mobile, PUBG)
-- Real-time leaderboard with skill rating system
-- NFT reward system with tier progression
-- Voting-based dispute resolution
-- Transaction history tracking with Solana Explorer URLs
-- Player achievement badges
-- Rate limiting by wallet address
-- Lichess API integration for chess
-- Progressive Web App (PWA) support with offline caching
-- Cancel wager functionality with automatic refunds
-- Animated victory/defeat/draw result modals with confetti
-- Comprehensive error logging to wager_transactions table
-- Player notifications when wager is cancelled
-- Auto-opening GameResultModal on wager resolution
-- Background polling for voting wagers (15s intervals)
-- `resolveOnChain()` helper for direct Solana resolution
-- Explorer URL in `checkGameComplete` API response
+- Admin dashboard at `/itszaadminlogin/` with authentication
+- Multi-level admin roles with granular permissions
+- Wallet binding system for admin verification
+- Complete audit logging system
+- Dual deposit confirmation tracking for on-chain verification
+- Error transaction types for comprehensive error handling
+- Transaction signature uniqueness to prevent duplicate processing
+- Admin-only dispute resolution workflow
+- Player flagging and review system
+- Administrative notes and annotations on players/wagers
 
 ### Changed
-- Upgraded to Next.js 15 with Turbopack
-- Optimized database queries for 200k+ MAU support
-- Improved error handling and user feedback
-- Enhanced mobile responsiveness
-- Reordered wager flow: startGame API now called BEFORE on-chain deposit
-- Improved countdown timing with 11s buffer for network latency and clock drift
-- **CRITICAL: Inlined Solana resolution logic directly into secure-wager (eliminated resolve-wager edge function)**
-- `resolve-wager` edge function removed; all resolution happens in `secure-wager`
+- Database schema significantly expanded (now 12 core tables + admin tables)
+- Wager status flow updated to support moderator-reviewed disputes
+- Transaction types enum extended with error tracking variants
+- Admin authentication completely redesigned with modern security
+- Deposit tracking split into separate confirmations per player
+- Match ID now integral to PDA derivation strategy
 
 ### Fixed
-- **CRITICAL: Funds never distributed after game ended** - fire-and-forget fetch() silently failed; now inlined in secure-wager
-- **CRITICAL: wager_transactions table always empty** - missing enum values for tx_type; added `cancelled`, `cancel_refund`, `error_on_chain_resolve`, `error_resolution_call`
-- **CRITICAL: GameResultModal never appeared** - added useEffect watcher in arena/page.tsx to detect wager resolution
-- **CRITICAL: liveGameWager was stale** - now stores ID only, derives from live query cache
-- Race condition in concurrent wager joins
-- Database connection pooling issues
-- Solana transaction confirmation delays
-- "Countdown not complete" error due to timing mismatch
-- SOL being deducted before game start was confirmed
-- Missing 'cancelled' status in WagerStatus TypeScript type
-- Mobile wallet connection display issues
-- Solana program `resolve_wager` now accepts `WagerStatus::Joined` (rebuilt and redeployed)
+- No duplicate transaction records on concurrent API calls (tx_signature UNIQUE)
+- Admin dispute resolution now properly tracked in audit logs
+- Admin actions properly authenticated and logged
+- Wallet binding verification prevents unauthorized access
+- Session management prevents token reuse
+- Admin password stored with proper hashing
+
+### Documentation Updates
+- **DB_SCHEMA.md**: Complete rewrite with admin tables, design decisions, and query examples
+- **CHANGE_LOGS.md**: Expanded version history with detailed changes
+- **API_REFERENCE.md**: Added admin endpoint documentation
+- **ARCHITECTURE.md**: Updated with admin security model
+- All README files updated with new admin features
+
+## [1.5.0] - 2026-03-15 (Database & Admin Systems)
+
+### Major Features
+- **Complete Admin Dashboard**: Full-featured admin portal with authentication, role-based access control, and comprehensive dispute management
+- **Extended Database Schema**: 12+ core tables plus 6 admin-specific tables for complete audit trails and compliance
+- **Admin Wallet Verification**: On-chain wallet signature verification for admin actions
+- **Comprehensive Audit Logging**: Every admin action logged with before/after state changes
+- **Dispute Management Interface**: Admin tools for resolving voting disputes and moderating wagers
+- **Session Management**: JWT-based admin sessions with expiration and activity tracking
+
+### Database Schema v1.0
+- Core tables: players, wagers, wager_transactions, nfts, achievements
+- Admin tables: admin_users, admin_sessions, admin_wallet_bindings, admin_audit_logs, admin_logs, admin_notes
+- Enhanced enums: 8 transaction types, 4 admin roles, 4 wager statuses
+- Dual deposit tracking for on-chain verification
+- Transaction signature uniqueness constraints
+
+### Admin Role Hierarchy
+- **Superadmin**: Full system access, user/admin management
+- **Admin**: Dispute resolution, player management, wager oversight
+- **Moderator**: Dispute resolution only, view-only access to other areas
+
+### Documentation Updates
+- Database schema completely rewritten with admin tables and design rationale
+- API reference expanded with admin endpoints
+- Architecture guide updated with security model
+- Changelog comprehensive with detailed version history
+
+---
 
 ## [1.0.0] - 2026-03-09
 
@@ -78,7 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Composite database indexes
 - Redis caching infrastructure
 
-#### Database
+#### Database v0.9
 - `players` table with stats tracking
 - `wagers` table with full lifecycle management
 - `wager_transactions` table for audit trail
@@ -119,9 +169,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## Version History Details
+## Version Timeline
 
-### v1.0.0 Release Timeline
+### v1.5.0 Release Roadmap (March 15, 2026)
+- ✅ Admin dashboard implementation
+- ✅ Database schema v1.0 (full rewrite)
+- ✅ Audit logging system
+- ✅ Dispute resolution workflow
+- ✅ Wallet verification system
+- 📝 Additional admin features (batch operations, analytics)
+
+### v1.0.0 Release Timeline (March 9, 2026)
 
 **Phase 1: Foundation** (Jan 2026)
 - Next.js 15 setup with TypeScript
@@ -140,7 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limiting system
 - Performance benchmarking
 
-**Phase 4: Polish & Launch** (Mar 2026)
+**Phase 4: Polish & Launch** (Mar 9, 2026)
 - UI/UX refinement
 - Documentation completion
 - Testing and QA
@@ -153,27 +211,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Q2 2026
 - [ ] Mobile application (React Native)
 - [ ] Tournament mode with brackets
-- [ ] Advanced leaderboard filters
-- [ ] Player reputation system
+- [ ] Advanced admin analytics dashboard
+- [ ] Automated dispute resolution (AI-assisted)
 - [ ] Streaming integration (Twitch)
 
 ### Q3 2026
 - [ ] Additional games (Fortnite, Valorant)
 - [ ] Cross-chain settlement (Ethereum, Polygon)
-- [ ] Advanced analytics dashboard
-- [ ] User messaging system
+- [ ] Multi-signature admin wallet for mainnet
+- [ ] Advanced KYC/AML integration
 - [ ] Referral program
 
 ### Q4 2026
 - [ ] International support (multiple languages)
 - [ ] Mobile notifications
-- [ ] VIP tier system
+- [ ] VIP tier system with badges
 - [ ] Sponsorship marketplace
-- [ ] API public SDK
+- [ ] Public API SDK
 
 ### 2027
 - [ ] AI-powered matchmaking
-- [ ] Live streaming platform
+- [ ] Live streaming platform integration
 - [ ] Esports tournament platform
 - [ ] Community marketplace
 - [ ] Decentralized governance (DAO)
@@ -182,33 +240,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Migration Guides
 
-### Upgrading from Previous Versions
+### Upgrading from v1.0 → v1.5
 
-Currently at v1.0.0 - first release.
+**Breaking Changes**: None. v1.5 is fully backward compatible.
 
-### Breaking Changes
+**New Tables Added**:
+- `admin_users` - Admin accounts
+- `admin_sessions` - Session tracking
+- `admin_wallet_bindings` - Wallet verification
+- `admin_audit_logs` - Action audit trail
+- `admin_logs` - Wager admin logs
+- `admin_notes` - Admin annotations
 
-None yet (first version).
+**Migration Steps**:
+1. Deploy database schema updates (new admin tables)
+2. Update `.env.local` with new admin endpoint URLs
+3. Deploy updated API routes
+4. Access admin panel at `/itszaadminlogin/`
 
-### Deprecated Features
+### Upgrading to Mainnet
 
-None yet.
+When deploying to Solana Mainnet:
+1. Generate new admin keypairs with multi-sig wallet
+2. Update `SOLANA_ADMIN_WALLET` in environment
+3. Deploy new program instance to Mainnet
+4. Migrate all active wagers (or start fresh with new environment)
+5. Update docs with new program addresses
 
 ---
 
 ## Known Issues
 
-### Current Version (v1.0.0)
+### Current Version (v1.5.0)
 
 - [ ] High latency on leaderboard queries with > 100k players (requires sharding)
 - [ ] Occasional delays in Lichess game data synchronization
-- [ ] Mobile UI needs refinement for smaller screens
+- [ ] Admin analytics need optimization for large datasets
+- [ ] 2FA implementation requires email service integration
 
-### Fixed Issues
+### Fixed Issues (v1.5.0)
 
-- [x] Wallet connection timeout on slow networks (fixed in 1.0.0)
+- [x] Admin authentication and session management (fixed)
+- [x] Wallet verification for admin actions (fixed)
+- [x] Audit logging for compliance (fixed)
+- [x] Dispute resolution workflow (fixed)
+- [x] Duplicate transaction prevention via unique signatures (fixed)
+
+### Fixed Issues (v1.0.0)
+
+- [x] Wallet connection timeout on slow networks
 - [x] Database connection pool exhaustion under peak load
 - [x] Race condition in concurrent wager joins
+- [x] Funds not distributed after game ended
+- [x] GameResultModal not appearing
+- [x] Stale wager state in UI
 
 ---
 
