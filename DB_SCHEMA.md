@@ -1,6 +1,6 @@
-# Game Gambit Database Schema
+# GameGambit — Database Schema
 
-**Last Updated:** March 2026  
+**Last Updated:** March 15, 2026  
 **Database:** PostgreSQL (Supabase)  
 **Environment:** Production
 
@@ -8,75 +8,140 @@
 
 ## Overview
 
-Game Gambit uses a relational PostgreSQL database to manage players, wagers, transactions, NFTs, and achievements. The schema supports real-time gaming competitions with secure blockchain integration on Solana.
+GameGambit uses a comprehensive relational PostgreSQL database to manage players, wagers, transactions, NFTs, achievements, and admin operations. The schema is designed for trustless P2P gaming escrow with complete audit trails and dispute resolution.
 
 ---
 
 ## Table of Contents
 
-1. [Core Tables](#core-tables)
-2. [Relationships Diagram](#relationships-diagram)
-3. [Detailed Table Specifications](#detailed-table-specifications)
-4. [Custom Types (Enums)](#custom-types-enums)
-5. [Indexes & Performance](#indexes--performance)
-6. [Data Consistency Rules](#data-consistency-rules)
-7. [Migration Guide](#migration-guide)
+1. [Custom Enum Types](#custom-enum-types)
+2. [Core Tables](#core-tables)
+3. [Admin Tables](#admin-tables)
+4. [Supporting Tables](#supporting-tables)
+5. [Relationships Diagram](#relationships-diagram)
+6. [Key Design Decisions](#key-design-decisions)
+7. [Indexes & Performance](#indexes--performance)
+8. [Data Consistency Rules](#data-consistency-rules)
+9. [Useful Queries](#useful-queries)
+10. [Backup & Recovery](#backup--recovery)
+
+---
+
+## Custom Enum Types
+
+### Wager Status (WagerStatus)
+Mirrors the Rust program's `WagerStatus` enum for consistency:
+- `'created'` — Player A deposited, waiting for Player B
+- `'joined'` — Both players joined, ready room active
+- `'voting'` — Game in progress, awaiting result votes
+- `'retractable'` — Both votes agree, 15-second retract window
+- `'disputed'` — Votes disagree, moderator required
+- `'resolved'` — Winner paid out, wager closed
+- `'cancelled'` — Cancelled by participant, refund triggered
+
+### Transaction Types
+Financial event tracking across on-chain and off-chain operations:
+- `'escrow_deposit'` — Initial stake deposited to WagerAccount PDA
+- `'escrow_release'` — Funds released from PDA to winner
+- `'winner_payout'` — Winner payout distributed
+- `'draw_refund'` — Full refund on draw
+- `'cancel_refund'` — Refund on wager cancellation
+- `'cancelled'` — Wager cancelled log entry
+- `'platform_fee'` — Platform fee collected
+- `'error_on_chain_resolve'` — Resolution transaction failed on-chain
+- `'error_resolution_call'` — API resolution call failed
+
+### Transaction Status
+Blockchain confirmation states:
+- `'pending'` — Awaiting blockchain confirmation
+- `'confirmed'` — On-chain, irreversible
+- `'failed'` — Transaction failed, needs retry
+
+### Game Types
+Supported games:
+- `'chess'` — Chess (auto-resolved via Lichess)
+- `'codm'` — Call of Duty Mobile
+- `'pubg'` — PUBG
+
+### Admin Roles
+Role-based access control:
+- `'moderator'` — Resolve disputes
+- `'admin'` — Full admin access
+- `'superadmin'` — System administration
 
 ---
 
 ## Core Tables
 
-| Table Name | Purpose | Records |
+| Table Name | Purpose | Key Fields |
 |-----------|---------|---------|
-| `players` | User accounts with stats | Primary user data |
-| `wagers` | Gaming matches & bets | Core business data |
-| `wager_transactions` | Blockchain transactions | Solana txs |
-| `nfts` | Victory NFTs | Collectibles |
-| `achievements` | User badges | Milestones |
-| `rate_limit_logs` | API rate limiting | Operational |
+| `players` | User accounts with stats | wallet_address (UNIQUE), username, skill_rating, total_wins/losses |
+| `wagers` | Gaming matches with state | match_id (UNIQUE), player_a/b_wallet, status, stake_lamports |
+| `wager_transactions` | Blockchain transaction ledger | wager_id, tx_type, tx_signature (UNIQUE), status |
+
+---
+
+## Admin Tables
+
+| Table Name | Purpose | Key Fields |
+|-----------|---------|---------|
+| `admin_users` | Admin portal accounts | email (UNIQUE), role, password_hash |
+| `admin_sessions` | JWT session tracking | admin_id, token_hash (UNIQUE), expires_at |
+| `admin_wallet_bindings` | Solana wallet verification | admin_id, wallet_address, verification_signature |
+| `admin_audit_logs` | Complete action audit trail | admin_id, action_type, resource_type, old_values, new_values |
+| `admin_logs` | Wager-specific admin actions | action, wager_id, performed_by |
+| `admin_notes` | Admin annotations | player_wallet, wager_id, note_content |
+
+---
+
+## Supporting Tables
+
+| Table Name | Purpose | Key Fields |
+|-----------|---------|---------|
+| `nfts` | Victory NFTs on Solana | mint_address (UNIQUE), owner_wallet, tier, wager_id |
+| `achievements` | Player achievement badges | player_wallet, achievement_type, unlocked_at |
 
 ---
 
 ## Relationships Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          PLAYERS                                 │
-│  (Central entity - all other tables reference this)              │
-├─────────────────────────────────────────────────────────────────┤
-│ PK: id (bigint)                                                  │
-│ UNIQUE: wallet_address (text)                                    │
-│ Stats: total_wins, total_losses, total_earnings, skill_rating    │
-│ Accounts: lichess_username, codm_username, pubg_username         │
-└─────────────────────────────────────────────────────────────────┘
-    ↑                          ↑                          ↑
-    │ (wallet_address FK)      │ (wallet_address FK)     │
-    │                          │                         │
-┌───┴───────────┐   ┌──────────┴──────────┐   ┌────────┴─────────┐
-│    WAGERS     │   │ WAGER_TRANSACTIONS  │   │  ACHIEVEMENTS    │
-├───────────────┤   ├─────────────────────┤   ├──────────────────┤
-│ PK: id (uuid) │   │ PK: id (uuid)       │   │ PK: id (uuid)    │
-│ Match data    │   │ Blockchain data     │   │ Badges/milestones│
-│ player_a_wallet│   │ Status tracking     │   │ NFT refs         │
-│ player_b_wallet│   │ Tx signatures       │   └──────────────────┘
-│ winner_wallet │   │ Amount tracking     │
-│ Game type     │   │ Error handling      │
-│ Stake amount  │   └─────────────────────┘
-│ Status        │
-│ Voting data   │
-└───┬───────────┘
-    │ (wager_id FK)
-    │
-┌───┴────────────┐
-│      NFTs      │
-├────────────────┤
-│ PK: id (uuid)  │
-│ Mint address   │
-│ Owner wallet   │
-│ Tier/rarity    │
-│ Metadata       │
-└────────────────┘
+players (1) ──────────────────────────────────────────────── (N) wagers [player_a_wallet]
+players (1) ──────────────────────────────────────────────── (N) wagers [player_b_wallet]
+players (1) ──────────────────────────────────────────────── (N) wagers [winner_wallet]
+players (1) ──────────────────────────────────────────────── (N) wagers [cancelled_by]
+players (1) ──────────────────────────────────────────────── (N) wager_transactions
+players (1) ──────────────────────────────────────────────── (N) nfts
+players (1) ──────────────────────────────────────────────── (N) achievements
+players (1) ──────────────────────────────────────────────── (N) admin_notes
+
+wagers  (1) ──────────────────────────────────────────────── (N) wager_transactions
+wagers  (1) ──────────────────────────────────────────────── (N) nfts
+wagers  (1) ──────────────────────────────────────────────── (N) admin_logs
+wagers  (1) ──────────────────────────────────────────────── (N) admin_notes
+
+admin_users (1) ──────────────────────────────────────────── (N) admin_sessions
+admin_users (1) ──────────────────────────────────────────── (N) admin_wallet_bindings
+admin_users (1) ──────────────────────────────────────────── (N) admin_audit_logs
+
+nfts    (1) ──────────────────────────────────────────────── (N) achievements [nft_mint_address]
 ```
+
+---
+
+## Key Design Decisions
+
+### match_id as PDA Seed
+The `wagers.match_id` is an auto-incrementing bigint used directly as the seed for the on-chain WagerAccount PDA alongside player_a_wallet. This creates a deterministic, unique PDA without a separate registry.
+
+### Dual Deposit Tracking
+`deposit_player_a` and `deposit_player_b` booleans track on-chain deposit confirmation separately from wager status. The game starts (status → voting) only when both are true, preventing races where one player appears ready before funds are confirmed on-chain.
+
+### TX_SIGNATURE UNIQUE Constraint
+The `wager_transactions.tx_signature` column has a UNIQUE constraint. Combined with upsert(..., onConflict: 'tx_signature', ignoreDuplicates: true) in edge functions, this prevents duplicate transaction records from concurrent resolution calls.
+
+### Off-Chain Mirror Pattern
+Wager state is mirrored in Supabase for real-time UI updates via Postgres Realtime. The Solana program is the authoritative source for funds; Supabase is the authoritative source for game metadata and UI state.
 
 ---
 
@@ -311,63 +376,195 @@ CREATE INDEX idx_achievement_type ON achievements(achievement_type);
 
 ---
 
-### 6. **RATE_LIMIT_LOGS**
+## Admin Tables
 
-API rate limiting tracking.
+### 7. **ADMIN_USERS**
+
+Admin portal accounts. Separate from player accounts.
 
 ```sql
-CREATE TABLE rate_limit_logs (
-  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+CREATE TABLE admin_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
-  wallet_address TEXT NOT NULL,
-  endpoint TEXT NOT NULL,
+  -- Authentication
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,         -- PBKDF2 hashed
+  username TEXT UNIQUE,
+  full_name TEXT,
   
-  request_count INTEGER DEFAULT 1,
-  window_reset_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  -- Authorization
+  role admin_role NOT NULL,            -- moderator, admin, superadmin
+  permissions JSONB NOT NULL,          -- Granular permission map
   
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  -- Account Status
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  is_banned BOOLEAN NOT NULL DEFAULT false,
+  two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
+  
+  -- Timestamps
+  last_login TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_ratelimit_wallet ON rate_limit_logs(wallet_address, endpoint);
+CREATE INDEX idx_admin_email ON admin_users(email);
+CREATE INDEX idx_admin_username ON admin_users(username);
+CREATE INDEX idx_admin_role ON admin_users(role);
 ```
 
 ---
 
-## Custom Types (Enums)
+### 8. **ADMIN_SESSIONS**
+
+JWT session tracking for admin portal.
 
 ```sql
--- Game Types
-CREATE TYPE game_type AS ENUM ('chess', 'codm', 'pubg');
-
--- Wager Status
-CREATE TYPE wager_status AS ENUM (
-  'created',      -- Waiting for opponent
-  'joined',       -- Both players ready
-  'voting',       -- In progress / voting phase
-  'disputed',     -- Moderator review
-  'resolved',     -- Completed with winner
-  'cancelled'     -- Cancelled with refunds
+CREATE TABLE admin_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Reference
+  admin_id UUID NOT NULL REFERENCES admin_users(id),
+  
+  -- Session Data
+  token_hash TEXT NOT NULL UNIQUE,     -- Hashed JWT
+  ip_address TEXT,
+  user_agent TEXT,
+  
+  -- Lifecycle
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  last_activity TIMESTAMP WITH TIME ZONE,
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Transaction Types
-CREATE TYPE transaction_type AS ENUM (
-  'deposit',        -- Initial stake deposit
-  'withdraw',       -- Withdrawal request
-  'payout',         -- Winner payout
-  'refund',         -- Refund on draw
-  'cancel_refund',  -- Refund on cancellation
-  'cancelled',      -- Wager cancelled log
-  'error_on_chain_resolve',     -- On-chain resolution failed
-  'error_on_chain_draw_refund', -- On-chain draw refund failed
-  'error_on_chain_cancel_refund', -- On-chain cancel refund failed
-  'error_resolution_call'       -- Resolution API call failed
+CREATE INDEX idx_session_admin ON admin_sessions(admin_id);
+CREATE INDEX idx_session_active ON admin_sessions(is_active) WHERE is_active = true;
+```
+
+---
+
+### 9. **ADMIN_WALLET_BINDINGS**
+
+Solana wallets bound to admin accounts for on-chain verification.
+
+```sql
+CREATE TABLE admin_wallet_bindings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Reference
+  admin_id UUID NOT NULL REFERENCES admin_users(id),
+  
+  -- Wallet Data
+  wallet_address TEXT NOT NULL UNIQUE,
+  verification_signature TEXT,         -- Ed25519 signature proof
+  
+  -- Status
+  verified BOOLEAN NOT NULL DEFAULT false,
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  verified_at TIMESTAMP WITH TIME ZONE,
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Transaction Status
-CREATE TYPE transaction_status AS ENUM ('pending', 'confirmed', 'failed');
+CREATE INDEX idx_wallet_admin ON admin_wallet_bindings(admin_id);
+CREATE INDEX idx_wallet_verified ON admin_wallet_bindings(verified);
+```
 
--- NFT Tier
-CREATE TYPE nft_tier AS ENUM ('bronze', 'silver', 'gold', 'platinum');
+---
+
+### 10. **ADMIN_AUDIT_LOGS**
+
+Full audit trail of all admin actions for compliance.
+
+```sql
+CREATE TABLE admin_audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Reference
+  admin_id UUID NOT NULL REFERENCES admin_users(id),
+  
+  -- Action Details
+  action_type TEXT NOT NULL,           -- What was done
+  resource_type TEXT NOT NULL,         -- What was affected (players, wagers, etc)
+  resource_id TEXT,                    -- ID of affected resource
+  
+  -- State Changes
+  old_values JSONB,                    -- Before state
+  new_values JSONB,                    -- After state
+  
+  -- Context
+  ip_address TEXT,
+  user_agent TEXT,
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_admin ON admin_audit_logs(admin_id);
+CREATE INDEX idx_audit_action ON admin_audit_logs(action_type);
+CREATE INDEX idx_audit_resource ON admin_audit_logs(resource_type, resource_id);
+CREATE INDEX idx_audit_created ON admin_audit_logs(created_at DESC);
+```
+
+---
+
+### 11. **ADMIN_LOGS**
+
+Wager-specific admin action log.
+
+```sql
+CREATE TABLE admin_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Action Details
+  action TEXT NOT NULL,
+  wager_id UUID NOT NULL REFERENCES wagers(id),
+  wallet_address TEXT REFERENCES players(wallet_address),
+  
+  -- Who acted
+  performed_by TEXT NOT NULL,          -- Admin who acted
+  
+  -- Context
+  notes TEXT,
+  metadata JSONB,
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_admin_log_wager ON admin_logs(wager_id);
+CREATE INDEX idx_admin_log_wallet ON admin_logs(wallet_address);
+CREATE INDEX idx_admin_log_created ON admin_logs(created_at DESC);
+```
+
+---
+
+### 12. **ADMIN_NOTES**
+
+Admin notes attached to players or wagers.
+
+```sql
+CREATE TABLE admin_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- References
+  player_wallet TEXT REFERENCES players(wallet_address),
+  wager_id UUID REFERENCES wagers(id),
+  
+  -- Note Content
+  note TEXT NOT NULL,
+  created_by TEXT NOT NULL,            -- Admin who wrote it
+  
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_note_player ON admin_notes(player_wallet);
+CREATE INDEX idx_note_wager ON admin_notes(wager_id);
 ```
 
 ---
@@ -379,17 +576,23 @@ CREATE TYPE nft_tier AS ENUM ('bronze', 'silver', 'gold', 'platinum');
 | Index | Purpose | Expected Queries |
 |-------|---------|------------------|
 | `idx_players_wallet` | Fast wallet lookups | `SELECT * FROM players WHERE wallet_address = ?` |
+| `idx_players_username` | Username searches | `SELECT * FROM players WHERE username = ?` |
 | `idx_wagers_status` | Filter by wager status | `SELECT * FROM wagers WHERE status = 'created'` |
-| `idx_wagers_players` | Player's wagers | `SELECT * FROM wagers WHERE player_a_wallet = ?` |
+| `idx_wagers_players` | Player's wagers | `SELECT * FROM wagers WHERE player_a_wallet = ? OR player_b_wallet = ?` |
 | `idx_tx_wager` | Transaction history | `SELECT * FROM wager_transactions WHERE wager_id = ?` |
+| `idx_tx_wallet` | Wallet transactions | `SELECT * FROM wager_transactions WHERE wallet_address = ?` |
+| `idx_tx_signature` | TX lookup by signature | `SELECT * FROM wager_transactions WHERE tx_signature = ?` |
 | `idx_nft_owner` | User's NFTs | `SELECT * FROM nfts WHERE owner_wallet = ?` |
+| `idx_admin_email` | Admin lookup | `SELECT * FROM admin_users WHERE email = ?` |
+| `idx_session_admin` | Admin sessions | `SELECT * FROM admin_sessions WHERE admin_id = ?` |
 
-### Slow Query Alerts
+### Query Performance Targets
 
-Monitor queries taking > 100ms:
-- Leaderboard calculations (requires `total_wins`, `skill_rating` sorts)
-- Historical wager lookups for specific players
-- NFT collection queries with large result sets
+- Wallet lookups: < 5ms
+- Wager list by status: < 20ms
+- Transaction history: < 50ms
+- Leaderboard (100 entries): < 100ms
+- Admin audit logs (1000 entries): < 200ms
 
 ---
 
@@ -397,11 +600,13 @@ Monitor queries taking > 100ms:
 
 ### Business Logic Constraints
 
-1. **Stake Amounts**: Must be > 0 and <= player's account balance
+1. **Stake Amounts**: Must be > 0
 2. **Winning Players**: Must be either `player_a_wallet` or `player_b_wallet`
 3. **Transaction Finality**: Once `status = 'confirmed'`, cannot be modified
-4. **Wager Flow**: Cannot skip status (e.g., `created` → `voting` requires `joined` first)
+4. **Wager Flow**: Status transitions validated by application logic
 5. **Player Uniqueness**: One player cannot be both player_a and player_b in same wager
+6. **Match ID Uniqueness**: Each wager has a unique match_id for PDA derivation
+7. **TX Signature Uniqueness**: Prevents duplicate transactions from concurrent calls
 
 ### Database Constraints
 
@@ -418,41 +623,9 @@ ALTER TABLE wagers ADD CONSTRAINT check_positive_stake
 ALTER TABLE wagers ADD CONSTRAINT check_valid_winner 
   CHECK (winner_wallet IS NULL 
          OR winner_wallet IN (player_a_wallet, player_b_wallet));
-```
 
----
-
-## Migration Guide
-
-### Adding New Fields
-
-1. Create migration file: `migrations/[timestamp]_add_field.sql`
-2. Test on staging database first
-3. Deploy with zero-downtime: Add column as nullable, update defaults, then add constraints
-4. Update TypeScript types in `src/integrations/supabase/types.ts`
-
-### Example Migration:
-
-```sql
--- Add field as nullable
-ALTER TABLE players ADD COLUMN discord_id TEXT;
-
--- Backfill data if needed
-UPDATE players SET discord_id = NULL;
-
--- Add unique constraint if needed
-ALTER TABLE players ADD CONSTRAINT unique_discord_id UNIQUE (discord_id);
-
--- Add index
-CREATE INDEX idx_players_discord ON players(discord_id);
-```
-
-### Rollback Procedure:
-
-```sql
--- Drop in reverse order
-DROP INDEX IF EXISTS idx_players_discord;
-ALTER TABLE players DROP COLUMN IF EXISTS discord_id;
+-- TX Signature uniqueness prevents duplicate records
+ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_signature);
 ```
 
 ---
@@ -462,7 +635,7 @@ ALTER TABLE players DROP COLUMN IF EXISTS discord_id;
 ### Player Stats
 
 ```sql
--- Get player stats
+-- Get player leaderboard (top 100)
 SELECT 
   wallet_address,
   username,
@@ -470,9 +643,13 @@ SELECT
   total_losses,
   ROUND((total_wins::numeric / NULLIF(total_wins + total_losses, 0) * 100), 2) as win_rate,
   total_earnings / 1000000000.0 as earnings_sol,
-  skill_rating
+  skill_rating,
+  current_streak,
+  best_streak
 FROM players
-ORDER BY total_wins DESC, skill_rating DESC;
+WHERE is_banned = false
+ORDER BY skill_rating DESC, total_wins DESC
+LIMIT 100;
 ```
 
 ### Wager History
@@ -485,64 +662,117 @@ SELECT
   game,
   stake_lamports / 1000000000.0 as stake_sol,
   CASE WHEN winner_wallet = ? THEN 'WON' ELSE 'LOST' END as result,
-  resolved_at
+  resolved_at,
+  winner_wallet
 FROM wagers
 WHERE (player_a_wallet = ? OR player_b_wallet = ?)
   AND status = 'resolved'
 ORDER BY resolved_at DESC
-LIMIT 20;
+LIMIT 50;
 ```
 
 ### Transaction Ledger
 
 ```sql
--- Get all transactions for a wager
+-- Get all transactions for a wager with on-chain confirmation
 SELECT 
   id,
   tx_type,
   amount_lamports / 1000000000.0 as amount_sol,
   status,
   tx_signature,
+  error_message,
   created_at
 FROM wager_transactions
 WHERE wager_id = ?
-ORDER BY created_at;
+ORDER BY created_at DESC;
+```
+
+### Admin Actions
+
+```sql
+-- Get all admin actions on a player (audit trail)
+SELECT 
+  al.action,
+  al.wager_id,
+  al.performed_by,
+  al.notes,
+  al.metadata,
+  al.created_at
+FROM admin_logs al
+WHERE al.wallet_address = ?
+ORDER BY al.created_at DESC
+LIMIT 100;
+```
+
+### Disputed Wagers
+
+```sql
+-- Get all wagers awaiting dispute resolution
+SELECT 
+  id,
+  match_id,
+  player_a_wallet,
+  player_b_wallet,
+  game,
+  stake_lamports / 1000000000.0 as stake_sol,
+  vote_player_a,
+  vote_player_b,
+  vote_timestamp,
+  created_at
+FROM wagers
+WHERE status = 'disputed'
+  OR (status = 'voting' AND requires_moderator = true)
+ORDER BY vote_timestamp ASC;
 ```
 
 ---
 
 ## Backup & Recovery
 
-### Daily Backups
+### Supabase Automated Backups
 
-Supabase automatically backs up data. To restore:
+Supabase automatically backs up your database daily. To restore:
 
 1. Go to **Supabase Dashboard** → **Backups**
 2. Select desired backup point
 3. Click **Restore** (creates new database instance)
-4. Update connection string in `.env`
+4. Update `NEXT_PUBLIC_SUPABASE_URL` in `.env.local`
 
-### Manual Export
+### Manual Export/Import
 
 ```bash
 # Export entire database
 pg_dump postgresql://[user]:[password]@[host]:[port]/[database] > backup.sql
 
+# Export specific table
+pg_dump -t wagers postgresql://[user]:[password]@[host]:[port]/[database] > wagers_backup.sql
+
 # Restore
 psql postgresql://[user]:[password]@[host]:[port]/[database] < backup.sql
 ```
+
+### Point-in-Time Recovery
+
+Contact Supabase support with:
+- Desired recovery timestamp
+- Reason for recovery
+- Authorization confirmation
 
 ---
 
 ## Related Documentation
 
-- **API Documentation**: See `API_REFERENCE.md`
+- **Architecture**: See `ARCHITECTURE.md` for on-chain/off-chain design
 - **Type Definitions**: See `src/integrations/supabase/types.ts`
-- **Hooks**: See `src/hooks/useWagers.ts`, `src/hooks/usePlayer.ts`
+- **API Reference**: See `API_REFERENCE.md`
+- **Admin Guide**: See admin-specific documentation
+- **Development**: See `DEVELOPMENT_GUIDE.md`
 
 ---
 
 **Version Control**  
 This schema is version controlled in GitHub. Update this document whenever database changes are made.
 
-Last reviewed: March 2026
+Last updated: March 15, 2026  
+Schema version: 1.0.0 (Supabase PostgreSQL)
