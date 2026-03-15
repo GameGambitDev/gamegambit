@@ -11,6 +11,12 @@ import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
 import { WalletConnectWalletAdapter } from '@solana/wallet-adapter-walletconnect'
+import {
+  SolanaMobileWalletAdapter,
+  createDefaultAddressSelector,
+  createDefaultAuthorizationResultCache,
+  createDefaultWalletNotFoundHandler,
+} from '@solana-mobile/wallet-adapter-mobile'
 import { clusterApiUrl } from '@solana/web3.js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -80,6 +86,19 @@ export function Providers({ children }: ProvidersProps) {
   const wallets = useMemo(() => {
     const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
     const list: any[] = [
+      // Mobile Wallet Adapter — handles Android Chrome → Phantom signing
+      // Must be first so it takes priority on mobile
+      new SolanaMobileWalletAdapter({
+        addressSelector: createDefaultAddressSelector(),
+        appIdentity: {
+          name: 'GameGambit',
+          uri: 'https://thegamegambit.vercel.app',
+          icon: '/logo.png',
+        },
+        authorizationResultCache: createDefaultAuthorizationResultCache(),
+        cluster: WalletAdapterNetwork.Devnet,
+        onWalletNotFound: createDefaultWalletNotFoundHandler(),
+      }),
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
     ]
