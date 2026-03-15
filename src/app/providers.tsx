@@ -1,5 +1,10 @@
 'use client'
 
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
+import { WalletConnectWalletAdapter } from '@solana/wallet-adapter-walletconnect'
+
 import { ReactNode, useMemo, useState, useEffect, createContext, useContext } from 'react'
 import {
   ConnectionProvider,
@@ -91,8 +96,30 @@ export function Providers({ children }: ProvidersProps) {
   )
 
   const endpoint = useMemo(() => clusterApiUrl('devnet'), [])
-  const wallets = useMemo(() => [], [])
-
+  const wallets = useMemo(() => {
+    const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+    const list: any[] = [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
+    ]
+    if (projectId) {
+      list.push(
+        new WalletConnectWalletAdapter({
+          network: WalletAdapterNetwork.Devnet,
+          options: {
+            projectId,
+            metadata: {
+              name: 'GameGambit',
+              description: 'Skill-based wagering on Solana',
+              url: 'https://thegamegambit.vercel.app',
+              icons: ['https://thegamegambit.vercel.app/logo.png'],
+            },
+          },
+        })
+      )
+    }
+    return list
+  }, [])
   return (
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider endpoint={endpoint}>
