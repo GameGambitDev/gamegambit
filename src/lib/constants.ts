@@ -7,6 +7,7 @@ export const GAMES = {
     platform: 'Lichess',
     icon: '♟️',
     color: 'primary',
+    live: true,
   },
   CODM: {
     id: 'codm',
@@ -14,6 +15,7 @@ export const GAMES = {
     platform: 'Activision',
     icon: '🎯',
     color: 'destructive',
+    live: false,
   },
   PUBG: {
     id: 'pubg',
@@ -21,6 +23,7 @@ export const GAMES = {
     platform: 'PUBG',
     icon: '🔫',
     color: 'accent',
+    live: false,
   },
 } as const;
 

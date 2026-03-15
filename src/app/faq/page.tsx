@@ -22,12 +22,16 @@ const faqs = [
         a: 'GameGambit takes 10% of the total pot. The winner always receives 90%. This is deducted automatically at settlement.',
     },
     {
-        q: 'What games are supported?',
-        a: 'Currently: Chess (via Lichess), Call of Duty Mobile, and PUBG Mobile. More games coming soon.',
+        q: 'What games are supported right now?',
+        a: 'Chess via Lichess is fully live — winner verification is automatic through the Lichess API with no human involvement. Call of Duty Mobile and PUBG Mobile are coming soon; result verification for those games is still in development.',
     },
     {
-        q: 'How is the winner verified?',
-        a: 'For Chess, results are automatically verified via the Lichess API — no human involvement needed. For CODM and PUBG Mobile, results are verified by community moderators.',
+        q: 'How is the Chess winner verified?',
+        a: 'Automatically. When the Lichess game ends, our backend polls the Lichess API, matches the players, and releases funds to the winner — all without any manual step.',
+    },
+    {
+        q: 'Can I wager on CODM or PUBG right now?',
+        a: 'Not yet. CODM and PUBG Mobile support is in development. You can see them listed in the Arena but wagering is only active for Chess at this time.',
     },
     {
         q: "What happens if there's a dispute?",
@@ -51,7 +55,7 @@ const faqs = [
     },
     {
         q: 'How do I get started?',
-        a: 'Connect your Solana wallet, pick a game, and create or accept a wager. That\'s it.',
+        a: "Connect your Solana wallet, link your Lichess account in your profile, then create or accept a Chess wager. That's it.",
     },
 ]
 

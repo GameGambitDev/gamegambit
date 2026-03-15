@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, AlertCircle, Swords, Search, User, X, Users, UserPlus } from 'lucide-react';
+import { Loader2, AlertCircle, Swords, Search, User, X, Users, UserPlus, Lock } from 'lucide-react';
 import { useCreateWager, GameType } from '@/hooks/useWagers';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useSearchPlayers, Player } from '@/hooks/usePlayer';
@@ -17,10 +17,10 @@ interface CreateWagerModalProps {
   onSuccess?: () => void;
 }
 
-const GAME_OPTIONS: { value: GameType; label: string; icon: string }[] = [
-  { value: 'chess', label: GAMES.CHESS.name, icon: GAMES.CHESS.icon },
-  { value: 'codm', label: GAMES.CODM.name, icon: GAMES.CODM.icon },
-  { value: 'pubg', label: GAMES.PUBG.name, icon: GAMES.PUBG.icon },
+const GAME_OPTIONS: { value: GameType; label: string; icon: string; live: boolean }[] = [
+  { value: 'chess', label: GAMES.CHESS.name, icon: GAMES.CHESS.icon, live: GAMES.CHESS.live },
+  { value: 'codm', label: GAMES.CODM.name, icon: GAMES.CODM.icon, live: GAMES.CODM.live },
+  { value: 'pubg', label: GAMES.PUBG.name, icon: GAMES.PUBG.icon, live: GAMES.PUBG.live },
 ];
 
 const STAKE_PRESETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
@@ -46,15 +46,10 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
 
   const handleLichessGameIdChange = (input: string) => {
     let gameId = input.trim();
-
-    // Auto-extract game ID from full URL
     if (gameId.includes('lichess.org/')) {
       const match = gameId.match(/lichess\.org\/([a-zA-Z0-9]+)/);
-      if (match) {
-        gameId = match[1];
-      }
+      if (match) gameId = match[1];
     }
-
     setLichessGameId(gameId);
   };
 
@@ -66,13 +61,11 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
       setError('Please enter a valid stake amount');
       return;
     }
-
     if (stakeLamports > balanceLamports) {
       setError('Insufficient balance');
       return;
     }
-
-    if (stakeLamports < 10_000_000) { // Minimum 0.01 SOL
+    if (stakeLamports < 10_000_000) {
       setError('Minimum stake is 0.01 SOL');
       return;
     }
@@ -84,14 +77,12 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
         lichess_game_id: selectedGame === 'chess' && lichessGameId ? lichessGameId : undefined,
         stream_url: streamUrl || undefined,
         is_public: wagerMode === 'open',
-        // Note: Challenge specific player would require backend support
       });
       toast.success(wagerMode === 'challenge' && selectedOpponent
         ? `Challenge sent to ${selectedOpponent.username || truncateAddress(selectedOpponent.wallet_address)}!`
         : 'Wager created! Waiting for an opponent...');
       onOpenChange(false);
       onSuccess?.();
-      // Reset form
       setWagerMode('open');
       setStakeAmount('0.1');
       setLichessGameId('');
@@ -136,10 +127,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setWagerMode('open');
-                  setSelectedOpponent(null);
-                }}
+                onClick={() => { setWagerMode('open'); setSelectedOpponent(null); }}
                 className={cn(
                   "flex items-center gap-3 p-4 rounded-lg border-2 transition-all",
                   wagerMode === 'open'
@@ -180,22 +168,35 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                 <button
                   key={game.value}
                   type="button"
-                  onClick={() => setSelectedGame(game.value)}
+                  disabled={!game.live}
+                  onClick={() => game.live && setSelectedGame(game.value)}
                   className={cn(
-                    "flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all",
-                    selectedGame === game.value
+                    "relative flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all",
+                    !game.live && "opacity-50 cursor-not-allowed",
+                    game.live && selectedGame === game.value
                       ? "border-primary bg-primary/10"
-                      : "border-border bg-background hover:border-primary/50"
+                      : game.live
+                        ? "border-border bg-background hover:border-primary/50"
+                        : "border-border bg-background"
                   )}
                 >
-                  <span className="text-2xl">{game.icon}</span>
+                  {/* Coming soon lock icon */}
+                  {!game.live && (
+                    <div className="absolute top-1.5 right-1.5">
+                      <Lock className="h-3 w-3 text-muted-foreground" />
+                    </div>
+                  )}
+                  <span className={cn("text-2xl", !game.live && "grayscale")}>{game.icon}</span>
                   <span className="text-sm font-medium">{game.label}</span>
+                  {!game.live && (
+                    <span className="text-[10px] text-muted-foreground">Coming soon</span>
+                  )}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Challenge Specific Player - Only show in challenge mode */}
+          {/* Challenge Specific Player */}
           {wagerMode === 'challenge' && (
             <div className="space-y-2">
               <Label>Select Opponent</Label>
@@ -210,12 +211,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                       <p className="text-xs text-muted-foreground">{truncateAddress(selectedOpponent.wallet_address)}</p>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleClearOpponent}
-                  >
+                  <Button type="button" variant="ghost" size="icon" onClick={handleClearOpponent}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -251,9 +247,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                           </button>
                         ))
                       ) : (
-                        <div className="p-3 text-center text-muted-foreground text-sm">
-                          No players found
-                        </div>
+                        <div className="p-3 text-center text-muted-foreground text-sm">No players found</div>
                       )}
                     </div>
                   )}
@@ -276,10 +270,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
               min="0.01"
               placeholder="0.1"
               value={stakeAmount}
-              onChange={(e) => {
-                setStakeAmount(e.target.value);
-                setError('');
-              }}
+              onChange={(e) => { setStakeAmount(e.target.value); setError(''); }}
               className="bg-background border-border h-12 text-lg"
               disabled={createWager.isPending}
             />
@@ -291,10 +282,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                   variant="outline"
                   size="sm"
                   onClick={() => setStakeAmount(preset.toString())}
-                  className={cn(
-                    "text-xs",
-                    parseFloat(stakeAmount) === preset && "border-primary bg-primary/10"
-                  )}
+                  className={cn("text-xs", parseFloat(stakeAmount) === preset && "border-primary bg-primary/10")}
                 >
                   {preset} SOL
                 </Button>

@@ -1,8 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ExternalLink, Gamepad2 } from 'lucide-react'
-import Link from 'next/link'
+import { ExternalLink, Gamepad2, Lock } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,19 +10,19 @@ import { GAMES } from '@/lib/constants'
 const games = [
   {
     ...GAMES.CHESS,
-    description: 'Classic 1v1 strategy. Verified via Lichess API.',
+    description: 'Classic 1v1 strategy. Winner verified automatically via Lichess API — no human needed.',
     bgGradient: 'from-cyan-500/20 to-blue-500/20',
     features: ['Auto-verify winner', 'All time controls', 'Rated games'],
   },
   {
     ...GAMES.CODM,
-    description: 'Mobile FPS action. 1v1 or team matches.',
+    description: 'Mobile FPS 1v1 action. Coming soon — manual result verification in development.',
     bgGradient: 'from-magenta-500/20 to-pink-500/20',
     features: ['Ranked matches', 'Custom rooms', 'Kill count'],
   },
   {
     ...GAMES.PUBG,
-    description: 'Battle Royale showdowns. Last player standing.',
+    description: 'Battle Royale showdowns. Coming soon — match verification integration underway.',
     bgGradient: 'from-yellow-500/20 to-orange-500/20',
     features: ['Solo duels', 'Custom lobbies', 'Kill race'],
   },
@@ -50,7 +49,7 @@ export function SupportedGames() {
             transition={{ delay: 0.1 }}
             className="text-lg text-muted-foreground max-w-2xl mx-auto"
           >
-            Link your gaming accounts once. Wager on any supported title.
+            Chess is live now. More games coming soon.
           </motion.p>
         </div>
 
@@ -64,18 +63,50 @@ export function SupportedGames() {
               viewport={{ once: true }}
               transition={{ delay: index * 0.15 }}
             >
-              <Card variant="cyber" className="h-full group overflow-hidden hover:shadow-neon-cyan">
-                {/* Neon Border Animation */}
+              <Card
+                variant="cyber"
+                className={`h-full group overflow-hidden relative ${game.live ? 'hover:shadow-neon-cyan' : 'opacity-70'
+                  }`}
+              >
+                {/* Coming soon overlay for non-live games */}
+                {!game.live && (
+                  <div className="absolute top-3 right-3 z-10">
+                    <Badge variant="secondary" className="text-xs gap-1 bg-muted/80 backdrop-blur-sm">
+                      <Lock className="h-2.5 w-2.5" />
+                      Coming Soon
+                    </Badge>
+                  </div>
+                )}
+
+                {/* Live badge for chess */}
+                {game.live && (
+                  <div className="absolute top-3 right-3 z-10">
+                    <Badge className="text-xs gap-1.5 bg-green-500/20 text-green-400 border border-green-500/30">
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400" />
+                      </span>
+                      Live
+                    </Badge>
+                  </div>
+                )}
+
                 <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-magenta-500/10 opacity-0 group-hover:opacity-100 transition-all duration-500" />
 
                 <CardContent className="relative p-6">
                   {/* Icon & Title */}
                   <div className="flex items-center gap-4 mb-4">
-                    <div className="text-5xl group-hover:scale-110 transition-transform duration-300 group-hover:drop-shadow-[0_0_20px_rgba(34,211,238,0.6)]">
+                    <div className={`text-5xl transition-transform duration-300 ${game.live
+                      ? 'group-hover:scale-110 group-hover:drop-shadow-[0_0_20px_rgba(34,211,238,0.6)]'
+                      : 'grayscale'
+                      }`}>
                       {game.icon}
                     </div>
                     <div>
-                      <h3 className="font-bold text-xl group-hover:text-cyan-400 transition-colors">{game.name}</h3>
+                      <h3 className={`font-bold text-xl transition-colors ${game.live ? 'group-hover:text-cyan-400' : 'text-muted-foreground'
+                        }`}>
+                        {game.name}
+                      </h3>
                       <p className="text-sm text-muted-foreground">{game.platform}</p>
                     </div>
                   </div>
@@ -86,17 +117,28 @@ export function SupportedGames() {
                   {/* Features */}
                   <div className="flex flex-wrap gap-2 mb-6">
                     {game.features.map(feature => (
-                      <Badge key={feature} variant="cyber" className="text-xs">
+                      <Badge
+                        key={feature}
+                        variant={game.live ? 'cyber' : 'secondary'}
+                        className="text-xs"
+                      >
                         {feature}
                       </Badge>
                     ))}
                   </div>
 
                   {/* CTA */}
-                  <Button variant="cyber" className="w-full group-hover:shadow-neon-magenta">
-                    Link {game.platform}
-                    <ExternalLink className="h-4 w-4 ml-2" />
-                  </Button>
+                  {game.live ? (
+                    <Button variant="cyber" className="w-full group-hover:shadow-neon-magenta">
+                      Link {game.platform}
+                      <ExternalLink className="h-4 w-4 ml-2" />
+                    </Button>
+                  ) : (
+                    <Button variant="outline" className="w-full" disabled>
+                      <Lock className="h-4 w-4 mr-2" />
+                      Coming Soon
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -115,10 +157,10 @@ export function SupportedGames() {
               <Gamepad2 className="h-12 w-12 text-cyber-magenta mb-4" />
               <h3 className="text-xl font-bold text-balance mb-2">More Games Coming Soon</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                We're actively integrating additional gaming platforms
+                We're actively integrating CODM, PUBG, and additional platforms
               </p>
               <Badge variant="cyber" className="px-4 py-2">
-                More games coming soon: FIFA, Valorant, League of Legends
+                Roadmap: CODM · PUBG · FIFA · Valorant · League of Legends
               </Badge>
             </CardContent>
           </Card>
