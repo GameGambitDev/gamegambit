@@ -11,12 +11,6 @@ import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
 import { WalletConnectWalletAdapter } from '@solana/wallet-adapter-walletconnect'
-import {
-  SolanaMobileWalletAdapter,
-  createDefaultAddressSelector,
-  createDefaultAuthorizationResultCache,
-  createDefaultWalletNotFoundHandler,
-} from '@solana-mobile/wallet-adapter-mobile'
 import { clusterApiUrl } from '@solana/web3.js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -85,25 +79,18 @@ export function Providers({ children }: ProvidersProps) {
 
   const wallets = useMemo(() => {
     const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+
+    // WalletConnect first — takes priority on mobile Chrome so the
+    // Chrome ↔ Phantom back-and-forth flow works without opening dApp browser.
+    // SolanaMobileWalletAdapter removed — it was hijacking mobile connections
+    // and forcing Phantom's built-in browser to open.
     const list: any[] = [
-      // Mobile Wallet Adapter — handles Android Chrome → Phantom signing
-      // Must be first so it takes priority on mobile
-      new SolanaMobileWalletAdapter({
-        addressSelector: createDefaultAddressSelector(),
-        appIdentity: {
-          name: 'GameGambit',
-          uri: 'https://thegamegambit.vercel.app',
-          icon: '/logo.png',
-        },
-        authorizationResultCache: createDefaultAuthorizationResultCache(),
-        cluster: WalletAdapterNetwork.Devnet,
-        onWalletNotFound: createDefaultWalletNotFoundHandler(),
-      }),
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
     ]
+
     if (projectId) {
-      list.push(
+      list.unshift(
         new WalletConnectWalletAdapter({
           network: WalletAdapterNetwork.Devnet,
           options: {
@@ -118,13 +105,23 @@ export function Providers({ children }: ProvidersProps) {
         })
       )
     }
+
     return list
   }, [])
 
   return (
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider endpoint={endpoint}>
-        <WalletProvider wallets={wallets} autoConnect>
+        <WalletProvider
+          wallets={wallets}
+          autoConnect
+          onError={(error) => {
+            // Silence WalletNotReadyError on mobile Chrome — expected when
+            // wallet extension is not injected in external browsers
+            if (error.name === 'WalletNotReadyError') return
+            console.error('[WalletProvider]', error)
+          }}
+        >
           <WalletModalProvider>
             <WalletReadyProvider>
               <TooltipProvider>
