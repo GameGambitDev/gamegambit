@@ -60,7 +60,17 @@ async function invokeSecureWager<T>(
     });
 
     const json = await res.json().catch(() => ({ error: res.statusText }));
-    if (!res.ok) throw new Error((json as { error?: string }).error || 'secure-wager request failed');
+
+    if (!res.ok) {
+      // ── SESSION EXPIRED ───────────────────────────────────────────────────
+      // Dispatch a global event so WalletButton can disconnect + clear token.
+      // This centralises logout logic — no component needs to handle it itself.
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent('gg:session-expired'));
+      }
+      throw new Error((json as { error?: string }).error || 'secure-wager request failed');
+    }
+
     return json as T;
   } finally {
     clearTimeout(timer);
@@ -386,10 +396,6 @@ export function useCheckGameComplete() {
       const sessionToken = await getSessionToken();
       if (!sessionToken) throw new Error('Wallet verification required.');
 
-      // ── AWAIT the full response (was fire-and-forget before) ────────────
-      // The old implementation returned immediately with { gameComplete: false }
-      // before the edge function even finished, so onSuccess in arena/page.tsx
-      // could never see a resolved wager. Now we wait for the real result.
       const result = await invokeSecureWager<{
         gameComplete: boolean;
         status?: string;
@@ -403,8 +409,6 @@ export function useCheckGameComplete() {
         explorerUrl?: string | null;
       }>({ action: 'checkGameComplete', wagerId }, sessionToken, 30000);
 
-      // If resolved, proactively write into last-resolved so BOTH trigger
-      // paths in arena/page.tsx work (direct onSuccess + cache subscriber).
       if (result.gameComplete && result.wager?.status === 'resolved') {
         queryClient.setQueryData(['wagers', 'last-resolved'], result.wager);
       }

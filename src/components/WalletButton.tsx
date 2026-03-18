@@ -8,6 +8,7 @@ import { truncateAddress } from '@/lib/constants'
 import { Smartphone, Monitor, ChevronDown, LogOut, Copy, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false)
@@ -25,10 +26,25 @@ function useIsMobile() {
 export function WalletButton() {
   const { connected, publicKey, disconnect, wallet } = useWallet()
   const { setVisible } = useWalletModal()
+  const { clearSession } = useWalletAuth()
   const isMobile = useIsMobile()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [showMobileModal, setShowMobileModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // ── Auto-disconnect on session expiry ──────────────────────────────────────
+  // useWagers.ts dispatches 'gg:session-expired' on any 401 from secure-wager.
+  // We listen here and disconnect + clear token in one place.
+  useEffect(() => {
+    const handler = () => {
+      clearSession()
+      disconnect()
+      setDropdownOpen(false)
+      toast.error('Session expired — please reconnect your wallet.')
+    }
+    window.addEventListener('gg:session-expired', handler)
+    return () => window.removeEventListener('gg:session-expired', handler)
+  }, [clearSession, disconnect])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -58,6 +74,7 @@ export function WalletButton() {
   }
 
   const handleDisconnect = () => {
+    clearSession()
     disconnect()
     setDropdownOpen(false)
   }
