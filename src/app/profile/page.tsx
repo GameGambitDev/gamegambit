@@ -10,7 +10,11 @@ const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
   { ssr: false }
 )
-import { User, Trophy, Swords, Clock, Copy, Check, Loader2, Wallet, Edit2, Save, Link2 } from 'lucide-react'
+import {
+  User, Trophy, Swords, Clock, Copy, Check, Loader2,
+  Wallet, Edit2, Save, Link2, KeyRound, ExternalLink,
+  LogOut as Unlink,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +24,10 @@ import { GAMES, truncateAddress, formatSol } from '@/lib/constants'
 import { toast } from '@/hooks/use-toast'
 import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
-import { useLichessUser } from '@/hooks/useLichess'
+import {
+  useLichessUser, useLichessToken, useSaveLichessToken,
+  useRemoveLichessToken, LICHESS_TOKEN_URL,
+} from '@/hooks/useLichess'
 import { GameAccountCard } from '@/components/GameAccountCard'
 import { NFTGallery } from '@/components/NFTGallery'
 import { AchievementBadges } from '@/components/AchievementBadges'
@@ -37,10 +44,17 @@ export default function ProfilePage() {
   const updatePlayer = useUpdatePlayer()
 
   const { data: lichessUserData } = useLichessUser(player?.lichess_username)
+  const { data: lichessToken } = useLichessToken()
+  const saveLichessToken = useSaveLichessToken()
+  const removeLichessToken = useRemoveLichessToken()
 
   const [platformUsername, setPlatformUsername] = useState('')
   const [isEditingUsername, setIsEditingUsername] = useState(false)
   const [copiedAddress, setCopiedAddress] = useState(false)
+
+  // Lichess token input state
+  const [showLichessInput, setShowLichessInput] = useState(false)
+  const [lichessTokenInput, setLichessTokenInput] = useState('')
 
   useEffect(() => {
     if (connected && !isLoading && !player && publicKey) {
@@ -49,13 +63,11 @@ export default function ProfilePage() {
   }, [connected, isLoading, player, publicKey])
 
   useEffect(() => {
-    if (player) {
-      setPlatformUsername(player.username || '')
-    }
+    if (player) setPlatformUsername(player.username || '')
   }, [player])
 
-  const gameAccounts = [
-    { game: GAMES.CHESS, linkedUsername: player?.lichess_username || null, key: 'lichess_username' },
+  // Non-chess accounts (chess handled separately via token)
+  const nonChessAccounts = [
     { game: GAMES.CODM, linkedUsername: player?.codm_username || null, key: 'codm_username' },
     { game: GAMES.PUBG, linkedUsername: player?.pubg_username || null, key: 'pubg_username' },
   ]
@@ -103,11 +115,32 @@ export default function ProfilePage() {
     }
   }
 
+  const handleSaveLichessToken = async () => {
+    if (!lichessTokenInput.trim()) return
+    try {
+      const account = await saveLichessToken.mutateAsync(lichessTokenInput.trim())
+      toast({ title: `Lichess connected as @${account.username}!` })
+      setShowLichessInput(false)
+      setLichessTokenInput('')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to connect Lichess'
+      toast({ title: message, variant: 'destructive' })
+    }
+  }
+
+  const handleRemoveLichessToken = async () => {
+    try {
+      await removeLichessToken.mutateAsync()
+      toast({ title: 'Lichess account disconnected' })
+    } catch {
+      toast({ title: 'Failed to disconnect', variant: 'destructive' })
+    }
+  }
+
   const winRate = player && (player.total_wins + player.total_losses) > 0
     ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
     : 0
 
-  // Still waiting for autoConnect to resolve — don't flash the connect screen
   if (!walletReady) {
     return (
       <div className="py-8 pb-16">
@@ -154,12 +187,9 @@ export default function ProfilePage() {
   return (
     <div className="py-8 pb-16">
       <div className="container px-4 max-w-4xl">
+
         {/* Profile Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
           <Card variant="gaming" className="p-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
               <motion.div
@@ -174,9 +204,7 @@ export default function ProfilePage() {
                     {player?.username || (viewingWallet && truncateAddress(viewingWallet, 6))}
                   </h1>
                   {player?.username && viewingWallet && (
-                    <span className="text-sm text-muted-foreground">
-                      ({truncateAddress(viewingWallet, 4)})
-                    </span>
+                    <span className="text-sm text-muted-foreground">({truncateAddress(viewingWallet, 4)})</span>
                   )}
                   <Button variant="ghost" size="icon" onClick={copyAddress}>
                     {copiedAddress ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
@@ -209,12 +237,9 @@ export default function ProfilePage() {
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
           {/* Linked Accounts */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <Card variant="gaming">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -222,8 +247,106 @@ export default function ProfilePage() {
                   Linked Game Accounts
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {gameAccounts.map((account, index) => (
+              <CardContent className="space-y-4">
+
+                {/* ── Chess / Lichess — token-based connection ── */}
+                <div className="p-3 rounded-lg border border-border bg-muted/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">♟️</span>
+                      <div>
+                        <p className="font-medium text-sm">Chess (Lichess)</p>
+                        {player?.lichess_username ? (
+                          <p className="text-xs text-success">@{player.lichess_username}</p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Not connected</p>
+                        )}
+                      </div>
+                    </div>
+                    {lichessToken ? (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="success" className="text-xs">Connected</Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={handleRemoveLichessToken}
+                          disabled={removeLichessToken.isPending}
+                          title="Disconnect Lichess"
+                        >
+                          {removeLichessToken.isPending
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Unlink className="h-3.5 w-3.5" />
+                          }
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs border-primary/40"
+                        onClick={() => setShowLichessInput(!showLichessInput)}
+                      >
+                        <KeyRound className="h-3 w-3 mr-1" />
+                        Connect
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Token input — visible when Connect clicked */}
+                  {showLichessInput && !lichessToken && (
+                    <div className="mt-3 space-y-2 pt-3 border-t border-border">
+                      <p className="text-xs text-muted-foreground">
+                        1.{' '}
+                        <a
+                          href={LICHESS_TOKEN_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline inline-flex items-center gap-1"
+                        >
+                          Generate your Lichess API token
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        {' '}(check <strong>challenge:write</strong>, click Create)
+                      </p>
+                      <p className="text-xs text-muted-foreground">2. Paste it here:</p>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Paste your Lichess token here"
+                          value={lichessTokenInput}
+                          onChange={(e) => setLichessTokenInput(e.target.value)}
+                          className="bg-background text-sm font-mono"
+                          type="password"
+                        />
+                        <Button
+                          variant="neon"
+                          size="sm"
+                          onClick={handleSaveLichessToken}
+                          disabled={saveLichessToken.isPending || !lichessTokenInput.trim()}
+                        >
+                          {saveLichessToken.isPending
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : 'Save'
+                          }
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        No Lichess account?{' '}
+                        <a
+                          href="https://lichess.org/signup"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline"
+                        >
+                          Create one free
+                        </a>
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* CODM + PUBG */}
+                {nonChessAccounts.map((account, index) => (
                   <motion.div
                     key={account.game.id}
                     initial={{ opacity: 0, x: -20 }}
@@ -247,7 +370,7 @@ export default function ProfilePage() {
               <Card variant="gaming" className="mt-6">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <span className="text-xl">{'♟️'}</span>
+                    <span className="text-xl">♟️</span>
                     Lichess Stats
                     {lichessUserData.online && (
                       <Badge variant="live" className="ml-2">Online</Badge>
@@ -291,11 +414,7 @@ export default function ProfilePage() {
           </motion.div>
 
           {/* Stats */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <Card variant="gaming">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -332,10 +451,7 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
 
-            {/* NFT Trophy Collection */}
             <NFTGallery walletAddress={viewingWallet || null} />
-
-            {/* Achievements */}
             <AchievementBadges walletAddress={viewingWallet || null} />
           </motion.div>
 
@@ -371,8 +487,7 @@ export default function ProfilePage() {
                         onClick={() => setIsEditingUsername(true)}
                         className="hover:border-primary/50 hover:shadow-neon transition-all"
                       >
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        Edit
+                        <Edit2 className="h-4 w-4 mr-2" /> Edit
                       </Button>
                     ) : (
                       <Button
@@ -380,23 +495,16 @@ export default function ProfilePage() {
                         disabled={!platformUsername.trim() || updatePlayer.isPending}
                         onClick={handleUpdateUsername}
                       >
-                        {updatePlayer.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Save className="h-4 w-4 mr-2" />
-                            Save
-                          </>
-                        )}
+                        {updatePlayer.isPending
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <><Save className="h-4 w-4 mr-2" /> Save</>
+                        }
                       </Button>
                     )}
                     {isEditingUsername && (
                       <Button
                         variant="ghost"
-                        onClick={() => {
-                          setIsEditingUsername(false)
-                          setPlatformUsername(player?.username || '')
-                        }}
+                        onClick={() => { setIsEditingUsername(false); setPlatformUsername(player?.username || '') }}
                       >
                         Cancel
                       </Button>
