@@ -284,6 +284,7 @@ export function useCreateWagerOnChain() {
       }
 
       const token = await getSessionToken();
+      console.log('[debug] session token:', token ? 'ok' : 'NULL — skipping recordOnChain');
       if (token) {
         try {
           const supabase = getSupabaseClient();
@@ -385,6 +386,8 @@ export function useJoinWagerOnChain() {
       }
 
       const token = await getSessionToken();
+      console.log('[debug] session token:', token ? 'ok' : 'NULL — skipping recordOnChain');
+
       if (token) {
         try {
           const supabase = getSupabaseClient();
