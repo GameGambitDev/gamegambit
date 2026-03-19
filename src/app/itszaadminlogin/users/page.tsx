@@ -46,7 +46,7 @@ function UsersContent() {
                 .order('created_at', { ascending: false });
 
             if (fetchError) throw fetchError;
-            setUsers(data || []);
+            setUsers((data || []) as unknown as Player[]);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch users');
         } finally {
