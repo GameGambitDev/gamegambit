@@ -13,12 +13,20 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 async function validateSessionToken(token: string): Promise<string | null> {
     try {
-        const [payloadB64, hash] = token.split('.');
-        if (!payloadB64 || !hash) return null;
+        const dotIndex = token.lastIndexOf('.');
+        if (dotIndex === -1) return null;
+        const payloadB64 = token.substring(0, dotIndex);
+        const hash = token.substring(dotIndex + 1);
 
-        const payloadStr = atob(payloadB64);
-        const payload = JSON.parse(payloadStr);
+        let payloadStr: string;
+        try { payloadStr = atob(payloadB64); }
+        catch { return null; }
 
+        let payload: { wallet: string; exp: number };
+        try { payload = JSON.parse(payloadStr); }
+        catch { return null; }
+
+        if (!payload.wallet || !payload.exp) return null;
         if (payload.exp < Date.now()) {
             console.log('[secure-player] Session token expired');
             return null;
@@ -27,8 +35,8 @@ async function validateSessionToken(token: string): Promise<string | null> {
         const encoder = new TextEncoder();
         const data = encoder.encode(payloadStr + supabaseServiceKey);
         const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const computedHash = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
 
         if (computedHash !== hash) {
             console.log('[secure-player] Invalid session token hash');
@@ -57,45 +65,33 @@ serve(async (req) => {
         return new Response('ok', { status: 200, headers: corsHeaders });
     }
 
-    try {
-        // Read wallet session token from X-Session-Token header.
-        // We do NOT use Authorization here because Supabase's gateway injects
-        // Authorization: Bearer <ANON_KEY> on every request, which would
-        // overwrite any session token sent in that header by the client.
-        const sessionToken = req.headers.get('X-Session-Token')?.trim();
+    const respond = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
 
+    try {
+        // X-Session-Token avoids Supabase gateway overwriting Authorization header
+        const sessionToken = req.headers.get('X-Session-Token')?.trim();
         const { action, ...data } = await req.json();
-        console.log(`[secure-player] Action: ${action}, Session token present: ${!!sessionToken}`);
+        console.log(`[secure-player] Action: ${action}, token: ${!!sessionToken}`);
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+        // ── create ─────────────────────────────────────────────────────────────
         if (action === 'create') {
-            if (!sessionToken) {
-                return new Response(JSON.stringify({ error: 'Wallet verification required. Missing X-Session-Token header.' }), {
-                    status: 401,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
-            }
-
+            if (!sessionToken) return respond({ error: 'Wallet verification required' }, 401);
             const walletAddress = await validateSessionToken(sessionToken);
-            if (!walletAddress) {
-                return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
-                    status: 401,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
-            }
+            if (!walletAddress) return respond({ error: 'Invalid or expired session' }, 401);
 
-            const { data: existingPlayer } = await supabase
+            const { data: existing } = await supabase
                 .from('players')
                 .select('*')
                 .eq('wallet_address', walletAddress)
                 .single();
 
-            if (existingPlayer) {
-                return new Response(JSON.stringify({ player: existingPlayer }), {
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
-            }
+            if (existing) return respond({ player: existing });
 
             const { data: newPlayer, error } = await supabase
                 .from('players')
@@ -105,69 +101,54 @@ serve(async (req) => {
 
             if (error) {
                 console.error('[secure-player] Create error:', error);
-                return new Response(JSON.stringify({ error: 'Failed to create player' }), {
-                    status: 500,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return respond({ error: 'Failed to create player' }, 500);
             }
 
-            console.log(`[secure-player] Created player for wallet: ${walletAddress}`);
-            return new Response(JSON.stringify({ player: newPlayer }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            console.log(`[secure-player] Created player for: ${walletAddress}`);
+            return respond({ player: newPlayer });
         }
 
+        // ── update ─────────────────────────────────────────────────────────────
         if (action === 'update') {
-            if (!sessionToken) {
-                return new Response(JSON.stringify({ error: 'Wallet verification required. Missing X-Session-Token header.' }), {
-                    status: 401,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
-            }
-
+            if (!sessionToken) return respond({ error: 'Wallet verification required' }, 401);
             const walletAddress = await validateSessionToken(sessionToken);
-            if (!walletAddress) {
-                return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
-                    status: 401,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
-            }
+            if (!walletAddress) return respond({ error: 'Invalid or expired session' }, 401);
 
             const { updates } = data;
 
+            // Validate username if being changed
             if (updates.username !== undefined) {
                 if (updates.username && !validatePlatformUsername(updates.username)) {
-                    return new Response(JSON.stringify({ error: 'Username must be 3-20 characters, letters, numbers, and underscores only' }), {
-                        status: 400,
-                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    });
+                    return respond({ error: 'Username must be 3-20 characters, letters/numbers/underscores only' }, 400);
                 }
             }
 
+            // Validate game usernames if being changed
             if (updates.lichess_username && !validateGameUsername(updates.lichess_username)) {
-                return new Response(JSON.stringify({ error: 'Invalid Lichess username format' }), {
-                    status: 400,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return respond({ error: 'Invalid Lichess username format' }, 400);
             }
             if (updates.codm_username && !validateGameUsername(updates.codm_username)) {
-                return new Response(JSON.stringify({ error: 'Invalid CODM username format' }), {
-                    status: 400,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return respond({ error: 'Invalid CODM username format' }, 400);
             }
             if (updates.pubg_username && !validateGameUsername(updates.pubg_username)) {
-                return new Response(JSON.stringify({ error: 'Invalid PUBG username format' }), {
-                    status: 400,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return respond({ error: 'Invalid PUBG username format' }, 400);
             }
 
+            // Whitelist of fields that can be updated via this endpoint
+            // lichess_access_token is allowed here for OAuth disconnect (set to null)
+            // lichess_username and lichess_user_id are set by the OAuth callback directly
+            // via service role — not via this endpoint during normal use
             const safeUpdates: Record<string, unknown> = {};
             if (updates.username !== undefined) safeUpdates.username = updates.username;
             if (updates.lichess_username !== undefined) safeUpdates.lichess_username = updates.lichess_username;
+            if (updates.lichess_user_id !== undefined) safeUpdates.lichess_user_id = updates.lichess_user_id;
+            if (updates.lichess_access_token !== undefined) safeUpdates.lichess_access_token = updates.lichess_access_token;
             if (updates.codm_username !== undefined) safeUpdates.codm_username = updates.codm_username;
             if (updates.pubg_username !== undefined) safeUpdates.pubg_username = updates.pubg_username;
+
+            if (Object.keys(safeUpdates).length === 0) {
+                return respond({ error: 'No valid fields to update' }, 400);
+            }
 
             const { data: updatedPlayer, error } = await supabase
                 .from('players')
@@ -178,27 +159,16 @@ serve(async (req) => {
 
             if (error) {
                 console.error('[secure-player] Update error:', error);
-                return new Response(JSON.stringify({ error: 'Failed to update player' }), {
-                    status: 500,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return respond({ error: 'Failed to update player' }, 500);
             }
 
-            return new Response(JSON.stringify({ player: updatedPlayer }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return respond({ player: updatedPlayer });
         }
 
-        return new Response(JSON.stringify({ error: 'Invalid action' }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return respond({ error: 'Invalid action' }, 400);
 
     } catch (error) {
         console.error('[secure-player] Error:', error);
-        return new Response(JSON.stringify({ error: 'Internal server error' }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return respond({ error: 'Internal server error' }, 500);
     }
 });

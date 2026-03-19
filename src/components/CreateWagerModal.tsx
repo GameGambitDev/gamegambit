@@ -5,18 +5,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Loader2, AlertCircle, Swords, Search, User, X,
-  Users, UserPlus, Lock, ExternalLink, Zap, KeyRound,
+  Users, UserPlus, Lock, CheckCircle2,
 } from 'lucide-react';
 import { useCreateWager, GameType } from '@/hooks/useWagers';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { useSearchPlayers, Player, usePlayer } from '@/hooks/usePlayer';
-import {
-  useLichessToken, useSaveLichessToken, useCreateLichessChallenge,
-  LICHESS_TOKEN_URL,
-} from '@/hooks/useLichess';
+import { useLichessConnected, startLichessOAuth } from '@/hooks/useLichess';
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 interface CreateWagerModalProps {
   open: boolean;
@@ -32,8 +30,6 @@ const GAME_OPTIONS: { value: GameType; label: string; icon: string; live: boolea
 
 const STAKE_PRESETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
 
-type WagerMode = 'open' | 'challenge';
-
 const TIME_CONTROLS = [
   { label: '1+0', limit: 60, increment: 0 },
   { label: '3+2', limit: 180, increment: 2 },
@@ -43,76 +39,53 @@ const TIME_CONTROLS = [
   { label: '30+0', limit: 1800, increment: 0 },
 ];
 
+type WagerMode = 'open' | 'challenge';
+
 export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerModalProps) {
+  const { publicKey } = useWallet();
   const [wagerMode, setWagerMode] = useState<WagerMode>('open');
   const [selectedGame, setSelectedGame] = useState<GameType>('chess');
   const [stakeAmount, setStakeAmount] = useState('0.1');
-  const [lichessGameId, setLichessGameId] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
   const [error, setError] = useState('');
   const [opponentSearch, setOpponentSearch] = useState('');
   const [selectedOpponent, setSelectedOpponent] = useState<Player | null>(null);
-
-  // Lichess token flow
-  const [showTokenInput, setShowTokenInput] = useState(false);
-  const [tokenInput, setTokenInput] = useState('');
-  const [selectedTimeControl, setSelectedTimeControl] = useState(TIME_CONTROLS[2]); // 5+3 default
+  const [selectedTimeControl, setSelectedTimeControl] = useState(TIME_CONTROLS[2]);
   const [isRated, setIsRated] = useState(false);
+  const [isConnectingLichess, setIsConnectingLichess] = useState(false);
 
   const createWager = useCreateWager();
   const { data: balance } = useWalletBalance();
   const { data: player } = usePlayer();
-  const { data: lichessToken, isLoading: tokenLoading } = useLichessToken();
-  const saveLichessToken = useSaveLichessToken();
-  const createChallenge = useCreateLichessChallenge();
+  const { data: lichessData, isLoading: lichessLoading } = useLichessConnected();
   const { data: searchResults, isLoading: searchLoading } = useSearchPlayers(opponentSearch);
 
   const stakeLamports = Math.floor(parseFloat(stakeAmount || '0') * 1_000_000_000);
   const balanceLamports = (balance || 0) * 1_000_000_000;
   const isChess = selectedGame === 'chess';
-  const hasLichessToken = !!lichessToken;
+  const isLichessConnected = !!(lichessData as any)?.lichess_username;
+  const lichessUsername = (lichessData as any)?.lichess_username;
 
-  const handleLichessGameIdChange = (input: string) => {
-    let gameId = input.trim();
-    if (gameId.includes('lichess.org/')) {
-      const match = gameId.match(/lichess\.org\/([a-zA-Z0-9]+)/);
-      if (match) gameId = match[1];
+  // For chess: check if opponent has Lichess connected when in challenge mode
+  const opponentHasLichess = !!(selectedOpponent as any)?.lichess_username;
+
+  // Chess wager can proceed if:
+  // - Player has Lichess connected AND
+  // - Either open wager (anyone can accept, we require them to have Lichess too) OR challenge opponent has Lichess
+  const chessCanProceed = !isChess || (isLichessConnected && (wagerMode === 'open' || opponentHasLichess));
+
+  const handleConnectLichess = async () => {
+    if (!publicKey) {
+      toast.error('Connect your wallet first');
+      return;
     }
-    setLichessGameId(gameId);
-  };
-
-  const handleSaveToken = async () => {
-    if (!tokenInput.trim()) return;
+    setIsConnectingLichess(true);
     try {
-      const account = await saveLichessToken.mutateAsync(tokenInput.trim());
-      toast.success(`Lichess connected as @${account.username}!`);
-      setShowTokenInput(false);
-      setTokenInput('');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to connect Lichess');
-    }
-  };
-
-  const handleAutoCreateGame = async () => {
-    if (!lichessToken) return;
-    setError('');
-    try {
-      const opponentUsername = selectedOpponent?.lichess_username ?? null;
-      const challenge = await createChallenge.mutateAsync({
-        token: lichessToken,
-        params: {
-          opponentLichessUsername: opponentUsername,
-          rated: isRated,
-          clockLimit: selectedTimeControl.limit,
-          clockIncrement: selectedTimeControl.increment,
-          color: 'random',
-        },
-      });
-      const gameId = challenge.id || challenge.url?.split('/').pop() || '';
-      setLichessGameId(gameId);
-      toast.success(`Game created! ID: ${gameId}`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to create Lichess game');
+      await startLichessOAuth(publicKey.toBase58());
+      // Page will redirect — no need to reset state
+    } catch (err) {
+      setIsConnectingLichess(false);
+      toast.error('Failed to start Lichess authentication');
     }
   };
 
@@ -132,8 +105,12 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
       setError('Minimum stake is 0.01 SOL');
       return;
     }
-    if (isChess && !lichessGameId) {
-      setError('Please create or paste a Lichess game ID first');
+    if (isChess && !isLichessConnected) {
+      setError('Connect your Lichess account to create chess wagers');
+      return;
+    }
+    if (isChess && wagerMode === 'challenge' && !opponentHasLichess) {
+      setError('Your opponent must also connect their Lichess account to play chess');
       return;
     }
 
@@ -141,9 +118,16 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
       await createWager.mutateAsync({
         game: selectedGame,
         stake_lamports: stakeLamports,
-        lichess_game_id: isChess && lichessGameId ? lichessGameId : undefined,
+        // No lichess_game_id — server creates the game automatically when both
+        // players deposit (via LICHESS_PLATFORM_TOKEN in secure-wager)
         stream_url: streamUrl || undefined,
         is_public: wagerMode === 'open',
+        // Pass time control preferences so secure-wager can create the right game
+        ...(isChess && {
+          chess_clock_limit: selectedTimeControl.limit,
+          chess_clock_increment: selectedTimeControl.increment,
+          chess_rated: isRated,
+        }),
       });
       toast.success(
         wagerMode === 'challenge' && selectedOpponent
@@ -152,12 +136,14 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
       );
       onOpenChange(false);
       onSuccess?.();
+      // Reset
       setWagerMode('open');
       setStakeAmount('0.1');
-      setLichessGameId('');
       setStreamUrl('');
       setSelectedOpponent(null);
       setOpponentSearch('');
+      setSelectedTimeControl(TIME_CONTROLS[2]);
+      setIsRated(false);
     } catch (err: any) {
       setError(err.message || 'Failed to create wager');
     }
@@ -255,6 +241,102 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
             </div>
           </div>
 
+          {/* ── Chess: Lichess status + time control ─────────────────────── */}
+          {isChess && (
+            <div className="space-y-3">
+              {/* Lichess connection status */}
+              {lichessLoading ? (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/30 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Checking Lichess…
+                </div>
+              ) : isLichessConnected ? (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
+                  <CheckCircle2 className="h-4 w-4 text-success flex-shrink-0" />
+                  <div>
+                    <p className="text-xs font-medium text-success">Lichess verified ✓</p>
+                    <p className="text-xs text-muted-foreground">Playing as @{lichessUsername}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-medium text-warning">Lichess account required</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Connect your Lichess account to play chess wagers. This verifies your identity and lets us create games automatically.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-warning/40 hover:border-warning"
+                    onClick={handleConnectLichess}
+                    disabled={isConnectingLichess}
+                  >
+                    {isConnectingLichess
+                      ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Connecting…</>
+                      : '♟ Connect Lichess Account'
+                    }
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    No Lichess account?{' '}
+                    <a href="https://lichess.org/signup" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      Create one free
+                    </a>
+                  </p>
+                </div>
+              )}
+
+              {/* Time control — only show when connected */}
+              {isLichessConnected && (
+                <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground font-medium">Time control</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsRated(!isRated)}
+                        className={cn(
+                          "w-8 h-4 rounded-full transition-colors relative flex-shrink-0",
+                          isRated ? "bg-primary" : "bg-muted"
+                        )}
+                      >
+                        <span className={cn(
+                          "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                          isRated ? "left-4" : "left-0.5"
+                        )} />
+                      </button>
+                      <span className="text-xs text-muted-foreground">Rated</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {TIME_CONTROLS.map((tc) => (
+                      <button
+                        key={tc.label}
+                        type="button"
+                        onClick={() => setSelectedTimeControl(tc)}
+                        className={cn(
+                          "px-2.5 py-1 rounded text-xs border transition-all",
+                          selectedTimeControl.label === tc.label
+                            ? "border-primary bg-primary/20 text-primary font-medium"
+                            : "border-border hover:border-primary/50"
+                        )}
+                      >
+                        {tc.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    The Lichess game will be created automatically when both players are ready.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Opponent Search (challenge mode) ─────────────────────────── */}
           {wagerMode === 'challenge' && (
             <div className="space-y-2">
@@ -268,9 +350,11 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                     <div>
                       <p className="font-medium">{selectedOpponent.username || 'Anonymous'}</p>
                       <p className="text-xs text-muted-foreground">{truncateAddress(selectedOpponent.wallet_address)}</p>
-                      {(selectedOpponent as any).lichess_username && (
-                        <p className="text-xs text-primary">♟ @{(selectedOpponent as any).lichess_username}</p>
-                      )}
+                      {(selectedOpponent as any).lichess_username ? (
+                        <p className="text-xs text-success">♟ @{(selectedOpponent as any).lichess_username} ✓</p>
+                      ) : isChess ? (
+                        <p className="text-xs text-warning">⚠ No Lichess account linked</p>
+                      ) : null}
                     </div>
                   </div>
                   <Button type="button" variant="ghost" size="icon" onClick={() => setSelectedOpponent(null)}>
@@ -303,6 +387,9 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                             <div>
                               <p className="font-medium">{p.username || 'Anonymous'}</p>
                               <p className="text-xs text-muted-foreground">{truncateAddress(p.wallet_address)}</p>
+                              {(p as any).lichess_username && (
+                                <p className="text-xs text-success">♟ @{(p as any).lichess_username}</p>
+                              )}
                             </div>
                           </button>
                         ))
@@ -350,186 +437,6 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
             </div>
           </div>
 
-          {/* ── Chess: Lichess game section ──────────────────────────────── */}
-          {isChess && (
-            <div className="space-y-3">
-              <Label>Lichess Game</Label>
-
-              {tokenLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Checking Lichess connection…
-                </div>
-              ) : hasLichessToken ? (
-                /* ── Connected: show auto-create UI ── */
-                <div className="space-y-3 p-4 rounded-lg border border-primary/20 bg-primary/5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-success font-medium">
-                      ♟ Connected as @{player?.lichess_username}
-                    </span>
-                  </div>
-
-                  {/* Time control picker */}
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Time control</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {TIME_CONTROLS.map((tc) => (
-                        <button
-                          key={tc.label}
-                          type="button"
-                          onClick={() => setSelectedTimeControl(tc)}
-                          className={cn(
-                            "px-2.5 py-1 rounded text-xs border transition-all",
-                            selectedTimeControl.label === tc.label
-                              ? "border-primary bg-primary/20 text-primary"
-                              : "border-border hover:border-primary/50"
-                          )}
-                        >
-                          {tc.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Rated toggle */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsRated(!isRated)}
-                      className={cn(
-                        "w-9 h-5 rounded-full transition-colors relative",
-                        isRated ? "bg-primary" : "bg-muted"
-                      )}
-                    >
-                      <span className={cn(
-                        "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all",
-                        isRated ? "left-4" : "left-0.5"
-                      )} />
-                    </button>
-                    <span className="text-xs text-muted-foreground">Rated game</span>
-                  </div>
-
-                  {/* Auto-create button */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full border-primary/40 hover:border-primary"
-                    onClick={handleAutoCreateGame}
-                    disabled={createChallenge.isPending}
-                  >
-                    {createChallenge.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating game…</>
-                    ) : lichessGameId ? (
-                      <><Zap className="h-4 w-4 mr-2 text-success" /> Game ready: {lichessGameId}</>
-                    ) : (
-                      <><Zap className="h-4 w-4 mr-2 text-primary" /> Create Lichess Game</>
-                    )}
-                  </Button>
-
-                  {/* Manual override */}
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Or paste an existing game ID / URL</p>
-                    <Input
-                      placeholder="https://lichess.org/R31kll8h or R31kll8h"
-                      value={lichessGameId}
-                      onChange={(e) => handleLichessGameIdChange(e.target.value)}
-                      className="bg-background border-border text-sm"
-                      disabled={createWager.isPending}
-                    />
-                  </div>
-                </div>
-              ) : (
-                /* ── Not connected: show connect gate ── */
-                <div className="space-y-3 p-4 rounded-lg border border-warning/30 bg-warning/5">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Connect your Lichess account to auto-create games directly from GameGambit.
-                    </p>
-                  </div>
-
-                  {showTokenInput ? (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        1.{' '}
-                        <a
-                          href={LICHESS_TOKEN_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline inline-flex items-center gap-1"
-                        >
-                          Generate your Lichess token <ExternalLink className="h-3 w-3" />
-                        </a>
-                        {' '}(opens Lichess, check <strong>challenge:write</strong>, click Create)
-                      </p>
-                      <p className="text-xs text-muted-foreground">2. Paste the token below:</p>
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Paste your Lichess token here"
-                          value={tokenInput}
-                          onChange={(e) => setTokenInput(e.target.value)}
-                          className="bg-background border-border text-sm font-mono"
-                          type="password"
-                        />
-                        <Button
-                          type="button"
-                          variant="neon"
-                          size="sm"
-                          onClick={handleSaveToken}
-                          disabled={saveLichessToken.isPending || !tokenInput.trim()}
-                        >
-                          {saveLichessToken.isPending
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : 'Connect'
-                          }
-                        </Button>
-                      </div>
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => { setShowTokenInput(false); setTokenInput(''); }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 border-primary/40"
-                        onClick={() => setShowTokenInput(true)}
-                      >
-                        <KeyRound className="h-3.5 w-3.5 mr-1.5" />
-                        Connect Lichess Account
-                      </Button>
-                      <a
-                        href="https://lichess.org/signup"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-border hover:border-primary/50 transition-colors whitespace-nowrap"
-                      >
-                        No account? <ExternalLink className="h-3 w-3 ml-1" />
-                      </a>
-                    </div>
-                  )}
-
-                  {/* Still allow manual paste even without token */}
-                  <div className="space-y-1 pt-2 border-t border-border">
-                    <p className="text-xs text-muted-foreground">Or paste a game ID manually:</p>
-                    <Input
-                      placeholder="https://lichess.org/R31kll8h or R31kll8h"
-                      value={lichessGameId}
-                      onChange={(e) => handleLichessGameIdChange(e.target.value)}
-                      className="bg-background border-border text-sm"
-                      disabled={createWager.isPending}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* ── Stream URL ───────────────────────────────────────────────── */}
           <div className="space-y-2">
             <Label htmlFor="streamUrl">
@@ -572,17 +479,12 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                 </span>
               </div>
             )}
-            {isChess && lichessGameId && (
+            {isChess && isLichessConnected && (
               <div className="flex justify-between items-center mt-2">
-                <span className="text-muted-foreground">Game ID</span>
-                <a
-                  href={`https://lichess.org/${lichessGameId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-mono text-primary text-sm flex items-center gap-1 hover:underline"
-                >
-                  {lichessGameId} <ExternalLink className="h-3 w-3" />
-                </a>
+                <span className="text-muted-foreground">Time Control</span>
+                <span className="font-mono text-sm text-primary">
+                  {selectedTimeControl.label} {isRated ? '· Rated' : '· Casual'}
+                </span>
               </div>
             )}
           </div>
@@ -591,18 +493,17 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
             type="submit"
             variant="neon"
             className="w-full h-12 text-lg font-gaming"
-            disabled={createWager.isPending || !stakeAmount || (isChess && !lichessGameId)}
+            disabled={
+              createWager.isPending ||
+              !stakeAmount ||
+              (isChess && !isLichessConnected) ||
+              (isChess && wagerMode === 'challenge' && !!selectedOpponent && !opponentHasLichess)
+            }
           >
             {createWager.isPending ? (
               <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Creating Wager…</>
             ) : selectedOpponent ? 'Send Challenge' : 'Create Wager'}
           </Button>
-
-          {isChess && !lichessGameId && (
-            <p className="text-xs text-center text-muted-foreground">
-              A Lichess game ID is required for chess wagers
-            </p>
-          )}
         </form>
       </DialogContent>
     </Dialog>

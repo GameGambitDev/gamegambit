@@ -143,8 +143,18 @@ The `wager_transactions.tx_signature` column has a UNIQUE constraint. Combined w
 ### Off-Chain Mirror Pattern
 Wager state is mirrored in Supabase for real-time UI updates via Postgres Realtime. The Solana program is the authoritative source for funds; Supabase is the authoritative source for game metadata and UI state.
 
-### Lichess Token Storage
-`players.lichess_access_token` stores each player's personal Lichess API token (challenge:write scope). This allows the app to create Lichess challenges on the player's behalf without OAuth redirects. Tokens are stored server-side and never exposed to other clients.
+### Lichess OAuth (PKCE)
+Players connect their Lichess account via OAuth PKCE flow. The callback saves
+`lichess_username`, `lichess_user_id`, and `lichess_access_token` to the player
+row. `lichess_user_id` is the authoritative proof of account ownership — it comes
+directly from the Lichess `/api/account` endpoint post-auth, not from user input.
+
+### Platform Token Game Creation
+When both players are deposited and the wager enters voting, `secure-wager` calls
+the Lichess API using `LICHESS_PLATFORM_TOKEN` (a server-side secret) with
+`users=PlayerA,PlayerB` to create a locked open challenge. Per-color URLs
+(`lichess_url_white`, `lichess_url_black`) are saved to the wager row and served
+to each player directly — no manual game ID entry needed.
 
 ---
 

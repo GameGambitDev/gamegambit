@@ -60,10 +60,108 @@ export interface LichessChallenge {
   };
 }
 
-// ── Pre-filled token generation URL ──────────────────────────────────────────
+// ── PKCE helpers ──────────────────────────────────────────────────────────────
 
-export const LICHESS_TOKEN_URL =
-  'https://lichess.org/account/oauth/token/create?scopes[]=challenge:write&description=GameGambit';
+function generateRandomString(length = 64): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  const arr = new Uint8Array(length);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => chars[b % chars.length]).join('');
+}
+
+async function sha256Base64Url(plain: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plain);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// ── Initiate Lichess OAuth PKCE flow ─────────────────────────────────────────
+// Stores state + verifier in cookies, redirects user to Lichess.
+// No server registration needed — PKCE is purely client-driven.
+
+export async function startLichessOAuth(walletAddress: string): Promise<void> {
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://thegamegambit.vercel.app';
+  const clientId = new URL(siteUrl).hostname; // e.g. "thegamegambit.vercel.app"
+  const redirectUri = `${siteUrl}/api/auth/lichess/callback`;
+
+  const state = generateRandomString(32);
+  const codeVerifier = generateRandomString(64);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+
+  // Store state, verifier and wallet in cookies for the callback to verify
+  const cookieOpts = 'Path=/; SameSite=Lax; Max-Age=600'; // 10 min expiry
+  document.cookie = `gg_lichess_state=${state}; ${cookieOpts}`;
+  document.cookie = `gg_lichess_verifier=${codeVerifier}; ${cookieOpts}`;
+  document.cookie = `gg_lichess_wallet=${walletAddress}; ${cookieOpts}`;
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: '',               // No scopes needed — we only need identity verification
+    state,
+    code_challenge_method: 'S256',
+    code_challenge: codeChallenge,
+  });
+
+  window.location.href = `https://lichess.org/oauth?${params.toString()}`;
+}
+
+// ── Check if current player has Lichess connected ─────────────────────────────
+
+export function useLichessConnected() {
+  const { publicKey } = useWallet();
+  const walletAddress = publicKey?.toBase58();
+
+  return useQuery({
+    queryKey: ['lichess', 'connected', walletAddress],
+    queryFn: async () => {
+      if (!walletAddress) return null;
+      const { data } = await getSupabaseClient()
+        .from('players')
+        .select('lichess_username, lichess_user_id')
+        .eq('wallet_address', walletAddress)
+        .maybeSingle();
+      return (data as any) ?? null;
+    },
+    enabled: !!walletAddress,
+  });
+}
+
+// ── Disconnect Lichess ────────────────────────────────────────────────────────
+
+export function useDisconnectLichess() {
+  const queryClient = useQueryClient();
+  const { getSessionToken } = useWalletAuth();
+
+  return useMutation({
+    mutationFn: async () => {
+      const sessionToken = await getSessionToken();
+      if (!sessionToken) throw new Error('Wallet verification required');
+
+      const { error } = await getSupabaseClient().functions.invoke('secure-player', {
+        body: {
+          action: 'update',
+          updates: {
+            lichess_access_token: null,
+            lichess_username: null,
+            lichess_user_id: null,
+          },
+        },
+        headers: { 'X-Session-Token': sessionToken },
+      });
+      if (error) throw new Error('Failed to disconnect Lichess');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lichess'] });
+      queryClient.invalidateQueries({ queryKey: ['player'] });
+    },
+  });
+}
 
 // ── Fetch user profile by username ────────────────────────────────────────────
 
@@ -211,181 +309,6 @@ export function useLichessOnlineStatus(username: string | null | undefined) {
     },
     enabled: !!username,
     refetchInterval: 30000,
-  });
-}
-
-// ── Create an open challenge link (no auth required) ──────────────────────────
-
-export function useCreateOpenChallenge() {
-  return useMutation({
-    mutationFn: async ({
-      timeControl = '10+0',
-      rated = false,
-    }: {
-      timeControl?: string;
-      rated?: boolean;
-    } = {}): Promise<{ url: string; gameId: string | null }> => {
-      const [minutes, increment] = timeControl.split('+').map(Number);
-      const params = new URLSearchParams({
-        variant: 'standard',
-        timeMode: 'realTime',
-        time: minutes.toString(),
-        increment: increment.toString(),
-        mode: rated ? 'rated' : 'casual',
-      });
-      const url = `https://lichess.org/setup/friend?${params.toString()}`;
-      return { url, gameId: null };
-    },
-  });
-}
-
-// ── Fetch current player's stored Lichess token from DB ───────────────────────
-
-export function useLichessToken() {
-  const { publicKey } = useWallet();
-  const walletAddress = publicKey?.toBase58();
-
-  return useQuery({
-    queryKey: ['lichess', 'token', walletAddress],
-    queryFn: async () => {
-      if (!walletAddress) return null;
-      const { data } = await getSupabaseClient()
-        .from('players')
-        .select('lichess_access_token, lichess_username')
-        .eq('wallet_address', walletAddress)
-        .maybeSingle();
-      // Cast to any — Supabase types not yet regenerated after migration
-      return (data as any)?.lichess_access_token ?? null;
-    },
-    enabled: !!walletAddress,
-  });
-}
-
-// ── Save Lichess token — verifies it by calling /api/account first ────────────
-
-export function useSaveLichessToken() {
-  const queryClient = useQueryClient();
-  const { publicKey } = useWallet();
-  const { getSessionToken } = useWalletAuth();
-
-  return useMutation({
-    mutationFn: async (token: string) => {
-      if (!publicKey) throw new Error('Wallet not connected');
-      const trimmed = token.trim();
-      if (!trimmed) throw new Error('Token cannot be empty');
-
-      const verifyRes = await fetch('https://lichess.org/api/account', {
-        headers: {
-          Authorization: `Bearer ${trimmed}`,
-          Accept: 'application/json',
-        },
-      });
-      if (!verifyRes.ok) throw new Error('Invalid Lichess token — please check and try again');
-      const account = await verifyRes.json() as LichessUser;
-
-      const sessionToken = await getSessionToken();
-      if (!sessionToken) throw new Error('Wallet verification required');
-
-      const { error } = await getSupabaseClient().functions.invoke('secure-player', {
-        body: {
-          action: 'update',
-          updates: {
-            lichess_access_token: trimmed,
-            lichess_username: account.username,
-          },
-        },
-        headers: { 'X-Session-Token': sessionToken },
-      });
-      if (error) throw new Error('Failed to save token');
-      return account;
-    },
-    onSuccess: (account) => {
-      queryClient.invalidateQueries({ queryKey: ['lichess', 'token'] });
-      queryClient.invalidateQueries({ queryKey: ['player'] });
-      queryClient.invalidateQueries({ queryKey: ['lichessUser', account.username] });
-    },
-  });
-}
-
-// ── Remove stored Lichess token ───────────────────────────────────────────────
-
-export function useRemoveLichessToken() {
-  const queryClient = useQueryClient();
-  const { getSessionToken } = useWalletAuth();
-
-  return useMutation({
-    mutationFn: async () => {
-      const sessionToken = await getSessionToken();
-      if (!sessionToken) throw new Error('Wallet verification required');
-      const { error } = await getSupabaseClient().functions.invoke('secure-player', {
-        body: { action: 'update', updates: { lichess_access_token: null } },
-        headers: { 'X-Session-Token': sessionToken },
-      });
-      if (error) throw new Error('Failed to remove token');
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['lichess', 'token'] });
-      queryClient.invalidateQueries({ queryKey: ['player'] });
-    },
-  });
-}
-
-// ── Create Lichess challenge using stored token ───────────────────────────────
-// opponentLichessUsername = null → open challenge (anyone can accept)
-// opponentLichessUsername = string → direct challenge to that user
-
-export function useCreateLichessChallenge() {
-  return useMutation({
-    mutationFn: async ({
-      token,
-      params,
-    }: {
-      token: string;
-      params: {
-        opponentLichessUsername: string | null;
-        rated?: boolean;
-        clockLimit?: number;
-        clockIncrement?: number;
-        color?: 'white' | 'black' | 'random';
-      };
-    }) => {
-      const {
-        opponentLichessUsername,
-        rated = false,
-        clockLimit = 300,
-        clockIncrement = 3,
-        color = 'random',
-      } = params;
-
-      const body = new URLSearchParams({
-        rated: String(rated),
-        'clock.limit': String(clockLimit),
-        'clock.increment': String(clockIncrement),
-        color,
-      });
-
-      const url = opponentLichessUsername
-        ? `https://lichess.org/api/challenge/${opponentLichessUsername}`
-        : 'https://lichess.org/api/challenge/open';
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-        },
-        body: body.toString(),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(err.error || `Lichess API error: ${res.status}`);
-      }
-
-      const data = await res.json() as { challenge?: LichessChallenge } & LichessChallenge;
-      return data.challenge ?? data;
-    },
   });
 }
 
