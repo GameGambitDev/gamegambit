@@ -2,26 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
+import type { Tables } from '@/integrations/supabase/types';
 
-export interface Player {
-  id: string;
-  wallet_address: string;
-  username: string | null;
-  lichess_username: string | null;
-  codm_username: string | null;
-  pubg_username: string | null;
-  total_wins: number;
-  total_losses: number;
-  total_earnings: number;
-  total_wagered: number;
-  current_streak: number;
-  best_streak: number;
-  is_banned: boolean;
-  ban_expires_at: string | null;
-  last_active: string;
-  created_at: string;
-  updated_at: string;
-}
+export type Player = Tables<'players'>;
 
 export function usePlayer() {
   const { publicKey } = useWallet();
@@ -36,7 +19,7 @@ export function usePlayer() {
         .from('players')
         .select('*')
         .eq('wallet_address', walletAddress)
-        .maybeSingle(); // CHANGED from .single()
+        .maybeSingle();
 
       if (error) throw error;
       return data as Player | null;
@@ -55,7 +38,6 @@ export function useCreatePlayer() {
     mutationFn: async () => {
       if (!publicKey) throw new Error('Wallet not connected');
 
-      // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required. Please sign the message to continue.');
@@ -86,7 +68,6 @@ export function useUpdatePlayer() {
     mutationFn: async (updates: Partial<Player>) => {
       if (!publicKey) throw new Error('Wallet not connected');
 
-      // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required. Please sign the message to continue.');
@@ -126,7 +107,6 @@ export function useLeaderboard(sortBy: 'earnings' | 'wins' | 'streak' = 'earning
   });
 }
 
-// Search players by username or wallet address
 export function useSearchPlayers(searchQuery: string) {
   return useQuery({
     queryKey: ['players', 'search', searchQuery],
@@ -146,7 +126,6 @@ export function useSearchPlayers(searchQuery: string) {
   });
 }
 
-// Get player by wallet address
 export function usePlayerByWallet(walletAddress: string | null) {
   return useQuery({
     queryKey: ['player', walletAddress],
@@ -166,7 +145,6 @@ export function usePlayerByWallet(walletAddress: string | null) {
   });
 }
 
-// Get multiple players by wallet addresses
 export function usePlayersByWallets(walletAddresses: string[]) {
   return useQuery({
     queryKey: ['players', 'byWallets', walletAddresses],
