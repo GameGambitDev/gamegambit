@@ -12,13 +12,13 @@ interface Player {
     wallet_address: string;
     username: string | null;
     is_banned: boolean;
-    
+
     total_wins: number | null;
     total_losses: number | null;
     total_earnings: number | null;
-  total_wagered: number | null;
+    total_wagered: number | null;
     created_at: string;
-    
+
 }
 
 function UsersContent() {
@@ -42,7 +42,7 @@ function UsersContent() {
             setError(null);
             const { data, error: fetchError } = await getSupabaseClient()
                 .from('players')
-                .select('wallet_address, username, is_banned, total_wins, total_losses, total_earnings, created_at')
+                .select('wallet_address, username, is_banned, total_wins, total_losses, total_earnings, total_wagered, created_at')
                 .order('created_at', { ascending: false });
 
             if (fetchError) throw fetchError;
