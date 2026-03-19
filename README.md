@@ -98,7 +98,7 @@ bump: u8
 A Next.js 15 application providing complete player and admin interfaces:
 - Real-time wager lobby with live status updates via Supabase Realtime
 - Ready Room with countdown timer and on-chain deposit confirmation
-- Automatic chess result verification via Lichess API → triggers `resolve_wager`
+- Lichess integration: auto-create challenges via personal API token, in-app board iframe, automatic result verification → triggers `resolve_wager`
 - Transaction history with Solana Explorer links for every on-chain event
 - Admin panel for dispute resolution, player management and audit logging
 

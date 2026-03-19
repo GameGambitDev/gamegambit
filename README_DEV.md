@@ -263,7 +263,7 @@ Players create wagers by selecting a game, stake amount, and opponent. Transacti
 - **Draw Screen**: Refund information with scale animation
 
 #### Multi-Game Support
-- **Chess**: Integrated with Lichess API for live game data
+- **Chess**: Lichess integration — auto-create games, in-app board embed, token-based auth
 - **Call of Duty Mobile**: Leaderboard-based rank validation
 - **PUBG**: Streamer.gg integration for match statistics
 

@@ -61,11 +61,10 @@ export interface LichessChallenge {
 }
 
 // ── Pre-filled token generation URL ──────────────────────────────────────────
-// Sends users to Lichess with challenge:write pre-checked and description pre-filled
 
 export const LICHESS_TOKEN_URL =
-  process.env.NEXT_PUBLIC_LICHESS_TOKEN_URL ||
   'https://lichess.org/account/oauth/token/create?scopes[]=challenge:write&description=GameGambit';
+
 // ── Fetch user profile by username ────────────────────────────────────────────
 
 export function useLichessUser(username: string | null | undefined) {
@@ -255,7 +254,8 @@ export function useLichessToken() {
         .select('lichess_access_token, lichess_username')
         .eq('wallet_address', walletAddress)
         .maybeSingle();
-      return data?.lichess_access_token ?? null;
+      // Cast to any — Supabase types not yet regenerated after migration
+      return (data as any)?.lichess_access_token ?? null;
     },
     enabled: !!walletAddress,
   });

@@ -1,6 +1,6 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 15, 2026  
+**Last Updated:** March 18, 2026  
 **Database:** PostgreSQL (Supabase)  
 **Environment:** Production
 
@@ -143,6 +143,9 @@ The `wager_transactions.tx_signature` column has a UNIQUE constraint. Combined w
 ### Off-Chain Mirror Pattern
 Wager state is mirrored in Supabase for real-time UI updates via Postgres Realtime. The Solana program is the authoritative source for funds; Supabase is the authoritative source for game metadata and UI state.
 
+### Lichess Token Storage
+`players.lichess_access_token` stores each player's personal Lichess API token (challenge:write scope). This allows the app to create Lichess challenges on the player's behalf without OAuth redirects. Tokens are stored server-side and never exposed to other clients.
+
 ---
 
 ## Detailed Table Specifications
@@ -176,9 +179,13 @@ CREATE TABLE players (
   preferred_game TEXT,
   
   -- Game Account Links
-  lichess_username TEXT,            -- For chess
+  lichess_username TEXT,            -- For chess (set automatically when token is saved)
   codm_username TEXT,               -- For Call of Duty Mobile
   pubg_username TEXT,               -- For PUBG
+  
+  -- Lichess OAuth Token
+  lichess_access_token TEXT,        -- Lichess personal API token (challenge:write scope)
+  lichess_token_expires_at TIMESTAMP WITH TIME ZONE, -- Token expiry (null = no expiry for personal tokens)
   
   -- Timestamps
   last_active TIMESTAMP WITH TIME ZONE,
@@ -195,6 +202,7 @@ CREATE INDEX idx_players_created ON players(created_at DESC);
 - `wallet_address`: Solana public key, immutable
 - `skill_rating`: ELO-style rating (starts at 1000)
 - `total_earnings/spent`: Tracked in lamports (1 SOL = 1,000,000,000 lamports)
+- `lichess_access_token`: Personal API token with challenge:write scope, stored securely server-side
 
 ---
 
@@ -223,6 +231,15 @@ CREATE TABLE wagers (
   ready_player_a BOOLEAN DEFAULT false,
   ready_player_b BOOLEAN DEFAULT false,
   countdown_started_at TIMESTAMP WITH TIME ZONE,
+  
+  -- On-chain deposit tracking
+  -- Set to true by secure-wager edge function after on-chain tx is confirmed.
+  -- Game starts (status → voting) only when both are true — prevents race
+  -- conditions where one player appears ready before funds land on-chain.
+  deposit_player_a BOOLEAN NOT NULL DEFAULT false,
+  deposit_player_b BOOLEAN NOT NULL DEFAULT false,
+  tx_signature_a TEXT,              -- Player A deposit tx signature
+  tx_signature_b TEXT,              -- Player B deposit tx signature
   
   -- Voting/Dispute Resolution
   requires_moderator BOOLEAN DEFAULT false,
@@ -258,7 +275,7 @@ CREATE INDEX idx_wagers_resolved ON wagers(status) WHERE status = 'resolved';
 **Status Flow:**
 1. `created` → Waiting for player B to join
 2. `joined` → Both players present, enter ready room
-3. `voting` → Match in progress (after countdown and deposits)
+3. `voting` → Match in progress (after countdown and BOTH deposits confirmed on-chain)
 4. `disputed` → Moderator review needed
 5. `resolved` → Winner determined, payouts processed
 6. `cancelled` → Wager cancelled, refunds processed (can occur from joined/voting)
@@ -607,6 +624,7 @@ CREATE INDEX idx_note_wager ON admin_notes(wager_id);
 5. **Player Uniqueness**: One player cannot be both player_a and player_b in same wager
 6. **Match ID Uniqueness**: Each wager has a unique match_id for PDA derivation
 7. **TX Signature Uniqueness**: Prevents duplicate transactions from concurrent calls
+8. **Dual Deposit Gate**: `status` cannot transition to `voting` unless both `deposit_player_a` and `deposit_player_b` are true
 
 ### Database Constraints
 
@@ -626,6 +644,26 @@ ALTER TABLE wagers ADD CONSTRAINT check_valid_winner
 
 -- TX Signature uniqueness prevents duplicate records
 ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_signature);
+```
+
+---
+
+## Recent Migrations
+
+### v1.1.0 — March 18, 2026
+
+```sql
+-- Wagers: dual deposit tracking for idempotent on-chain confirmation
+ALTER TABLE wagers 
+  ADD COLUMN IF NOT EXISTS deposit_player_a boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS deposit_player_b boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS tx_signature_a text,
+  ADD COLUMN IF NOT EXISTS tx_signature_b text;
+
+-- Players: Lichess personal API token storage
+ALTER TABLE players
+  ADD COLUMN IF NOT EXISTS lichess_access_token text,
+  ADD COLUMN IF NOT EXISTS lichess_token_expires_at timestamptz;
 ```
 
 ---
@@ -774,5 +812,5 @@ Contact Supabase support with:
 **Version Control**  
 This schema is version controlled in GitHub. Update this document whenever database changes are made.
 
-Last updated: March 15, 2026  
-Schema version: 1.0.0 (Supabase PostgreSQL)
+Last updated: March 18, 2026  
+Schema version: 1.1.0 (Supabase PostgreSQL)
