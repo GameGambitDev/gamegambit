@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
@@ -35,7 +35,8 @@ import { GameAccountCard } from '@/components/GameAccountCard'
 import { NFTGallery } from '@/components/NFTGallery'
 import { AchievementBadges } from '@/components/AchievementBadges'
 
-export default function ProfilePage() {
+// ── Inner component — uses useSearchParams, must be inside Suspense ──────────
+function ProfilePageInner() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const searchParams = useSearchParams()
@@ -142,7 +143,6 @@ export default function ProfilePage() {
     setIsConnectingLichess(true)
     try {
       await startLichessOAuth(publicKey.toBase58())
-      // Page will redirect — no reset needed
     } catch {
       setIsConnectingLichess(false)
       toast({ title: 'Failed to start Lichess authentication', variant: 'destructive' })
@@ -325,7 +325,6 @@ export default function ProfilePage() {
                     )}
                   </div>
 
-                  {/* Connected: security trust note */}
                   {isLichessConnected && (
                     <div className="flex items-start gap-2 p-2 rounded bg-success/5 border border-success/10">
                       <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 flex-shrink-0" />
@@ -335,7 +334,6 @@ export default function ProfilePage() {
                     </div>
                   )}
 
-                  {/* Not connected: short explanation */}
                   {!lichessLoading && !isLichessConnected && (
                     <div className="space-y-1">
                       <p className="text-[11px] text-muted-foreground">
@@ -531,5 +529,20 @@ export default function ProfilePage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Page export — Suspense required by Next.js 15 for useSearchParams ────────
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={
+      <div className="py-8 pb-16">
+        <div className="container px-4 flex justify-center items-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    }>
+      <ProfilePageInner />
+    </Suspense>
   )
 }
