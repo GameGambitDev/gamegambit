@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
@@ -12,7 +13,7 @@ const WalletMultiButton = dynamic(
 )
 import {
   User, Trophy, Swords, Clock, Copy, Check, Loader2,
-  Wallet, Edit2, Save, Link2, KeyRound, ExternalLink,
+  Wallet, Edit2, Save, Link2, CheckCircle2,
   LogOut as Unlink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,8 +26,10 @@ import { toast } from '@/hooks/use-toast'
 import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import {
-  useLichessUser, useLichessToken, useSaveLichessToken,
-  useRemoveLichessToken, LICHESS_TOKEN_URL,
+  useLichessUser,
+  useLichessConnected,
+  useDisconnectLichess,
+  startLichessOAuth,
 } from '@/hooks/useLichess'
 import { GameAccountCard } from '@/components/GameAccountCard'
 import { NFTGallery } from '@/components/NFTGallery'
@@ -35,6 +38,7 @@ import { AchievementBadges } from '@/components/AchievementBadges'
 export default function ProfilePage() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
+  const searchParams = useSearchParams()
   const currentUserWallet = publicKey?.toBase58()
   const viewingWallet = currentUserWallet
 
@@ -43,18 +47,34 @@ export default function ProfilePage() {
   const createPlayer = useCreatePlayer()
   const updatePlayer = useUpdatePlayer()
 
-  const { data: lichessUserData } = useLichessUser(player?.lichess_username)
-  const { data: lichessToken } = useLichessToken()
-  const saveLichessToken = useSaveLichessToken()
-  const removeLichessToken = useRemoveLichessToken()
+  const { data: lichessConnected, isLoading: lichessLoading } = useLichessConnected()
+  const disconnectLichess = useDisconnectLichess()
+  const lichessUsername = (lichessConnected as any)?.lichess_username ?? null
+  const isLichessConnected = !!lichessUsername
+
+  const { data: lichessUserData } = useLichessUser(lichessUsername)
 
   const [platformUsername, setPlatformUsername] = useState('')
   const [isEditingUsername, setIsEditingUsername] = useState(false)
   const [copiedAddress, setCopiedAddress] = useState(false)
+  const [isConnectingLichess, setIsConnectingLichess] = useState(false)
 
-  // Lichess token input state
-  const [showLichessInput, setShowLichessInput] = useState(false)
-  const [lichessTokenInput, setLichessTokenInput] = useState('')
+  // ── Handle return from Lichess OAuth callback ─────────────────────────────
+  useEffect(() => {
+    const lichessParam = searchParams?.get('lichess')
+    const username = searchParams?.get('username')
+    if (lichessParam === 'connected' && username) {
+      toast({ title: `Lichess connected as @${username}! ✓` })
+      window.history.replaceState({}, '', '/profile')
+    } else if (lichessParam === 'denied') {
+      toast({ title: 'Lichess connection cancelled', variant: 'destructive' })
+      window.history.replaceState({}, '', '/profile')
+    } else if (lichessParam === 'error') {
+      const reason = searchParams?.get('reason') || 'unknown'
+      toast({ title: `Lichess connection failed (${reason})`, variant: 'destructive' })
+      window.history.replaceState({}, '', '/profile')
+    }
+  }, [searchParams])
 
   useEffect(() => {
     if (connected && !isLoading && !player && publicKey) {
@@ -66,7 +86,6 @@ export default function ProfilePage() {
     if (player) setPlatformUsername(player.username || '')
   }, [player])
 
-  // Non-chess accounts (chess handled separately via token)
   const nonChessAccounts = [
     { game: GAMES.CODM, linkedUsername: player?.codm_username || null, key: 'codm_username' },
     { game: GAMES.PUBG, linkedUsername: player?.pubg_username || null, key: 'pubg_username' },
@@ -115,22 +134,24 @@ export default function ProfilePage() {
     }
   }
 
-  const handleSaveLichessToken = async () => {
-    if (!lichessTokenInput.trim()) return
+  const handleConnectLichess = async () => {
+    if (!publicKey) {
+      toast({ title: 'Connect your wallet first', variant: 'destructive' })
+      return
+    }
+    setIsConnectingLichess(true)
     try {
-      const account = await saveLichessToken.mutateAsync(lichessTokenInput.trim())
-      toast({ title: `Lichess connected as @${account.username}!` })
-      setShowLichessInput(false)
-      setLichessTokenInput('')
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to connect Lichess'
-      toast({ title: message, variant: 'destructive' })
+      await startLichessOAuth(publicKey.toBase58())
+      // Page will redirect — no reset needed
+    } catch {
+      setIsConnectingLichess(false)
+      toast({ title: 'Failed to start Lichess authentication', variant: 'destructive' })
     }
   }
 
-  const handleRemoveLichessToken = async () => {
+  const handleDisconnectLichess = async () => {
     try {
-      await removeLichessToken.mutateAsync()
+      await disconnectLichess.mutateAsync()
       toast({ title: 'Lichess account disconnected' })
     } catch {
       toast({ title: 'Failed to disconnect', variant: 'destructive' })
@@ -249,96 +270,86 @@ export default function ProfilePage() {
               </CardHeader>
               <CardContent className="space-y-4">
 
-                {/* ── Chess / Lichess — token-based connection ── */}
-                <div className="p-3 rounded-lg border border-border bg-muted/10">
+                {/* ── Chess / Lichess — OAuth ── */}
+                <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">♟️</span>
                       <div>
                         <p className="font-medium text-sm">Chess (Lichess)</p>
-                        {player?.lichess_username ? (
-                          <p className="text-xs text-success">@{player.lichess_username}</p>
+                        {lichessLoading ? (
+                          <p className="text-xs text-muted-foreground">Checking…</p>
+                        ) : isLichessConnected ? (
+                          <p className="text-xs text-success">@{lichessUsername}</p>
                         ) : (
                           <p className="text-xs text-muted-foreground">Not connected</p>
                         )}
                       </div>
                     </div>
-                    {lichessToken ? (
-                      <div className="flex items-center gap-2">
-                        <Badge variant="success" className="text-xs">Connected</Badge>
+
+                    {!lichessLoading && (
+                      isLichessConnected ? (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="success" className="text-xs">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Verified
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={handleDisconnectLichess}
+                            disabled={disconnectLichess.isPending}
+                            title="Disconnect Lichess"
+                          >
+                            {disconnectLichess.isPending
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Unlink className="h-3.5 w-3.5" />
+                            }
+                          </Button>
+                        </div>
+                      ) : (
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={handleRemoveLichessToken}
-                          disabled={removeLichessToken.isPending}
-                          title="Disconnect Lichess"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs border-primary/40 hover:border-primary"
+                          onClick={handleConnectLichess}
+                          disabled={isConnectingLichess}
                         >
-                          {removeLichessToken.isPending
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <Unlink className="h-3.5 w-3.5" />
+                          {isConnectingLichess
+                            ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Connecting…</>
+                            : '♟ Connect'
                           }
                         </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs border-primary/40"
-                        onClick={() => setShowLichessInput(!showLichessInput)}
-                      >
-                        <KeyRound className="h-3 w-3 mr-1" />
-                        Connect
-                      </Button>
+                      )
                     )}
                   </div>
 
-                  {/* Token input — visible when Connect clicked */}
-                  {showLichessInput && !lichessToken && (
-                    <div className="mt-3 space-y-2 pt-3 border-t border-border">
-                      <p className="text-xs text-muted-foreground">
-                        1.{' '}
-                        <a
-                          href={LICHESS_TOKEN_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline inline-flex items-center gap-1"
-                        >
-                          Generate your Lichess API token
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                        {' '}(check <strong>challenge:write</strong>, click Create)
-                      </p>
-                      <p className="text-xs text-muted-foreground">2. Paste it here:</p>
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Paste your Lichess token here"
-                          value={lichessTokenInput}
-                          onChange={(e) => setLichessTokenInput(e.target.value)}
-                          className="bg-background text-sm font-mono"
-                          type="password"
-                        />
-                        <Button
-                          variant="neon"
-                          size="sm"
-                          onClick={handleSaveLichessToken}
-                          disabled={saveLichessToken.isPending || !lichessTokenInput.trim()}
-                        >
-                          {saveLichessToken.isPending
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : 'Save'
-                          }
-                        </Button>
-                      </div>
+                  {/* Connected: security trust note */}
+                  {isLichessConnected && (
+                    <div className="flex items-start gap-2 p-2 rounded bg-success/5 border border-success/10">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 flex-shrink-0" />
                       <p className="text-[11px] text-muted-foreground">
-                        No Lichess account?{' '}
+                        Identity verified via Lichess OAuth. GameGambit can create games on your behalf but cannot access your password or account settings.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Not connected: short explanation */}
+                  {!lichessLoading && !isLichessConnected && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">
+                        Connecting via OAuth proves you own this Lichess account. Required to play chess wagers.
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        No account?{' '}
                         <a
                           href="https://lichess.org/signup"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-primary underline"
                         >
-                          Create one free
+                          Create one free on Lichess
                         </a>
                       </p>
                     </div>
