@@ -103,6 +103,7 @@ export function ReadyRoomModal({
   const isVoting = wager?.status === 'voting';
   const hasLichessGame = isVoting && !!wager?.lichess_game_id && wager.game === 'chess';
   const lichessUrl = hasLichessGame ? `https://lichess.org/${wager.lichess_game_id}` : null;
+  const lichessEmbedUrl = hasLichessGame ? `https://lichess.org/embed/game/${wager.lichess_game_id}?theme=auto&bg=auto` : null;
   const gameLink = getGameLink(wager?.game ?? '', wager?.lichess_game_id ?? null);
 
   useEffect(() => { setLocalReady(myReady ?? false); }, [myReady]);
@@ -282,11 +283,10 @@ export function ReadyRoomModal({
           <div className="mt-4 space-y-3">
             <div className="rounded-lg overflow-hidden border border-border" style={{ height: '500px' }}>
               <iframe
-                src={lichessUrl!}
+                src={`https://lichess.org/embed/game/${wager.lichess_game_id}?theme=auto&bg=auto`}
                 className="w-full h-full"
                 title="Lichess Game"
                 allow="fullscreen"
-                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
               />
             </div>
             <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
