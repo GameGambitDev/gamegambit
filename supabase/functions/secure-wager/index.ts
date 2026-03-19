@@ -109,7 +109,7 @@ async function createLichessGame(
         // Lock game to these two players only. First username = white.
         users: `${playerAUsername},${playerBUsername}`,
         // Prevent draws/early quits to protect wager integrity
-        rules: 'noAbort,noRematch,noEarlyDraw',
+        rules: 'noRematch,noEarlyDraw',
         name: 'GameGambit Wager',
     });
 
