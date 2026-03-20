@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const state = searchParams.get('state');
     const error = searchParams.get('error');
 
-    const redirectBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://thegamegambit.vercel.app';
+    const redirectBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://gamegambit-auth.vercel.app';
 
     // ── Error from Lichess (user denied, etc.) ──────────────────────────────────
     if (error) {

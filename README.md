@@ -16,8 +16,8 @@
 
 | | |
 |---|---|
-| **Deployed App** | https://thegamegambit.vercel.app |
-| **Admin Panel** | https://thegamegambit.vercel.app/itszaadminlogin |
+| **Deployed App** | https://gamegambit-auth.vercel.app |
+| **Admin Panel** | https://gamegambit-auth.vercel.app/itszaadminlogin |
 | **Program (Devnet)** | [`E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR`](https://explorer.solana.com/address/E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR?cluster=devnet) |
 | **UI Repo** | https://github.com/GameGambitDev/gamegambit |
 | **Smart Contract Repo** | https://github.com/Web3ProdigyDev/gamegambit-sol |

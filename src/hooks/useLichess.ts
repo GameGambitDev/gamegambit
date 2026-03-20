@@ -84,8 +84,8 @@ async function sha256Base64Url(plain: string): Promise<string> {
 // No server registration needed — PKCE is purely client-driven.
 
 export async function startLichessOAuth(walletAddress: string): Promise<void> {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://thegamegambit.vercel.app';
-  const clientId = new URL(siteUrl).hostname; // e.g. "thegamegambit.vercel.app"
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://gamegambit-auth.vercel.app';
+  const clientId = new URL(siteUrl).hostname; // e.g. "gamegambit-auth.vercel.app"
   const redirectUri = `${siteUrl}/api/auth/lichess/callback`;
 
   const state = generateRandomString(32);
