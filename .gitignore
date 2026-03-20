@@ -38,3 +38,4 @@ env.local
 *.sw?
 .vercel
 .env.local
+supabase_linux_amd64.tar.gz
