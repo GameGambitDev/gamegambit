@@ -16,8 +16,8 @@
 
 | | |
 |---|---|
-| **Deployed App** | https://gamegambit-auth.vercel.app |
-| **Admin Panel** | https://gamegambit-auth.vercel.app/itszaadminlogin |
+| **Deployed App** | https://thegamegambit.vercel.app |
+| **Admin Panel** | https://thegamegambit.vercel.app/itszaadminlogin |
 | **Program (Devnet)** | [`E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR`](https://explorer.solana.com/address/E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR?cluster=devnet) |
 | **UI Repo** | https://github.com/GameGambitDev/gamegambit |
 | **Smart Contract Repo** | https://github.com/Web3ProdigyDev/gamegambit-sol |
@@ -98,7 +98,7 @@ bump: u8
 A Next.js 15 application providing complete player and admin interfaces:
 - Real-time wager lobby with live status updates via Supabase Realtime
 - Ready Room with countdown timer and on-chain deposit confirmation
-- Lichess integration: auto-create challenges via personal API token, in-app board iframe, automatic result verification → triggers `resolve_wager`
+- Lichess OAuth (PKCE) — players verify ownership of their Lichess account; platform token auto-creates locked games server-side with per-color play links; automatic result verification triggers `resolve_wager`
 - Transaction history with Solana Explorer links for every on-chain event
 - Admin panel for dispute resolution, player management and audit logging
 
@@ -111,8 +111,8 @@ A Next.js 15 application providing complete player and admin interfaces:
 | Smart Contract | Rust, Anchor 0.30, Solana Devnet |
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS |
 | Database | Supabase PostgreSQL (off-chain game state) |
-| Auth | Wallet signature verification (Ed25519) |
-| Chess Verification | Lichess Public API |
+| Auth | Wallet signature verification (Ed25519) + Lichess OAuth PKCE |
+| Chess | Lichess Public API + Platform Token game creation |
 | Hosting | Vercel |
 
 ---
