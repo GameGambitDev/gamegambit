@@ -1,6 +1,6 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 15, 2026  
+**Last Updated:** March 20, 2026  
 **Database:** PostgreSQL (Supabase)  
 **Environment:** Production
 
@@ -48,6 +48,7 @@ Financial event tracking across on-chain and off-chain operations:
 - `'cancel_refund'` — Refund on wager cancellation
 - `'cancelled'` — Wager cancelled log entry
 - `'platform_fee'` — Platform fee collected
+- `'moderator_fee'` — Moderator fee on dispute resolution
 - `'error_on_chain_resolve'` — Resolution transaction failed on-chain
 - `'error_resolution_call'` — API resolution call failed
 
@@ -143,6 +144,12 @@ The `wager_transactions.tx_signature` column has a UNIQUE constraint. Combined w
 ### Off-Chain Mirror Pattern
 Wager state is mirrored in Supabase for real-time UI updates via Postgres Realtime. The Solana program is the authoritative source for funds; Supabase is the authoritative source for game metadata and UI state.
 
+### Lichess OAuth (PKCE)
+Players connect their Lichess account via OAuth PKCE flow. The callback saves `lichess_username`, `lichess_user_id`, and `lichess_access_token` to the player row. `lichess_user_id` is the authoritative proof of account ownership — it comes directly from the Lichess `/api/account` endpoint post-auth, not from user input.
+
+### Platform Token Game Creation
+When both players are deposited and the wager enters voting, `secure-wager` calls the Lichess API using `LICHESS_PLATFORM_TOKEN` (a server-side secret) with `users=PlayerA,PlayerB` to create a locked open challenge. Per-color URLs (`lichess_url_white`, `lichess_url_black`) are saved to the wager row and served to each player directly — no manual game ID entry needed.
+
 ---
 
 ## Detailed Table Specifications
@@ -153,48 +160,56 @@ Core user account table. Every player has a wallet address as their primary iden
 
 ```sql
 CREATE TABLE players (
-  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-  wallet_address TEXT NOT NULL UNIQUE,
-  username TEXT UNIQUE,
-  bio TEXT,
-  avatar_url TEXT,
-  
+  id                        BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  wallet_address            TEXT NOT NULL UNIQUE,
+  username                  TEXT UNIQUE,
+  bio                       TEXT,
+  avatar_url                TEXT,
+
   -- Account Status
-  is_banned BOOLEAN DEFAULT false,
-  ban_reason TEXT,
-  verified BOOLEAN DEFAULT false,
-  
+  is_banned                 BOOLEAN DEFAULT false,
+  ban_reason                TEXT,
+  verified                  BOOLEAN DEFAULT false,
+
   -- Performance Stats
-  total_wins INTEGER DEFAULT 0,
-  total_losses INTEGER DEFAULT 0,
-  win_rate NUMERIC DEFAULT 0.0,
-  total_earnings BIGINT DEFAULT 0,  -- in lamports
-  total_spent BIGINT DEFAULT 0,     -- in lamports
-  current_streak INTEGER DEFAULT 0,
-  best_streak INTEGER DEFAULT 0,
-  skill_rating INTEGER DEFAULT 1000,
-  preferred_game TEXT,
-  
+  total_wins                INTEGER DEFAULT 0,
+  total_losses              INTEGER DEFAULT 0,
+  win_rate                  NUMERIC DEFAULT 0.0,
+  total_earnings            BIGINT DEFAULT 0,       -- in lamports
+  total_spent               BIGINT DEFAULT 0,       -- in lamports
+  total_wagered             BIGINT DEFAULT 0,       -- in lamports
+  current_streak            INTEGER DEFAULT 0,
+  best_streak               INTEGER DEFAULT 0,
+  skill_rating              INTEGER DEFAULT 1000,
+  preferred_game            TEXT,
+
   -- Game Account Links
-  lichess_username TEXT,            -- For chess
-  codm_username TEXT,               -- For Call of Duty Mobile
-  pubg_username TEXT,               -- For PUBG
-  
+  lichess_username          TEXT,                   -- Set automatically on OAuth connect
+  codm_username             TEXT,
+  pubg_username             TEXT,
+
+  -- Lichess OAuth (v1.1.0)
+  lichess_access_token      TEXT,                   -- OAuth access token (challenge:write scope)
+  lichess_token_expires_at  TIMESTAMPTZ,            -- null = no expiry for personal tokens
+  lichess_user_id           TEXT,                   -- Authoritative Lichess identity proof
+
   -- Timestamps
-  last_active TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  last_active               TIMESTAMPTZ,
+  created_at                TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at                TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_players_wallet ON players(wallet_address);
+CREATE INDEX idx_players_wallet   ON players(wallet_address);
 CREATE INDEX idx_players_username ON players(username);
-CREATE INDEX idx_players_created ON players(created_at DESC);
+CREATE INDEX idx_players_created  ON players(created_at DESC);
 ```
 
 **Key Fields:**
-- `wallet_address`: Solana public key, immutable
-- `skill_rating`: ELO-style rating (starts at 1000)
-- `total_earnings/spent`: Tracked in lamports (1 SOL = 1,000,000,000 lamports)
+- `wallet_address`: Solana public key, immutable primary identifier
+- `skill_rating`: ELO-style rating, starts at 1000
+- `total_earnings/spent/wagered`: All tracked in lamports (1 SOL = 1,000,000,000 lamports)
+- `lichess_user_id`: Set by OAuth callback — authoritative proof of Lichess account ownership
+- `lichess_access_token`: Stored server-side with challenge:write scope, never exposed to clients
 
 ---
 
@@ -204,61 +219,77 @@ Represents individual gaming matches with betting logic.
 
 ```sql
 CREATE TABLE wagers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  match_id BIGINT UNIQUE GENERATED ALWAYS AS IDENTITY,
-  
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id              BIGINT UNIQUE GENERATED ALWAYS AS IDENTITY,
+
   -- Players
-  player_a_wallet TEXT NOT NULL REFERENCES players(wallet_address),
-  player_b_wallet TEXT REFERENCES players(wallet_address),
-  
+  player_a_wallet       TEXT NOT NULL REFERENCES players(wallet_address),
+  player_b_wallet       TEXT REFERENCES players(wallet_address),
+
   -- Game Details
-  game game_type NOT NULL,           -- chess, codm, pubg
-  stake_lamports BIGINT NOT NULL,    -- Per player stake
-  lichess_game_id TEXT,              -- Link to Lichess for chess
-  
+  game                  game_type NOT NULL,           -- chess, codm, pubg
+  stake_lamports        BIGINT NOT NULL,              -- Per player stake
+  lichess_game_id       TEXT,                         -- Link to Lichess for chess
+
+  -- Chess-specific (v1.1.0)
+  chess_clock_limit     INTEGER DEFAULT 300,          -- seconds
+  chess_clock_increment INTEGER DEFAULT 3,            -- seconds
+  chess_rated           BOOLEAN DEFAULT false,
+  lichess_url_white     TEXT,                         -- Per-color play URL for Player A
+  lichess_url_black     TEXT,                         -- Per-color play URL for Player B
+
   -- Match Status
-  status wager_status DEFAULT 'created'::wager_status,
-  
+  status                wager_status DEFAULT 'created'::wager_status,
+
   -- Ready Room (10-second countdown)
-  ready_player_a BOOLEAN DEFAULT false,
-  ready_player_b BOOLEAN DEFAULT false,
-  countdown_started_at TIMESTAMP WITH TIME ZONE,
-  
-  -- Voting/Dispute Resolution
-  requires_moderator BOOLEAN DEFAULT false,
-  vote_player_a TEXT REFERENCES players(wallet_address),
-  vote_player_b TEXT REFERENCES players(wallet_address),
-  vote_timestamp TIMESTAMP WITH TIME ZONE,
-  retract_deadline TIMESTAMP WITH TIME ZONE,
-  
+  ready_player_a        BOOLEAN DEFAULT false,
+  ready_player_b        BOOLEAN DEFAULT false,
+  countdown_started_at  TIMESTAMPTZ,
+
+  -- On-chain deposit tracking (v1.1.0)
+  -- Set to true by secure-wager edge function after on-chain tx is confirmed.
+  -- Game starts (status → voting) only when both are true — prevents race
+  -- conditions where one player appears ready before funds land on-chain.
+  deposit_player_a      BOOLEAN NOT NULL DEFAULT false,
+  deposit_player_b      BOOLEAN NOT NULL DEFAULT false,
+  tx_signature_a        TEXT,                         -- Player A deposit tx signature
+  tx_signature_b        TEXT,                         -- Player B deposit tx signature
+
+  -- Voting / Dispute Resolution
+  requires_moderator    BOOLEAN DEFAULT false,
+  vote_player_a         TEXT REFERENCES players(wallet_address),
+  vote_player_b         TEXT REFERENCES players(wallet_address),
+  vote_timestamp        TIMESTAMPTZ,
+  retract_deadline      TIMESTAMPTZ,
+
   -- Results
-  winner_wallet TEXT REFERENCES players(wallet_address),
-  resolved_at TIMESTAMP WITH TIME ZONE,
-  
+  winner_wallet         TEXT REFERENCES players(wallet_address),
+  resolved_at           TIMESTAMPTZ,
+
   -- Cancellation (for refunds)
-  cancelled_at TIMESTAMP WITH TIME ZONE,
-  cancelled_by TEXT REFERENCES players(wallet_address),
-  cancel_reason TEXT,   -- 'user_cancelled', 'transaction_failed', etc.
-  
+  cancelled_at          TIMESTAMPTZ,
+  cancelled_by          TEXT REFERENCES players(wallet_address),
+  cancel_reason         TEXT,                         -- 'user_cancelled', 'transaction_failed', etc.
+
   -- Public Access
-  is_public BOOLEAN DEFAULT true,
-  stream_url TEXT,
-  
+  is_public             BOOLEAN DEFAULT true,
+  stream_url            TEXT,
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  created_at            TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at            TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_wagers_status ON wagers(status);
-CREATE INDEX idx_wagers_players ON wagers(player_a_wallet, player_b_wallet);
-CREATE INDEX idx_wagers_created ON wagers(created_at DESC);
+CREATE INDEX idx_wagers_status   ON wagers(status);
+CREATE INDEX idx_wagers_players  ON wagers(player_a_wallet, player_b_wallet);
+CREATE INDEX idx_wagers_created  ON wagers(created_at DESC);
 CREATE INDEX idx_wagers_resolved ON wagers(status) WHERE status = 'resolved';
 ```
 
 **Status Flow:**
 1. `created` → Waiting for player B to join
 2. `joined` → Both players present, enter ready room
-3. `voting` → Match in progress (after countdown and deposits)
+3. `voting` → Match in progress (after countdown and BOTH deposits confirmed on-chain)
 4. `disputed` → Moderator review needed
 5. `resolved` → Winner determined, payouts processed
 6. `cancelled` → Wager cancelled, refunds processed (can occur from joined/voting)
@@ -271,29 +302,29 @@ Immutable ledger of all Solana blockchain transactions.
 
 ```sql
 CREATE TABLE wager_transactions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- References
-  wager_id UUID NOT NULL REFERENCES wagers(id),
-  wallet_address TEXT NOT NULL REFERENCES players(wallet_address),
-  
+  wager_id         UUID NOT NULL REFERENCES wagers(id),
+  wallet_address   TEXT NOT NULL REFERENCES players(wallet_address),
+
   -- Transaction Details
-  tx_type transaction_type NOT NULL,  -- deposit, withdraw, payout
-  amount_lamports BIGINT NOT NULL,
-  tx_signature TEXT UNIQUE,            -- Solana tx hash
-  
+  tx_type          transaction_type NOT NULL,    -- deposit, withdraw, payout
+  amount_lamports  BIGINT NOT NULL,
+  tx_signature     TEXT UNIQUE,                  -- Solana tx hash
+
   -- Status Tracking
-  status transaction_status DEFAULT 'pending'::transaction_status,
-  error_message TEXT,
-  
+  status           transaction_status DEFAULT 'pending'::transaction_status,
+  error_message    TEXT,
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  created_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_tx_wager ON wager_transactions(wager_id);
-CREATE INDEX idx_tx_wallet ON wager_transactions(wallet_address);
-CREATE INDEX idx_tx_status ON wager_transactions(status);
+CREATE INDEX idx_tx_wager     ON wager_transactions(wager_id);
+CREATE INDEX idx_tx_wallet    ON wager_transactions(wallet_address);
+CREATE INDEX idx_tx_status    ON wager_transactions(status);
 CREATE INDEX idx_tx_signature ON wager_transactions(tx_signature);
 ```
 
@@ -310,33 +341,33 @@ Victory/achievement NFTs minted to Solana blockchain.
 
 ```sql
 CREATE TABLE nfts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Blockchain Data
-  mint_address TEXT NOT NULL UNIQUE,  -- Solana NFT mint address
-  owner_wallet TEXT NOT NULL REFERENCES players(wallet_address),
-  
+  mint_address    TEXT NOT NULL UNIQUE,   -- Solana NFT mint address
+  owner_wallet    TEXT NOT NULL REFERENCES players(wallet_address),
+
   -- NFT Details
-  name TEXT NOT NULL,
-  tier nft_tier NOT NULL,             -- bronze, silver, gold, platinum
-  metadata_uri TEXT,                  -- Arweave/IPFS link
-  image_uri TEXT,
-  attributes JSONB DEFAULT '{}'::jsonb,
-  
+  name            TEXT NOT NULL,
+  tier            nft_tier NOT NULL,      -- bronze, silver, gold, platinum
+  metadata_uri    TEXT,                   -- Arweave/IPFS link
+  image_uri       TEXT,
+  attributes      JSONB DEFAULT '{}'::jsonb,
+
   -- Associated Data
-  wager_id UUID REFERENCES wagers(id),
-  match_id BIGINT,
-  stake_amount BIGINT,
+  wager_id        UUID REFERENCES wagers(id),
+  match_id        BIGINT,
+  stake_amount    BIGINT,
   lichess_game_id TEXT,
-  
+
   -- Timestamps
-  minted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  minted_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_nft_owner ON nfts(owner_wallet);
-CREATE INDEX idx_nft_wager ON nfts(wager_id);
-CREATE INDEX idx_nft_mint ON nfts(mint_address);
+CREATE INDEX idx_nft_owner  ON nfts(owner_wallet);
+CREATE INDEX idx_nft_wager  ON nfts(wager_id);
+CREATE INDEX idx_nft_mint   ON nfts(mint_address);
 ```
 
 **Tier System:**
@@ -353,218 +384,218 @@ User badges and milestones.
 
 ```sql
 CREATE TABLE achievements (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Reference
-  player_wallet TEXT NOT NULL REFERENCES players(wallet_address),
-  
+  player_wallet     TEXT NOT NULL REFERENCES players(wallet_address),
+
   -- Achievement Data
-  achievement_type TEXT NOT NULL,     -- "first_win", "streak_5", etc
-  achievement_value INTEGER,          -- Optional value (streak length, etc)
-  
+  achievement_type  TEXT NOT NULL,     -- "first_win", "streak_5", etc.
+  achievement_value INTEGER,           -- Optional value (streak length, etc.)
+
   -- Optional NFT
-  nft_mint_address TEXT REFERENCES nfts(mint_address),
-  
+  nft_mint_address  TEXT REFERENCES nfts(mint_address),
+
   -- Timestamps
-  unlocked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  unlocked_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  created_at        TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_achievement_player ON achievements(player_wallet);
-CREATE INDEX idx_achievement_type ON achievements(achievement_type);
+CREATE INDEX idx_achievement_type   ON achievements(achievement_type);
 ```
 
 ---
 
 ## Admin Tables
 
-### 7. **ADMIN_USERS**
+### 6. **ADMIN_USERS**
 
 Admin portal accounts. Separate from player accounts.
 
 ```sql
 CREATE TABLE admin_users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Authentication
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,         -- PBKDF2 hashed
-  username TEXT UNIQUE,
-  full_name TEXT,
-  
+  email               TEXT NOT NULL UNIQUE,
+  password_hash       TEXT NOT NULL,          -- PBKDF2 hashed
+  username            TEXT UNIQUE,
+  full_name           TEXT,
+
   -- Authorization
-  role admin_role NOT NULL,            -- moderator, admin, superadmin
-  permissions JSONB NOT NULL,          -- Granular permission map
-  
+  role                admin_role NOT NULL,     -- moderator, admin, superadmin
+  permissions         JSONB NOT NULL,          -- Granular permission map
+
   -- Account Status
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  is_banned BOOLEAN NOT NULL DEFAULT false,
-  two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
-  
+  is_active           BOOLEAN NOT NULL DEFAULT true,
+  is_banned           BOOLEAN NOT NULL DEFAULT false,
+  two_factor_enabled  BOOLEAN NOT NULL DEFAULT false,
+
   -- Timestamps
-  last_login TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  last_login          TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_admin_email ON admin_users(email);
+CREATE INDEX idx_admin_email    ON admin_users(email);
 CREATE INDEX idx_admin_username ON admin_users(username);
-CREATE INDEX idx_admin_role ON admin_users(role);
+CREATE INDEX idx_admin_role     ON admin_users(role);
 ```
 
 ---
 
-### 8. **ADMIN_SESSIONS**
+### 7. **ADMIN_SESSIONS**
 
 JWT session tracking for admin portal.
 
 ```sql
 CREATE TABLE admin_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Reference
-  admin_id UUID NOT NULL REFERENCES admin_users(id),
-  
+  admin_id       UUID NOT NULL REFERENCES admin_users(id),
+
   -- Session Data
-  token_hash TEXT NOT NULL UNIQUE,     -- Hashed JWT
-  ip_address TEXT,
-  user_agent TEXT,
-  
+  token_hash     TEXT NOT NULL UNIQUE,     -- Hashed JWT
+  ip_address     TEXT,
+  user_agent     TEXT,
+
   -- Lifecycle
-  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  last_activity TIMESTAMP WITH TIME ZONE,
-  
+  expires_at     TIMESTAMPTZ NOT NULL,
+  is_active      BOOLEAN NOT NULL DEFAULT true,
+  last_activity  TIMESTAMPTZ,
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_session_admin ON admin_sessions(admin_id);
+CREATE INDEX idx_session_admin  ON admin_sessions(admin_id);
 CREATE INDEX idx_session_active ON admin_sessions(is_active) WHERE is_active = true;
 ```
 
 ---
 
-### 9. **ADMIN_WALLET_BINDINGS**
+### 8. **ADMIN_WALLET_BINDINGS**
 
 Solana wallets bound to admin accounts for on-chain verification.
 
 ```sql
 CREATE TABLE admin_wallet_bindings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Reference
-  admin_id UUID NOT NULL REFERENCES admin_users(id),
-  
+  admin_id               UUID NOT NULL REFERENCES admin_users(id),
+
   -- Wallet Data
-  wallet_address TEXT NOT NULL UNIQUE,
-  verification_signature TEXT,         -- Ed25519 signature proof
-  
+  wallet_address         TEXT NOT NULL UNIQUE,
+  verification_signature TEXT,          -- Ed25519 signature proof
+
   -- Status
-  verified BOOLEAN NOT NULL DEFAULT false,
-  is_primary BOOLEAN NOT NULL DEFAULT false,
-  verified_at TIMESTAMP WITH TIME ZONE,
-  
+  verified               BOOLEAN NOT NULL DEFAULT false,
+  is_primary             BOOLEAN NOT NULL DEFAULT false,
+  verified_at            TIMESTAMPTZ,
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_wallet_admin ON admin_wallet_bindings(admin_id);
+CREATE INDEX idx_wallet_admin    ON admin_wallet_bindings(admin_id);
 CREATE INDEX idx_wallet_verified ON admin_wallet_bindings(verified);
 ```
 
 ---
 
-### 10. **ADMIN_AUDIT_LOGS**
+### 9. **ADMIN_AUDIT_LOGS**
 
 Full audit trail of all admin actions for compliance.
 
 ```sql
 CREATE TABLE admin_audit_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Reference
-  admin_id UUID NOT NULL REFERENCES admin_users(id),
-  
+  admin_id       UUID NOT NULL REFERENCES admin_users(id),
+
   -- Action Details
-  action_type TEXT NOT NULL,           -- What was done
-  resource_type TEXT NOT NULL,         -- What was affected (players, wagers, etc)
-  resource_id TEXT,                    -- ID of affected resource
-  
+  action_type    TEXT NOT NULL,          -- What was done
+  resource_type  TEXT NOT NULL,          -- What was affected (players, wagers, etc.)
+  resource_id    TEXT,                   -- ID of affected resource
+
   -- State Changes
-  old_values JSONB,                    -- Before state
-  new_values JSONB,                    -- After state
-  
+  old_values     JSONB,                  -- Before state
+  new_values     JSONB,                  -- After state
+
   -- Context
-  ip_address TEXT,
-  user_agent TEXT,
-  
+  ip_address     TEXT,
+  user_agent     TEXT,
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_audit_admin ON admin_audit_logs(admin_id);
-CREATE INDEX idx_audit_action ON admin_audit_logs(action_type);
+CREATE INDEX idx_audit_admin    ON admin_audit_logs(admin_id);
+CREATE INDEX idx_audit_action   ON admin_audit_logs(action_type);
 CREATE INDEX idx_audit_resource ON admin_audit_logs(resource_type, resource_id);
-CREATE INDEX idx_audit_created ON admin_audit_logs(created_at DESC);
+CREATE INDEX idx_audit_created  ON admin_audit_logs(created_at DESC);
 ```
 
 ---
 
-### 11. **ADMIN_LOGS**
+### 10. **ADMIN_LOGS**
 
 Wager-specific admin action log.
 
 ```sql
 CREATE TABLE admin_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- Action Details
-  action TEXT NOT NULL,
-  wager_id UUID NOT NULL REFERENCES wagers(id),
+  action         TEXT NOT NULL,
+  wager_id       UUID NOT NULL REFERENCES wagers(id),
   wallet_address TEXT REFERENCES players(wallet_address),
-  
+
   -- Who acted
-  performed_by TEXT NOT NULL,          -- Admin who acted
-  
+  performed_by   TEXT NOT NULL,          -- Admin who acted
+
   -- Context
-  notes TEXT,
-  metadata JSONB,
-  
+  notes          TEXT,
+  metadata       JSONB,
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_admin_log_wager ON admin_logs(wager_id);
-CREATE INDEX idx_admin_log_wallet ON admin_logs(wallet_address);
+CREATE INDEX idx_admin_log_wager   ON admin_logs(wager_id);
+CREATE INDEX idx_admin_log_wallet  ON admin_logs(wallet_address);
 CREATE INDEX idx_admin_log_created ON admin_logs(created_at DESC);
 ```
 
 ---
 
-### 12. **ADMIN_NOTES**
+### 11. **ADMIN_NOTES**
 
 Admin notes attached to players or wagers.
 
 ```sql
 CREATE TABLE admin_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
   -- References
-  player_wallet TEXT REFERENCES players(wallet_address),
-  wager_id UUID REFERENCES wagers(id),
-  
+  player_wallet  TEXT REFERENCES players(wallet_address),
+  wager_id       UUID REFERENCES wagers(id),
+
   -- Note Content
-  note TEXT NOT NULL,
-  created_by TEXT NOT NULL,            -- Admin who wrote it
-  
+  note           TEXT NOT NULL,
+  created_by     TEXT NOT NULL,          -- Admin who wrote it
+
   -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_note_player ON admin_notes(player_wallet);
-CREATE INDEX idx_note_wager ON admin_notes(wager_id);
+CREATE INDEX idx_note_wager  ON admin_notes(wager_id);
 ```
 
 ---
@@ -607,21 +638,22 @@ CREATE INDEX idx_note_wager ON admin_notes(wager_id);
 5. **Player Uniqueness**: One player cannot be both player_a and player_b in same wager
 6. **Match ID Uniqueness**: Each wager has a unique match_id for PDA derivation
 7. **TX Signature Uniqueness**: Prevents duplicate transactions from concurrent calls
+8. **Dual Deposit Gate**: `status` cannot transition to `voting` unless both `deposit_player_a` and `deposit_player_b` are true
 
 ### Database Constraints
 
 ```sql
 -- Prevent self-wagers
-ALTER TABLE wagers ADD CONSTRAINT check_different_players 
+ALTER TABLE wagers ADD CONSTRAINT check_different_players
   CHECK (player_a_wallet != player_b_wallet);
 
 -- Prevent negative amounts
-ALTER TABLE wagers ADD CONSTRAINT check_positive_stake 
+ALTER TABLE wagers ADD CONSTRAINT check_positive_stake
   CHECK (stake_lamports > 0);
 
 -- Prevent invalid winners
-ALTER TABLE wagers ADD CONSTRAINT check_valid_winner 
-  CHECK (winner_wallet IS NULL 
+ALTER TABLE wagers ADD CONSTRAINT check_valid_winner
+  CHECK (winner_wallet IS NULL
          OR winner_wallet IN (player_a_wallet, player_b_wallet));
 
 -- TX Signature uniqueness prevents duplicate records
@@ -630,19 +662,44 @@ ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_sig
 
 ---
 
-## Useful Queries
+## Recent Migrations
 
-### Player Stats
+### v1.1.0 — March 18, 2026
 
 ```sql
--- Get player leaderboard (top 100)
-SELECT 
+-- Wagers: dual deposit tracking + chess game support
+ALTER TABLE wagers
+  ADD COLUMN IF NOT EXISTS deposit_player_a      BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS deposit_player_b      BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS tx_signature_a        TEXT,
+  ADD COLUMN IF NOT EXISTS tx_signature_b        TEXT,
+  ADD COLUMN IF NOT EXISTS chess_clock_limit     INTEGER DEFAULT 300,
+  ADD COLUMN IF NOT EXISTS chess_clock_increment INTEGER DEFAULT 3,
+  ADD COLUMN IF NOT EXISTS chess_rated           BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS lichess_url_white     TEXT,
+  ADD COLUMN IF NOT EXISTS lichess_url_black     TEXT;
+
+-- Players: Lichess OAuth
+ALTER TABLE players
+  ADD COLUMN IF NOT EXISTS lichess_access_token      TEXT,
+  ADD COLUMN IF NOT EXISTS lichess_token_expires_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS lichess_user_id           TEXT;
+```
+
+---
+
+## Useful Queries
+
+### Player Leaderboard (Top 100)
+
+```sql
+SELECT
   wallet_address,
   username,
   total_wins,
   total_losses,
-  ROUND((total_wins::numeric / NULLIF(total_wins + total_losses, 0) * 100), 2) as win_rate,
-  total_earnings / 1000000000.0 as earnings_sol,
+  ROUND((total_wins::numeric / NULLIF(total_wins + total_losses, 0) * 100), 2) AS win_rate,
+  total_earnings / 1000000000.0 AS earnings_sol,
   skill_rating,
   current_streak,
   best_streak
@@ -652,47 +709,44 @@ ORDER BY skill_rating DESC, total_wins DESC
 LIMIT 100;
 ```
 
-### Wager History
+### Wager History for a Player
 
 ```sql
--- Get completed wagers for a player
-SELECT 
+SELECT
   id,
   match_id,
   game,
-  stake_lamports / 1000000000.0 as stake_sol,
-  CASE WHEN winner_wallet = ? THEN 'WON' ELSE 'LOST' END as result,
+  stake_lamports / 1000000000.0 AS stake_sol,
+  CASE WHEN winner_wallet = $1 THEN 'WON' ELSE 'LOST' END AS result,
   resolved_at,
   winner_wallet
 FROM wagers
-WHERE (player_a_wallet = ? OR player_b_wallet = ?)
+WHERE (player_a_wallet = $1 OR player_b_wallet = $1)
   AND status = 'resolved'
 ORDER BY resolved_at DESC
 LIMIT 50;
 ```
 
-### Transaction Ledger
+### Transaction Ledger for a Wager
 
 ```sql
--- Get all transactions for a wager with on-chain confirmation
-SELECT 
+SELECT
   id,
   tx_type,
-  amount_lamports / 1000000000.0 as amount_sol,
+  amount_lamports / 1000000000.0 AS amount_sol,
   status,
   tx_signature,
   error_message,
   created_at
 FROM wager_transactions
-WHERE wager_id = ?
+WHERE wager_id = $1
 ORDER BY created_at DESC;
 ```
 
-### Admin Actions
+### Admin Actions on a Player (Audit Trail)
 
 ```sql
--- Get all admin actions on a player (audit trail)
-SELECT 
+SELECT
   al.action,
   al.wager_id,
   al.performed_by,
@@ -700,7 +754,7 @@ SELECT
   al.metadata,
   al.created_at
 FROM admin_logs al
-WHERE al.wallet_address = ?
+WHERE al.wallet_address = $1
 ORDER BY al.created_at DESC
 LIMIT 100;
 ```
@@ -708,21 +762,20 @@ LIMIT 100;
 ### Disputed Wagers
 
 ```sql
--- Get all wagers awaiting dispute resolution
-SELECT 
+SELECT
   id,
   match_id,
   player_a_wallet,
   player_b_wallet,
   game,
-  stake_lamports / 1000000000.0 as stake_sol,
+  stake_lamports / 1000000000.0 AS stake_sol,
   vote_player_a,
   vote_player_b,
   vote_timestamp,
   created_at
 FROM wagers
 WHERE status = 'disputed'
-  OR (status = 'voting' AND requires_moderator = true)
+   OR (status = 'voting' AND requires_moderator = true)
 ORDER BY vote_timestamp ASC;
 ```
 
@@ -765,6 +818,7 @@ Contact Supabase support with:
 
 - **Architecture**: See `ARCHITECTURE.md` for on-chain/off-chain design
 - **Type Definitions**: See `src/integrations/supabase/types.ts`
+- **Full DB Setup**: See `gamegambit-setup.sql`
 - **API Reference**: See `API_REFERENCE.md`
 - **Admin Guide**: See admin-specific documentation
 - **Development**: See `DEVELOPMENT_GUIDE.md`
@@ -774,5 +828,5 @@ Contact Supabase support with:
 **Version Control**  
 This schema is version controlled in GitHub. Update this document whenever database changes are made.
 
-Last updated: March 15, 2026  
-Schema version: 1.0.0 (Supabase PostgreSQL)
+Last updated: March 20, 2026  
+Schema version: 1.1.0 (Supabase PostgreSQL)

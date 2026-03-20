@@ -7,16 +7,18 @@ import { Users as UsersIcon, Search, Filter, Loader } from 'lucide-react';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 
+// @deprecated — use Tables<'players'> instead
 interface Player {
     wallet_address: string;
     username: string | null;
     is_banned: boolean;
-    
-    total_wins: number;
-    total_losses: number;
-    total_earnings: number;
+
+    total_wins: number | null;
+    total_losses: number | null;
+    total_earnings: number | null;
+    total_wagered: number | null;
     created_at: string;
-    
+
 }
 
 function UsersContent() {
@@ -40,11 +42,11 @@ function UsersContent() {
             setError(null);
             const { data, error: fetchError } = await getSupabaseClient()
                 .from('players')
-                .select('wallet_address, username, is_banned, total_wins, total_losses, total_earnings, created_at')
+                .select('wallet_address, username, is_banned, total_wins, total_losses, total_earnings, total_wagered, created_at')
                 .order('created_at', { ascending: false });
 
             if (fetchError) throw fetchError;
-            setUsers(data || []);
+            setUsers((data || []) as unknown as Player[]);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch users');
         } finally {
@@ -235,8 +237,8 @@ function UsersContent() {
                                         <td className="px-6 py-4 text-xs font-mono text-muted-foreground">{truncateWallet(user.wallet_address)}</td>
                                         <td className="px-6 py-4 text-sm text-foreground font-medium">{user.username || truncateWallet(user.wallet_address)}</td>
                                         <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</td>
-                                        <td className="px-6 py-4 text-sm text-foreground">{user.total_wins}W / {user.total_losses}L</td>
-                                        <td className="px-6 py-4 text-sm text-primary font-semibold">{(user.total_earnings / 1_000_000_000).toFixed(4)} SOL</td>
+                                        <td className="px-6 py-4 text-sm text-foreground">{(user.total_wins ?? 0)}W / {(user.total_losses ?? 0)}L</td>
+                                        <td className="px-6 py-4 text-sm text-primary font-semibold">{((user.total_earnings ?? 0) / 1_000_000_000).toFixed(4)} SOL</td>
                                         <td className="px-6 py-4">
                                             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${user.is_banned ? 'bg-destructive/20 text-destructive' : 'bg-success/20 text-success'
                                                 }`}>

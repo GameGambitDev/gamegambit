@@ -10,11 +10,18 @@
 
 **Game Gambit** is a decentralized gaming platform where players can create wagers on chess, Call of Duty Mobile, and PUBG matches on the Solana blockchain. Built for high performance with support for 200k+ monthly active users.
 
+## Live Links
+
+| | |
+|---|---|
+| **Deployed App** | https://thegamegambit.vercel.app |
+| **Admin Panel** | https://thegamegambit.vercel.app/itszaadminlogin |
+
 ## Features
 
 ### Player Features
 - **Decentralized Wagers**: Create and join gaming matches with Solana blockchain settlement
-- **Multi-Game Support**: Chess (Lichess integration), Call of Duty Mobile, PUBG
+- **Multi-Game Support**: Chess (Lichess OAuth PKCE + platform token game creation), Call of Duty Mobile, PUBG
 - **Real-Time Leaderboard**: Live player rankings with skill ratings
 - **Voting System**: Dispute resolution with player voting
 - **NFT Rewards**: Victory NFTs for achievements and streaks
@@ -42,7 +49,8 @@
 | **Styling** | Tailwind CSS 3.4, Radix UI components |
 | **Database** | Supabase PostgreSQL with Row-Level Security |
 | **Blockchain** | Solana Web3.js, Anchor Framework |
-| **Authentication** | Solana Wallet Adapter |
+| **Authentication** | Solana Wallet Adapter + Lichess OAuth PKCE |
+| **Chess** | Lichess Public API + Platform Token game creation |
 | **Caching** | Upstash Redis + In-Memory Cache |
 | **Analytics** | DuckDB (optional) |
 
@@ -58,7 +66,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/Web3ProdigyDev/gamegambit.git
+git clone https://github.com/GameGambitDev/gamegambit.git
 cd gamegambit
 
 # Install dependencies
@@ -72,13 +80,17 @@ cp .env.example .env.local
 
 ```env
 # Solana Configuration
-NEXT_PUBLIC_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
-NEXT_PUBLIC_SOLANA_NETWORK=mainnet-beta
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_NETWORK=devnet
 NEXT_PUBLIC_PROGRAM_ID=E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR
 
 # Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# App URL — used for Lichess OAuth PKCE callback
+NEXT_PUBLIC_SITE_URL=https://thegamegambit.vercel.app
 
 # Admin Authentication (Required for /itszaadminlogin)
 ADMIN_JWT_SECRET=your_jwt_secret_key_min_32_chars
@@ -90,8 +102,10 @@ ADMIN_SMTP_PORT=587
 ADMIN_SMTP_USER=your-email@example.com
 ADMIN_SMTP_PASSWORD=your-app-password
 
-# Optional: Lichess API
-NEXT_PUBLIC_LICHESS_API_URL=https://lichess.org/api
+# Edge function secrets (set in Supabase Dashboard → Edge Functions → Secrets)
+AUTHORITY_WALLET_SECRET=[your,keypair,bytes,array]
+SOLANA_RPC_URL=https://api.devnet.solana.com
+LICHESS_PLATFORM_TOKEN=your_gamegambit_lichess_account_token
 ```
 
 ### Running Locally
@@ -113,6 +127,8 @@ pnpm lint
 Visit `http://localhost:3000` to see the application.
 
 ### Database Setup
+
+Run `gamegambit-setup.sql` in Supabase SQL Editor — creates all tables, indexes, constraints, RLS policies, RPC functions, and Realtime subscriptions in one shot.
 
 #### Wager Cancellation Features
 After deploying wager cancellation features, you need to update your database schema:
@@ -141,16 +157,19 @@ gamegambit/
 ├── src/
 │   ├── app/                    # Next.js 15 App Router
 │   │   ├── api/
-│   │   │   ├── admin/         # Admin API endpoints (auth, profile, wallet, audit)
-│   │   │   └── ...            # Player API routes
+│   │   │   ├── auth/
+│   │   │   │   └── lichess/
+│   │   │   │       └── callback/ # Lichess OAuth PKCE callback route
+│   │   │   ├── admin/            # Admin API endpoints (auth, profile, wallet, audit)
+│   │   │   └── ...               # Player API routes
 │   │   ├── itszaadminlogin/   # Admin panel routes
-│   │   │   ├── login/         # Admin login page
-│   │   │   ├── signup/        # Admin signup page
-│   │   │   ├── dashboard/     # Admin dashboard
-│   │   │   ├── profile/       # Admin profile management
-│   │   │   ├── wallet-bindings/ # Wallet management
-│   │   │   ├── audit-logs/    # Audit history
-│   │   │   └── unauthorized/  # Access denied page
+│   │   │   ├── login/
+│   │   │   ├── signup/
+│   │   │   ├── dashboard/
+│   │   │   ├── profile/
+│   │   │   ├── wallet-bindings/
+│   │   │   ├── audit-logs/
+│   │   │   └── unauthorized/
 │   │   ├── arena/             # Wager creation & matching
 │   │   ├── dashboard/         # User statistics
 │   │   ├── leaderboard/       # Rankings & stats
@@ -167,7 +186,8 @@ gamegambit/
 │   │   │   └── ...
 │   │   ├── landing/           # Landing page sections
 │   │   ├── layout/            # Layout components
-│   │   ├── modals/            # Dialog modals
+│   │   ├── CreateWagerModal.tsx  # Wager creation (chess time control, Lichess status)
+│   │   ├── ReadyRoomModal.tsx    # Ready room + deposit flow + Lichess play links
 │   │   └── ui/                # Shadcn/UI components
 │   │
 │   ├── hooks/                 # Custom React hooks
@@ -176,9 +196,11 @@ gamegambit/
 │   │   │   ├── useAdminProfile.ts
 │   │   │   ├── useAdminWallet.ts
 │   │   │   └── useAdminSession.ts
+│   │   ├── useLichess.ts      # OAuth PKCE flow, connect/disconnect, game hooks
 │   │   ├── useWagers.ts       # Wager state management
-│   │   ├── useWalletAuth.ts   # Wallet authentication
+│   │   ├── usePlayer.ts       # Player data hooks
 │   │   ├── useSolanaProgram.ts # Program interaction
+│   │   ├── useWalletAuth.ts   # Wallet session tokens
 │   │   └── ...
 │   │
 │   ├── lib/                   # Utility functions
@@ -198,6 +220,7 @@ gamegambit/
 │   ├── integrations/          # Third-party integrations
 │   │   └── supabase/
 │   │       ├── client.ts
+│   │       ├── types.ts       # Auto-generated DB types (regen after migrations)
 │   │       └── admin/         # Admin database operations
 │   │           ├── auth.ts
 │   │           ├── profile.ts
@@ -209,23 +232,28 @@ gamegambit/
 │   │   ├── admin.ts           # Admin types & interfaces
 │   │   └── ...
 │   │
+├── supabase/
+│   └── functions/
+│       ├── secure-wager/      # Wager actions + Lichess platform game creation
+│       └── secure-player/     # Player profile management
+│
 ├── scripts/
 │   └── migrations/
-│       └── 001_create_admin_tables.sql  # Admin schema migration
+│       └── 001_create_admin_tables.sql
 │
 ├── public/                    # Static assets
 ├── docs/                      # Documentation files
-│   ├── DB_SCHEMA.md          # Database schema reference
+│   ├── DB_SCHEMA.md
 │   ├── BACKEND_ARCHITECTURE.md
 │   ├── SOLANA_IDL_INTEGRATION.md
 │   └── INTEGRATION_CHECKLIST.md
 │
-├── ADMIN_SETUP_AND_CHANGES.md     # Complete admin setup guide
-├── ADMIN_FILES_CREATED.md         # File manifest with purposes
-├── ADMIN_IMPLEMENTATION_SUMMARY.md # Feature overview
-├── ADMIN_BUILD_COMPLETED.md       # Build statistics
-│
-└── package.json              # Dependencies & scripts
+├── gamegambit-setup.sql           # Full DB setup in one file
+├── ADMIN_SETUP_AND_CHANGES.md
+├── ADMIN_FILES_CREATED.md
+├── ADMIN_IMPLEMENTATION_SUMMARY.md
+├── ADMIN_BUILD_COMPLETED.md
+└── package.json
 ```
 
 ## Documentation
@@ -244,30 +272,35 @@ gamegambit/
 - **[Implementation Summary](./ADMIN_IMPLEMENTATION_SUMMARY.md)** - Feature overview and API reference
 - **[Build Statistics](./ADMIN_BUILD_COMPLETED.md)** - Development breakdown by phase
 
-### Key Features
+## Key Features
 
-#### Wager Creation
+### Chess — Lichess OAuth PKCE
+Players connect their Lichess account via OAuth PKCE — proves account ownership without sharing any password or token with GameGambit. When both players deposit their stakes and the wager enters `voting`, the platform automatically creates a locked Lichess game using a server-side platform token with `users=PlayerA,PlayerB`. Each player gets a per-color play link directly in the Ready Room. When the game ends on Lichess, GameGambit detects it within seconds and automatically pays out the winner on-chain.
+
+**Flow**: Connect Lichess (OAuth) → Create Wager → Both Deposit → Game Auto-Created → Play on Lichess → Auto-Resolved → Winner Paid
+
+### Wager Creation
 Players create wagers by selecting a game, stake amount, and opponent. Transactions are settled on Solana with automatic payouts.
 
-**Flow**: Create → Join → Ready Room → Match → Voting → Resolution
+**Flow**: Create → Join → Ready Room → Deposits → Match → Voting → Resolution
 
-#### Error Recovery & Refunds
+### Error Recovery & Refunds
 - **Cancel Wager**: Players can cancel during ready room if errors occur
 - **Automatic Refunds**: Both players automatically refunded on cancellation
 - **Error Notifications**: Other player notified when wager is cancelled
 - **Transaction Logging**: All errors logged for debugging and support
 
-#### Game Results
+### Game Results
 - **Victory Screen**: Animated trophy with confetti for winners
 - **Defeat Screen**: Consolation message with winner info for losers
 - **Draw Screen**: Refund information with scale animation
 
-#### Multi-Game Support
-- **Chess**: Integrated with Lichess API for live game data
-- **Call of Duty Mobile**: Leaderboard-based rank validation
-- **PUBG**: Streamer.gg integration for match statistics
+### Multi-Game Support
+- **Chess**: Lichess OAuth PKCE — auto-create games server-side, per-color play links, automatic result verification
+- **Call of Duty Mobile**: Coming soon
+- **PUBG**: Coming soon
 
-#### Leaderboard System
+### Leaderboard System
 Real-time rankings calculated from:
 - Total wins/losses
 - Win rate percentage
@@ -275,7 +308,7 @@ Real-time rankings calculated from:
 - Skill rating (ELO-style)
 - Current streaks
 
-#### NFT Rewards
+### NFT Rewards
 Victory NFTs minted to Solana with tier progression:
 - Bronze: First victory
 - Silver: 5+ consecutive wins
@@ -285,30 +318,36 @@ Victory NFTs minted to Solana with tier progression:
 ## API Reference
 
 ### Authentication
-All authenticated endpoints require a signed Solana message in headers:
+All authenticated edge function calls require a wallet session token:
 ```javascript
-Authorization: Bearer <signed_message>
+headers: { 'X-Session-Token': sessionToken }
 ```
 
-### Key Endpoints
+### Key Edge Functions
+
+| Function | Actions |
+|----------|---------|
+| `secure-wager` | `create`, `join`, `vote`, `edit`, `delete`, `setReady`, `startGame`, `recordOnChainCreate`, `recordOnChainJoin`, `checkGameComplete`, `cancelWager` |
+| `secure-player` | `create`, `update` |
+
+### Key Next.js API Routes
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/api/auth/lichess/callback` | Lichess OAuth PKCE callback |
 | `POST` | `/api/wagers` | Create a new wager |
 | `POST` | `/api/wagers/[id]/join` | Join existing wager |
 | `POST` | `/api/wagers/[id]/resolve` | Resolve wager with winner |
 | `GET` | `/api/players/[wallet]` | Get player profile |
 | `GET` | `/api/leaderboard` | Get top 100 players |
 
-See individual route files in `src/app/api/` for detailed documentation.
-
 ## Database
 
-Game Gambit uses Supabase PostgreSQL with optimizations for high-traffic queries:
+Game Gambit uses Supabase PostgreSQL with optimizations for high-traffic queries.
 
 ### Key Tables
-- `players` - User accounts with stats
-- `wagers` - Gaming matches & bets
+- `players` - User accounts with stats + Lichess OAuth data
+- `wagers` - Gaming matches with chess time control + Lichess colored URLs
 - `wager_transactions` - Solana blockchain transactions
 - `nfts` - Victory NFTs
 - `achievements` - User badges & milestones
@@ -318,6 +357,12 @@ Game Gambit uses Supabase PostgreSQL with optimizations for high-traffic queries
 - Composite indexes for 1000x query speedup
 - Row-level security for data isolation
 - Connection pooling for 200k+ concurrent users
+
+### Regenerating Types
+After any DB migration:
+```bash
+supabase gen types typescript --project-id your_project_ref > src/integrations/supabase/types.ts
+```
 
 See [DB_SCHEMA.md](./DB_SCHEMA.md) for complete schema documentation.
 
@@ -346,10 +391,11 @@ See [BACKEND_ARCHITECTURE.md](./BACKEND_ARCHITECTURE.md) for detailed optimizati
 ### Adding Features
 
 1. **Create API route**: `src/app/api/[feature]/route.ts`
-2. **Add database migrations**: `supabase/migrations/`
-3. **Build components**: `src/components/`
-4. **Add types**: `src/types/index.ts`
-5. **Update docs**: Add to relevant `.md` files
+2. **Add database migrations**: Run SQL in Supabase SQL Editor
+3. **Regenerate types**: `supabase gen types typescript ...`
+4. **Build components**: `src/components/`
+5. **Add hooks**: `src/hooks/`
+6. **Update docs**: Add to relevant `.md` files
 
 ### Testing
 
@@ -366,11 +412,14 @@ pnpm format
 
 ### Deployment
 
-The project is deployed on Vercel with:
-- Automatic deployments on Git push
-- Environment variables configured in Vercel dashboard
-- Database migrations applied before deployment
-- Performance monitoring via Vercel Analytics
+```bash
+# Deploy edge functions
+supabase link --project-ref your_project_ref
+supabase functions deploy secure-wager
+supabase functions deploy secure-player
+
+# Frontend deploys automatically via Vercel on push to main
+```
 
 ## Rate Limiting
 
@@ -392,6 +441,7 @@ See `src/lib/rate-limiting.ts` for implementation.
 
 ### Player Security
 - **Wallet Verification**: All transactions require valid Solana signatures
+- **Lichess OAuth PKCE**: Proves Lichess account ownership — no passwords or tokens shared with GameGambit
 - **Row-Level Security**: PostgreSQL RLS policies for data isolation
 - **Rate Limiting**: Per-wallet and per-IP rate limits
 - **SQL Injection Prevention**: Parameterized queries throughout
@@ -460,8 +510,10 @@ For issues, questions, or suggestions:
 
 ## Roadmap
 
+- [ ] PUBG integration (official API)
+- [ ] Free Fire integration
+- [ ] CODM integration
 - [ ] Mobile app (React Native)
-- [ ] Additional games (Fortnite, Valorant)
 - [ ] Tournament mode with brackets
 - [ ] Streaming integration (Twitch, YouTube)
 - [ ] Advanced analytics dashboard
