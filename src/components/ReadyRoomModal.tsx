@@ -1,13 +1,12 @@
 /**
- * ReadyRoomModal.tsx (v7)
+ * ReadyRoomModal.tsx (v8)
  *
- * Changes vs v6:
- *  - When wager status is 'voting' and lichess_game_id is set, shows an
- *    embedded Lichess board iframe so players can play without leaving the app.
- *  - Board shown in a tab switcher: "Board" | "Details"
- *  - Auto-switches to Board tab when game starts
- *  - iframe uses https://lichess.org/{gameId} (full interactive, not embed)
- *    Lichess recognises each player by their browser session automatically.
+ * Changes vs v7:
+ *  - Removed iframe (Lichess blocks embedding for live games)
+ *  - Board tab now shows colored play links (urlWhite / urlBlack) from the wager
+ *    so each player gets their specific color URL — they click and play on Lichess
+ *  - Shows which color each player is assigned
+ *  - Keeps Board/Details tab switcher
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -102,9 +101,21 @@ export function ReadyRoomModal({
 
   const isVoting = wager?.status === 'voting';
   const hasLichessGame = isVoting && !!wager?.lichess_game_id && wager.game === 'chess';
-  const lichessUrl = hasLichessGame ? `https://lichess.org/${wager.lichess_game_id}` : null;
-  const lichessEmbedUrl = hasLichessGame ? `https://lichess.org/embed/game/${wager.lichess_game_id}?theme=auto&bg=auto` : null;
+  const lichessGameUrl = hasLichessGame ? `https://lichess.org/${wager.lichess_game_id}` : null;
   const gameLink = getGameLink(wager?.game ?? '', wager?.lichess_game_id ?? null);
+
+  // Per-color URLs saved by secure-wager when platform token creates the game.
+  // Player A = white, Player B = black (as per `users=A,B` param we send).
+  const urlWhite = (wager as any)?.lichess_url_white as string | null;
+  const urlBlack = (wager as any)?.lichess_url_black as string | null;
+
+  // My specific play URL — uses colored URL if available, falls back to main URL
+  const myPlayUrl = isPlayerA
+    ? (urlWhite || lichessGameUrl)
+    : (urlBlack || lichessGameUrl);
+
+  const myColor = isPlayerA ? 'White ♔' : 'Black ♚';
+  const myColorClass = isPlayerA ? 'text-foreground' : 'text-muted-foreground';
 
   useEffect(() => { setLocalReady(myReady ?? false); }, [myReady]);
 
@@ -241,8 +252,7 @@ export function ReadyRoomModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={`border-primary/30 bg-card max-h-[90vh] overflow-y-auto ${hasLichessGame ? 'sm:max-w-4xl' : 'sm:max-w-lg'
-          }`}
+        className={`border-primary/30 bg-card max-h-[90vh] overflow-y-auto ${hasLichessGame ? 'sm:max-w-2xl' : 'sm:max-w-lg'}`}
         aria-describedby={undefined}
       >
         <DialogHeader>
@@ -254,21 +264,19 @@ export function ReadyRoomModal({
                 <Badge variant="joined">Match Found</Badge>
               </div>
             </div>
-            {/* Tab switcher — only visible once game starts with a board */}
+            {/* Tab switcher — only visible once game starts */}
             {hasLichessGame && (
               <div className="flex rounded-lg border border-border overflow-hidden">
                 <button
                   onClick={() => setActiveTab('board')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${activeTab === 'board' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                    }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${activeTab === 'board' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
                 >
                   <Monitor className="h-3.5 w-3.5" />
-                  Board
+                  Play
                 </button>
                 <button
                   onClick={() => setActiveTab('details')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${activeTab === 'details' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                    }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${activeTab === 'details' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
                 >
                   <LayoutGrid className="h-3.5 w-3.5" />
                   Details
@@ -278,28 +286,92 @@ export function ReadyRoomModal({
           </div>
         </DialogHeader>
 
-        {/* ── LICHESS BOARD TAB ──────────────────────────────────────────── */}
+        {/* ── PLAY TAB — shown when game is live ────────────────────────── */}
         {hasLichessGame && activeTab === 'board' && (
-          <div className="mt-4 space-y-3">
-            <div className="rounded-lg overflow-hidden border border-border" style={{ height: '500px' }}>
-              <iframe
-                src={`https://lichess.org/embed/game/${wager.lichess_game_id}?theme=auto&bg=auto`}
-                className="w-full h-full"
-                title="Lichess Game"
-                allow="fullscreen"
-              />
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-              <span>Playing on Lichess — both players move directly in the board above</span>
+          <div className="mt-4 space-y-4">
+
+            {/* Your color + play button */}
+            <div className="p-4 rounded-lg border border-primary/20 bg-primary/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">You are playing as</p>
+                  <p className={`text-lg font-gaming font-bold ${myColorClass}`}>{myColor}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">vs</p>
+                  <p className="text-sm font-medium">
+                    {otherPlayer?.username || (otherWallet ? `${otherWallet.slice(0, 4)}…${otherWallet.slice(-4)}` : 'Opponent')}
+                  </p>
+                </div>
+              </div>
+
               <a
-                href={lichessUrl!}
+                href={myPlayUrl!}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary hover:underline flex items-center gap-1"
+                className="block"
               >
-                Open full screen <ExternalLink className="h-3 w-3" />
+                <Button variant="neon" className="w-full h-12 text-base font-gaming">
+                  ♟ Play on Lichess <ExternalLink className="h-4 w-4 ml-2" />
+                </Button>
+              </a>
+
+              <p className="text-[11px] text-muted-foreground text-center">
+                Opens Lichess in a new tab — your color is pre-assigned, just click the link and make your move.
+              </p>
+            </div>
+
+            {/* Both player links */}
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground font-medium">Both player links</p>
+              <div className="grid grid-cols-2 gap-2">
+                <a
+                  href={urlWhite || lichessGameUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border hover:border-primary/50 transition-colors bg-muted/20"
+                >
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {playerA?.username || wager.player_a_wallet.slice(0, 6) + '…'}
+                    </p>
+                    <p className="text-xs font-medium">White ♔</p>
+                  </div>
+                  <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                </a>
+                <a
+                  href={urlBlack || lichessGameUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border hover:border-primary/50 transition-colors bg-muted/20"
+                >
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {playerB?.username || (wager.player_b_wallet?.slice(0, 6) + '…')}
+                    </p>
+                    <p className="text-xs font-medium">Black ♚</p>
+                  </div>
+                  <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                </a>
+              </div>
+            </div>
+
+            {/* Game ID */}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-muted/20 border border-border">
+              <span className="text-xs text-muted-foreground">Game ID</span>
+              <a
+                href={lichessGameUrl!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                {wager.lichess_game_id} <ExternalLink className="h-3 w-3" />
               </a>
             </div>
+
+            <p className="text-[11px] text-center text-muted-foreground">
+              GameGambit polls Lichess every few seconds — winner is paid out automatically when the game ends.
+            </p>
           </div>
         )}
 
@@ -399,7 +471,7 @@ export function ReadyRoomModal({
                   className="flex flex-col items-center gap-2 py-3 px-4 rounded-lg bg-success/10 border border-success/30"
                 >
                   <ShieldCheck className="h-7 w-7 text-success" />
-                  <p className="text-sm font-medium text-success">Stakes locked! Switch to the Board tab to play.</p>
+                  <p className="text-sm font-medium text-success">Stakes locked! Switch to the Play tab to start.</p>
                 </motion.div>
               )}
 
@@ -526,7 +598,7 @@ export function ReadyRoomModal({
               })}
             </div>
 
-            {/* Game link */}
+            {/* Game link — shown once confirmed */}
             {gameLink && txState === 'confirmed' && (
               <div className="p-2 sm:p-3 rounded-lg bg-muted/30 border border-border">
                 <div className="flex items-center justify-between gap-2">
@@ -535,7 +607,7 @@ export function ReadyRoomModal({
                     href={gameLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary hover:underline flex items-center gap-1 text-xs sm:text-sm font-medium truncate max-w-[150px] sm:max-w-none"
+                    className="text-primary hover:underline flex items-center gap-1 text-xs sm:text-sm font-medium"
                   >
                     {wager.lichess_game_id} <ExternalLink className="h-3 w-3 flex-shrink-0" />
                   </a>
@@ -543,16 +615,13 @@ export function ReadyRoomModal({
               </div>
             )}
 
-            {/* No game link warning */}
-            {!wager.lichess_game_id && wager.game === 'chess' && txState !== 'confirmed' && (
-              <div className="p-2 sm:p-3 rounded-lg bg-warning/10 border border-warning/30 flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                <div className="text-xs sm:text-sm">
-                  <p className="font-medium text-warning">No Lichess game linked</p>
-                  <p className="text-muted-foreground">
-                    The challenger must add a Lichess game ID before the countdown starts.
-                  </p>
-                </div>
+            {/* Waiting for game to be created */}
+            {!wager.lichess_game_id && wager.game === 'chess' && wager.status === 'voting' && (
+              <div className="p-2 sm:p-3 rounded-lg bg-muted/30 border border-border flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Creating your Lichess game…
+                </p>
               </div>
             )}
 
