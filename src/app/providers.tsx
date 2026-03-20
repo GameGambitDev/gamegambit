@@ -98,8 +98,8 @@ export function Providers({ children }: ProvidersProps) {
             metadata: {
               name: 'GameGambit',
               description: 'Skill-based wagering on Solana',
-              url: 'https://gamegambit-auth.vercel.app',
-              icons: ['https://gamegambit-auth.vercel.app/logo.png'],
+              url: 'https://thegamegambit.vercel.app',
+              icons: ['https://thegamegambit.vercel.app/logo.png'],
             },
           },
         })
