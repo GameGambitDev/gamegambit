@@ -1,6 +1,6 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 20, 2026  
+**Last Updated:** March 21, 2026  
 **Database:** PostgreSQL (Supabase)  
 **Environment:** Production
 
@@ -16,6 +16,7 @@ GameGambit uses a comprehensive relational PostgreSQL database to manage players
 
 1. [Custom Enum Types](#custom-enum-types)
 2. [Core Tables](#core-tables)
+   - [Notifications](#12-notifications)
 3. [Admin Tables](#admin-tables)
 4. [Supporting Tables](#supporting-tables)
 5. [Relationships Diagram](#relationships-diagram)
@@ -101,6 +102,7 @@ Role-based access control:
 |-----------|---------|---------|
 | `nfts` | Victory NFTs on Solana | mint_address (UNIQUE), owner_wallet, tier, wager_id |
 | `achievements` | Player achievement badges | player_wallet, achievement_type, unlocked_at |
+| `notifications` | In-app real-time notifications | player_wallet, type, read, wager_id |
 
 ---
 
@@ -126,6 +128,8 @@ admin_users (1) ─────────────────────�
 admin_users (1) ──────────────────────────────────────────── (N) admin_audit_logs
 
 nfts    (1) ──────────────────────────────────────────────── (N) achievements [nft_mint_address]
+players (1) ──────────────────────────────────────────────── (N) notifications
+wagers  (1) ──────────────────────────────────────────────── (N) notifications
 ```
 
 ---
@@ -600,6 +604,73 @@ CREATE INDEX idx_note_wager  ON admin_notes(wager_id);
 
 ---
 
+### 12. **NOTIFICATIONS**
+
+Real-time in-app notifications for wager events. Written by edge functions, read by the frontend via Supabase Realtime.
+
+```sql
+CREATE TABLE notifications (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Target player
+  player_wallet  TEXT NOT NULL,
+
+  -- Notification content
+  type           TEXT NOT NULL CHECK (type IN (
+                   'wager_joined',
+                   'wager_won',
+                   'wager_lost',
+                   'wager_draw',
+                   'wager_cancelled',
+                   'game_started'
+                 )),
+  title          TEXT NOT NULL,
+  message        TEXT NOT NULL,
+
+  -- Optional wager reference
+  wager_id       UUID REFERENCES wagers(id) ON DELETE CASCADE,
+
+  -- Read state
+  read           BOOLEAN DEFAULT FALSE,
+
+  -- Timestamps
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_notifications_player_wallet ON notifications(player_wallet);
+CREATE INDEX idx_notifications_read ON notifications(player_wallet, read);
+
+-- Row Level Security
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Players can read own notifications"
+  ON notifications FOR SELECT
+  USING (player_wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+
+CREATE POLICY "Service role can insert notifications"
+  ON notifications FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Players can update own notifications"
+  ON notifications FOR UPDATE
+  USING (player_wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+```
+
+**Notification Types:**
+- `wager_joined` — Sent to Player A when Player B joins their wager
+- `game_started` — Sent to both players when both deposits confirmed + Lichess game created
+- `wager_won` — Sent to winner when game resolves, includes payout amount
+- `wager_lost` — Sent to loser when game resolves
+- `wager_draw` — Sent to both players on draw/refund
+- `wager_cancelled` — Sent to the non-cancelling player when wager is cancelled
+
+**Realtime:** Frontend subscribes to `postgres_changes` on `notifications` filtered by `player_wallet`. New rows appear instantly in the bell icon dropdown without refresh.
+
+**Indexes:** Optimized for the two primary queries — fetch all for a wallet (ordered by created_at) and fetch unread count.
+
+
+---
+
 ## Indexes & Performance
 
 ### Query Performance Optimization
@@ -615,6 +686,8 @@ CREATE INDEX idx_note_wager  ON admin_notes(wager_id);
 | `idx_tx_signature` | TX lookup by signature | `SELECT * FROM wager_transactions WHERE tx_signature = ?` |
 | `idx_nft_owner` | User's NFTs | `SELECT * FROM nfts WHERE owner_wallet = ?` |
 | `idx_admin_email` | Admin lookup | `SELECT * FROM admin_users WHERE email = ?` |
+| `idx_notifications_player_wallet` | Fetch player notifications | `SELECT * FROM notifications WHERE player_wallet = ?` |
+| `idx_notifications_read` | Unread count | `SELECT COUNT(*) FROM notifications WHERE player_wallet = ? AND read = false` |
 | `idx_session_admin` | Admin sessions | `SELECT * FROM admin_sessions WHERE admin_id = ?` |
 
 ### Query Performance Targets
@@ -663,6 +736,34 @@ ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_sig
 ---
 
 ## Recent Migrations
+
+### v1.2.0 — March 21, 2026
+
+```sql
+-- Notifications table for real-time in-app alerts
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  player_wallet TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('wager_joined','wager_won','wager_lost','wager_draw','wager_cancelled','game_started')),
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  wager_id UUID REFERENCES wagers(id) ON DELETE CASCADE,
+  read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_notifications_player_wallet ON notifications(player_wallet);
+CREATE INDEX idx_notifications_read ON notifications(player_wallet, read);
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+-- Chess side preference on wagers
+ALTER TABLE wagers
+  ADD COLUMN IF NOT EXISTS chess_side_preference TEXT DEFAULT 'random'
+    CHECK (chess_side_preference IN ('random', 'white', 'black'));
+```
+
+---
 
 ### v1.1.0 — March 18, 2026
 
@@ -828,5 +929,5 @@ Contact Supabase support with:
 **Version Control**  
 This schema is version controlled in GitHub. Update this document whenever database changes are made.
 
-Last updated: March 20, 2026  
-Schema version: 1.1.0 (Supabase PostgreSQL)
+Last updated: March 21, 2026  
+Schema version: 1.2.0 (Supabase PostgreSQL)
