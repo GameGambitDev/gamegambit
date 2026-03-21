@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { supabase } from '@/integrations/supabase/client'
+import { getSupabaseClient } from '@/integrations/supabase/client'
 
 export interface AppNotification {
     id: string
@@ -21,6 +21,7 @@ export function useNotifications() {
 
     const fetch = useCallback(async () => {
         if (!wallet) return
+        const supabase = getSupabaseClient()
         setLoading(true)
         const { data } = await supabase
             .from('notifications')
@@ -39,6 +40,7 @@ export function useNotifications() {
     // Realtime — new notifications slide in instantly
     useEffect(() => {
         if (!wallet) return
+        const supabase = getSupabaseClient()
         const channel = supabase
             .channel(`notifications:${wallet}`)
             .on(
@@ -59,6 +61,7 @@ export function useNotifications() {
 
     const markAllRead = useCallback(async () => {
         if (!wallet) return
+        const supabase = getSupabaseClient()
         await supabase
             .from('notifications')
             .update({ read: true })
@@ -68,6 +71,7 @@ export function useNotifications() {
     }, [wallet])
 
     const markRead = useCallback(async (id: string) => {
+        const supabase = getSupabaseClient()
         await supabase.from('notifications').update({ read: true }).eq('id', id)
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
     }, [])
