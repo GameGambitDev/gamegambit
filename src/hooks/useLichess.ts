@@ -71,7 +71,7 @@ function generateRandomString(length = 64): string {
 
 async function sha256Base64Url(plain: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(plain);
+  const data = encoder.encode(plain) as unknown as ArrayBuffer;
   const hash = await crypto.subtle.digest('SHA-256', data);
   return btoa(String.fromCharCode(...new Uint8Array(hash)))
     .replace(/\+/g, '-')
