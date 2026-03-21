@@ -31,6 +31,12 @@ const games = [
 export function SupportedGames() {
   return (
     <section className="py-24 relative">
+      <style>{`
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          60%, 100% { transform: translateX(200%); }
+        }
+      `}</style>
       <div className="container px-4">
         {/* Header */}
         <div className="text-center mb-16">
@@ -65,14 +71,17 @@ export function SupportedGames() {
             >
               <Card
                 variant="cyber"
-                className={`h-full group overflow-hidden relative ${game.live ? 'hover:shadow-neon-cyan' : 'opacity-70'
+                className={`h-full group overflow-hidden relative ${game.live ? 'hover:shadow-neon-cyan' : 'opacity-60 hover:opacity-75 transition-opacity duration-300'
                   }`}
               >
                 {/* Coming soon overlay for non-live games */}
                 {!game.live && (
                   <div className="absolute top-3 right-3 z-10">
-                    <Badge variant="secondary" className="text-xs gap-1 bg-muted/80 backdrop-blur-sm">
-                      <Lock className="h-2.5 w-2.5" />
+                    <Badge variant="secondary" className="text-xs gap-1.5 bg-muted/80 backdrop-blur-sm animate-pulse border border-muted-foreground/20">
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground opacity-60" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground" />
+                      </span>
                       Coming Soon
                     </Badge>
                   </div>
@@ -98,7 +107,7 @@ export function SupportedGames() {
                   <div className="flex items-center gap-4 mb-4">
                     <div className={`text-5xl transition-transform duration-300 ${game.live
                       ? 'group-hover:scale-110 group-hover:drop-shadow-[0_0_20px_rgba(34,211,238,0.6)]'
-                      : 'grayscale'
+                      : 'grayscale group-hover:scale-105 transition-all'
                       }`}>
                       {game.icon}
                     </div>
@@ -134,10 +143,14 @@ export function SupportedGames() {
                       <ExternalLink className="h-4 w-4 ml-2" />
                     </Button>
                   ) : (
-                    <Button variant="outline" className="w-full" disabled>
-                      <Lock className="h-4 w-4 mr-2" />
-                      Coming Soon
-                    </Button>
+                    <div className="relative w-full overflow-hidden rounded-md">
+                      <Button variant="outline" className="w-full relative z-10 border-muted-foreground/30 text-muted-foreground cursor-not-allowed" disabled>
+                        <Lock className="h-4 w-4 mr-2 animate-pulse" />
+                        Coming Soon
+                      </Button>
+                      {/* Shimmer sweep */}
+                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent pointer-events-none" />
+                    </div>
                   )}
                 </CardContent>
               </Card>

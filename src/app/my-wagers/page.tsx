@@ -71,11 +71,11 @@ function WagerRow({
   return (
     <Card variant="wager" className="group hover:border-primary/40 transition-all">
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           {/* Left */}
-          <div className="flex items-center gap-4">
-            <div className="text-3xl">{game.icon}</div>
-            <div>
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="text-2xl sm:text-3xl flex-shrink-0">{game.icon}</div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <span className="font-gaming text-sm text-foreground">You</span>
                 <Swords className="h-4 w-4 text-muted-foreground" />
@@ -128,15 +128,13 @@ function WagerRow({
           </div>
 
           {/* Right */}
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="font-gaming text-lg font-bold text-accent">
-                {formatSol(wager.stake_lamports)} SOL
-              </div>
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 sm:gap-4 flex-shrink-0">
+            <div className="font-gaming text-sm sm:text-lg font-bold text-accent whitespace-nowrap">
+              {formatSol(wager.stake_lamports)} SOL
             </div>
             {getStatusBadge(wager.status, won)}
             {wager.status === 'joined' && onEnterReadyRoom && (
-              <Button variant="neon" size="sm" onClick={() => onEnterReadyRoom(wager.id)}>
+              <Button variant="neon" size="sm" onClick={() => onEnterReadyRoom(wager.id)} className="whitespace-nowrap">
                 <Play className="h-4 w-4 mr-1" />
                 Ready Room
               </Button>
@@ -169,6 +167,9 @@ export default function MyWagersPage() {
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
+  const [visibleAll, setVisibleAll] = useState(10)
+  const [visibleCompleted, setVisibleCompleted] = useState(10)
+  const PAGE_SIZE = 10
 
   const { data: wagers, isLoading } = useMyWagers()
   const { data: player } = usePlayer()
@@ -320,7 +321,7 @@ export default function MyWagersPage() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wider">{stat.label}</div>
-                    <div className="font-gaming text-xl text-foreground">{stat.value}</div>
+                    <div className="font-gaming text-base sm:text-xl text-foreground truncate">{stat.value}</div>
                   </div>
                 </div>
               </Card>
@@ -349,18 +350,27 @@ export default function MyWagersPage() {
             <>
               <TabsContent value="all" className="space-y-3">
                 {wagers && wagers.length > 0 ? (
-                  <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
-                    {wagers.map((wager) => (
-                      <motion.div key={wager.id} variants={staggerItem}>
-                        <WagerRow
-                          wager={wager}
-                          myWallet={walletAddress}
-                          txSig={txSigByWagerId[wager.id]}
-                          onEnterReadyRoom={setReadyRoomWagerId}
-                        />
-                      </motion.div>
-                    ))}
-                  </motion.div>
+                  <>
+                    <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
+                      {wagers.slice(0, visibleAll).map((wager) => (
+                        <motion.div key={wager.id} variants={staggerItem}>
+                          <WagerRow
+                            wager={wager}
+                            myWallet={walletAddress}
+                            txSig={txSigByWagerId[wager.id]}
+                            onEnterReadyRoom={setReadyRoomWagerId}
+                          />
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                    {wagers.length > visibleAll && (
+                      <div className="flex justify-center pt-2">
+                        <Button variant="outline" size="sm" onClick={() => setVisibleAll(v => v + PAGE_SIZE)}>
+                          Show {Math.min(PAGE_SIZE, wagers.length - visibleAll)} more
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <EmptyState message="You haven't created or joined any wagers yet." />
                 )}
@@ -387,17 +397,26 @@ export default function MyWagersPage() {
 
               <TabsContent value="completed" className="space-y-3">
                 {completedWagers.length > 0 ? (
-                  <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
-                    {completedWagers.map((wager) => (
-                      <motion.div key={wager.id} variants={staggerItem}>
-                        <WagerRow
-                          wager={wager}
-                          myWallet={walletAddress}
-                          txSig={txSigByWagerId[wager.id]}
-                        />
-                      </motion.div>
-                    ))}
-                  </motion.div>
+                  <>
+                    <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
+                      {completedWagers.slice(0, visibleCompleted).map((wager) => (
+                        <motion.div key={wager.id} variants={staggerItem}>
+                          <WagerRow
+                            wager={wager}
+                            myWallet={walletAddress}
+                            txSig={txSigByWagerId[wager.id]}
+                          />
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                    {completedWagers.length > visibleCompleted && (
+                      <div className="flex justify-center pt-2">
+                        <Button variant="outline" size="sm" onClick={() => setVisibleCompleted(v => v + PAGE_SIZE)}>
+                          Show {Math.min(PAGE_SIZE, completedWagers.length - visibleCompleted)} more
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <EmptyState message="No completed wagers yet." />
                 )}

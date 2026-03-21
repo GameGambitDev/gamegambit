@@ -47,7 +47,7 @@ export function Hero() {
         className="absolute top-1/2 right-1/3 w-64 h-64 rounded-full bg-gradient-radial from-accent/20 to-transparent blur-3xl"
       />
 
-      <div className="container relative z-10 px-4 py-32">
+      <div className="container relative z-10 px-4 py-16 sm:py-32">
         <div className="max-w-4xl mx-auto text-center">
 
           <motion.div
@@ -78,7 +78,7 @@ export function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto text-balance"
+            className="text-lg md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto text-balance px-2 sm:px-0"
           >
             The first trustless P2P gaming wager platform on Solana.
             Challenge anyone. Stake real SOL. Winner takes 90%.
@@ -88,12 +88,12 @@ export function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="flex flex-col sm:flex-row gap-4 justify-center mb-8"
+            className="flex flex-col sm:flex-row gap-4 justify-center mb-8 w-full sm:w-auto"
           >
             {mounted && connected ? (
-              <Link href="/arena">
+              <Link href="/arena" className="w-full sm:w-auto">
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="rounded-xl animate-glow-pulse">
-                  <Button variant="neon" size="xl" className="group relative overflow-hidden">
+                  <Button variant="neon" size="xl" className="group relative overflow-hidden w-full sm:w-auto">
                     <motion.span
                       className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
                       animate={{ x: ['-100%', '100%'] }}
@@ -110,8 +110,8 @@ export function Hero() {
                 <WalletMultiButton />
               </div>
             )}
-            <Link href="#how-it-works">
-              <Button variant="outline" size="xl" className="hover:border-primary/50 hover:shadow-neon transition-all">
+            <Link href="#how-it-works" className="w-full sm:w-auto">
+              <Button variant="outline" size="xl" className="hover:border-primary/50 hover:shadow-neon transition-all w-full sm:w-auto">
                 How It Works
               </Button>
             </Link>

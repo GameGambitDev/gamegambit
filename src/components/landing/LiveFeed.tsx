@@ -1,6 +1,7 @@
 'use client'
 
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Trophy, Clock, Swords, Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -35,25 +36,27 @@ const getStatusBadge = (status: string) => {
   }
 }
 
-function WagerCard({ wager, index }: { wager: Wager; index: number }) {
+function WagerCard({ wager, index, isNew = false }: { wager: Wager; index: number; isNew?: boolean }) {
   const game = getGameData(wager.game)
   const isLive = wager.status === 'joined'
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
-  
+
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.1 }}
+      initial={{ opacity: 0, y: isNew ? -24 : -10, x: isNew ? 0 : -20 }}
+      animate={{ opacity: 1, y: 0, x: 0 }}
+      exit={{ opacity: 0, x: 20, height: 0 }}
+      transition={{ delay: isNew ? 0 : index * 0.08, duration: 0.35, ease: 'easeOut' }}
+      className={isNew ? 'ring-1 ring-primary/40 rounded-lg shadow-neon-sm' : ''}
     >
       <Card variant="wager" className="cursor-pointer group">
         <CardContent className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             {/* Left: Game & Players */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 min-w-0">
               {/* Game Icon */}
-              <div className="relative">
-                <div className={`text-3xl ${isLive ? 'animate-pulse' : ''}`}>
+              <div className="relative flex-shrink-0">
+                <div className={`text-2xl sm:text-3xl ${isLive ? 'animate-pulse' : ''}`}>
                   {game.icon}
                 </div>
                 {isLive && (
@@ -65,17 +68,17 @@ function WagerCard({ wager, index }: { wager: Wager; index: number }) {
               </div>
 
               {/* Match Info */}
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-gaming text-sm text-foreground">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 sm:gap-2 mb-1 flex-wrap">
+                  <span className="font-gaming text-xs sm:text-sm text-foreground truncate max-w-[70px] sm:max-w-none">
                     {truncateAddress(wager.player_a_wallet)}
                   </span>
-                  <Swords className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-gaming text-sm text-foreground">
+                  <Swords className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="font-gaming text-xs sm:text-sm text-foreground truncate max-w-[70px] sm:max-w-none">
                     {wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
                   <span>{game.name}</span>
                   <span>•</span>
                   <Clock className="h-3 w-3" />
@@ -85,29 +88,29 @@ function WagerCard({ wager, index }: { wager: Wager; index: number }) {
             </div>
 
             {/* Right: Stake & Status */}
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-4 flex-shrink-0">
               {/* Stake */}
               <div className="text-right">
-                <div className="font-gaming text-lg font-bold text-accent">
+                <div className="font-gaming text-sm sm:text-lg font-bold text-accent whitespace-nowrap">
                   {formatSol(wager.stake_lamports)} SOL
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="text-xs text-muted-foreground whitespace-nowrap hidden sm:block">
                   Total Pot: {formatSol(wager.stake_lamports * 2)}
                 </div>
               </div>
 
               {/* Status */}
-              <div className="flex flex-col items-end gap-2">
+              <div className="flex flex-col items-end gap-1 sm:gap-2">
                 {getStatusBadge(wager.status)}
                 {wager.status === 'created' && (
-                  <Button variant="neon" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button variant="neon" size="sm" className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-xs h-7 px-2 sm:h-9 sm:px-3">
                     Join
                   </Button>
                 )}
                 {wager.winner_wallet && (
                   <div className="flex items-center gap-1 text-xs text-success">
                     <Trophy className="h-3 w-3" />
-                    {truncateAddress(wager.winner_wallet)}
+                    <span className="hidden sm:inline">{truncateAddress(wager.winner_wallet)}</span>
                   </div>
                 )}
               </div>
@@ -138,11 +141,26 @@ export function LiveFeed() {
   const { data: wagers, isLoading } = useRecentWagers(10)
   const activeCount = wagers?.filter(w => ['created', 'joined', 'voting'].includes(w.status)).length || 0
 
+  // Track which wager IDs we've already seen so we can highlight new arrivals
+  const seenIdsRef = useRef<Set<string>>(new Set())
+  const [newIds, setNewIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!wagers) return
+    const incoming = wagers.filter(w => !seenIdsRef.current.has(w.id))
+    if (incoming.length > 0 && seenIdsRef.current.size > 0) {
+      const newSet = new Set(incoming.map(w => w.id))
+      setNewIds(newSet)
+      setTimeout(() => setNewIds(new Set()), 2000)
+    }
+    wagers.forEach(w => seenIdsRef.current.add(w.id))
+  }, [wagers])
+
   return (
     <section className="py-20 relative">
       <div className="container px-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <h2 className="text-3xl font-bold mb-2 font-gaming">
               <span className="text-foreground">Live</span>{' '}
@@ -166,11 +184,18 @@ export function LiveFeed() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : wagers && wagers.length > 0 ? (
-          <div className="space-y-3">
-            {wagers.map((wager, index) => (
-              <WagerCard key={wager.id} wager={wager} index={index} />
-            ))}
-          </div>
+          <AnimatePresence initial={false}>
+            <div className="space-y-3">
+              {wagers.map((wager, index) => (
+                <WagerCard
+                  key={wager.id}
+                  wager={wager}
+                  index={index}
+                  isNew={newIds.has(wager.id)}
+                />
+              ))}
+            </div>
+          </AnimatePresence>
         ) : (
           <EmptyFeed />
         )}

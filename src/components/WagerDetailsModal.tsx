@@ -7,6 +7,8 @@ import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { cn } from '@/lib/utils';
+import { TimeControlCategory } from '@/components/CreateWagerModal';
 
 interface WagerDetailsModalProps {
   wager: Wager | null;
@@ -49,6 +51,27 @@ const STATUS_LABEL: Record<string, string> = {
   closed: 'Closed',
 };
 
+
+// Derives time control category from clock limit (seconds)
+function getTimeCategory(limitSeconds: number): TimeControlCategory {
+  if (limitSeconds < 180) return 'Bullet';
+  if (limitSeconds < 600) return 'Blitz';
+  if (limitSeconds < 2700) return 'Rapid';
+  return 'Classical';
+}
+
+const CATEGORY_STYLES: Record<TimeControlCategory, { dot: string; text: string; bg: string; border: string }> = {
+  Bullet: { dot: 'bg-red-500', text: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30' },
+  Blitz: { dot: 'bg-orange-400', text: 'text-orange-400', bg: 'bg-orange-400/10', border: 'border-orange-400/30' },
+  Rapid: { dot: 'bg-green-500', text: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30' },
+  Classical: { dot: 'bg-blue-500', text: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
+};
+
+function formatTimeControl(limitSeconds: number, increment: number): string {
+  const mins = Math.floor(limitSeconds / 60);
+  return `${mins}+${increment}`;
+}
+
 export function WagerDetailsModal({
   wager,
   open,
@@ -85,6 +108,28 @@ export function WagerDetailsModal({
 
   const platformFee = Math.floor(wager.stake_lamports * 2 * 0.10);
   const winnerPayout = wager.stake_lamports * 2 - platformFee;
+
+  // Chess metadata
+  const isChess = wager.game === 'chess';
+  const clockLimit = (wager as any).chess_clock_limit as number | undefined;
+  const clockIncrement = (wager as any).chess_clock_increment as number | undefined;
+  const isRated = (wager as any).chess_rated as boolean | undefined;
+  const sidePreference = (wager as any).chess_side_preference as string | undefined;
+
+  const hasTimeControl = isChess && clockLimit != null && clockIncrement != null;
+  const timeCategory = hasTimeControl ? getTimeCategory(clockLimit!) : null;
+  const categoryStyle = timeCategory ? CATEGORY_STYLES[timeCategory] : null;
+  const timeLabel = hasTimeControl ? formatTimeControl(clockLimit!, clockIncrement!) : null;
+
+  // Is the current user the creator (Player A)?
+  const isCreator = currentWallet === wager.player_a_wallet;
+
+  // Which side does the current user play?
+  const mySide = (() => {
+    if (!sidePreference || sidePreference === 'random') return null;
+    if (isCreator) return sidePreference;
+    return sidePreference === 'white' ? 'black' : 'white';
+  })();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -147,6 +192,44 @@ export function WagerDetailsModal({
             </div>
           )}
 
+          {/* ── CHESS TIME CONTROL BADGE (open/active wagers) ── */}
+          {isChess && hasTimeControl && !isResolved && categoryStyle && (
+            <div className={cn(
+              "flex items-center justify-between px-3 py-2 rounded-lg border",
+              categoryStyle.bg,
+              categoryStyle.border,
+            )}>
+              <div className="flex items-center gap-2">
+                <span className={cn("w-2 h-2 rounded-full flex-shrink-0", categoryStyle.dot)} />
+                <span className={cn("text-sm font-semibold", categoryStyle.text)}>
+                  {timeLabel} · {timeCategory}
+                </span>
+                {isRated && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">Rated</span>
+                )}
+              </div>
+              {sidePreference && sidePreference !== 'random' && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {mySide ? (
+                    <>
+                      <span>You play</span>
+                      <span className="font-medium text-foreground capitalize">
+                        {mySide === 'white' ? '⬜ White' : '⬛ Black'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Creator plays</span>
+                      <span className="font-medium text-foreground capitalize">
+                        {sidePreference === 'white' ? '⬜ White' : '⬛ Black'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── STAKE INFO ── */}
           <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 text-center">
             <p className="text-sm text-muted-foreground mb-1">
@@ -191,6 +274,11 @@ export function WagerDetailsModal({
                     username={playerA?.username}
                     className="font-medium"
                   />
+                  {isChess && sidePreference && sidePreference !== 'random' && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Plays {sidePreference === 'white' ? '⬜ White' : '⬛ Black'}
+                    </p>
+                  )}
                 </div>
               </div>
               {playerA && (
@@ -236,8 +324,13 @@ export function WagerDetailsModal({
                 )}
               </div>
             ) : (
-              <div className="flex items-center justify-center p-3 rounded-lg border-2 border-dashed border-border">
+              <div className="flex flex-col items-center justify-center p-3 rounded-lg border-2 border-dashed border-border gap-1">
                 <p className="text-muted-foreground text-sm">Waiting for opponent...</p>
+                {isChess && sidePreference && sidePreference !== 'random' && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Joiner plays {sidePreference === 'white' ? '⬛ Black' : '⬜ White'}
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -2,8 +2,8 @@
 
 import { useWallet } from '@solana/wallet-adapter-react'
 import { motion } from 'framer-motion'
-import { Menu, X, User } from 'lucide-react'
-import { useState } from 'react'
+import { Menu, X, User, Copy, Check, LogOut, Smartphone } from 'lucide-react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
@@ -25,6 +25,14 @@ export function Header() {
   const { connected, publicKey } = useWallet()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [hoveredIcon, setHoveredIcon] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyAddress = useCallback(() => {
+    if (!publicKey) return
+    navigator.clipboard.writeText(publicKey.toBase58())
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [publicKey])
   const pathname = usePathname()
 
   return (
@@ -132,26 +140,7 @@ export function Header() {
             className="md:hidden border-t border-border py-3"
           >
             <nav className="flex flex-col gap-1">
-              {connected && (
-                <Link
-                  href="/profile"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-3",
-                    pathname === '/profile'
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                  )}
-                >
-                  <User className="h-4 w-4" />
-                  Profile
-                  {publicKey && (
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {truncateAddress(publicKey.toBase58(), 4)}
-                    </span>
-                  )}
-                </Link>
-              )}
+              {/* Nav Links */}
               {navItems.map((item) => {
                 const isActive = pathname === item.href
                 return (
@@ -160,17 +149,73 @@ export function Header() {
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
-                      "px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2",
+                      "px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center gap-3",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted"
                     )}
                   >
-                    <span>{item.icon}</span>
+                    <span className="text-base">{item.icon}</span>
                     {item.label}
                   </Link>
                 )
               })}
+
+              {/* Wallet section — shown when connected */}
+              {connected && publicKey && (
+                <div className="mt-2 pt-2 border-t border-border/50 space-y-1">
+                  {/* Address display */}
+                  <div className="px-4 py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {truncateAddress(publicKey.toBase58(), 6)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Profile */}
+                  <Link
+                    href="/profile"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={cn(
+                      "px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center gap-3",
+                      pathname === '/profile'
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    )}
+                  >
+                    <User className="h-4 w-4" />
+                    Profile
+                  </Link>
+
+                  {/* Copy Address */}
+                  <button
+                    onClick={handleCopyAddress}
+                    className="w-full px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center gap-3 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  >
+                    {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+                    {copied ? 'Copied!' : 'Copy Address'}
+                  </button>
+                </div>
+              )}
+
+              {/* Not connected — browser hint */}
+              {!connected && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <div className="mx-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <div className="flex items-start gap-2">
+                      <Smartphone className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-muted-foreground">
+                        <span className="text-amber-400 font-medium">On mobile?</span> Open in{' '}
+                        <span className="text-amber-400">Phantom's browser</span>,{' '}
+                        <span className="text-amber-400">Mises</span>, or{' '}
+                        <span className="text-amber-400">Kiwi Browser</span> for wallet support.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </nav>
           </motion.div>
         )}

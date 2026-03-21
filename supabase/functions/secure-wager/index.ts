@@ -88,6 +88,10 @@ async function sendAndConfirm(connection: Connection, authority: Keypair, ix: Tr
     return sig;
 }
 
+// ── Create a Lichess open challenge locked to two specific players ─────────────
+// Uses LICHESS_PLATFORM_TOKEN (GameGambit's own Lichess account token).
+// The `users` param locks the game — only playerAUsername and playerBUsername
+// can join, each getting a specific colored URL.
 async function createLichessGame(
     playerAUsername: string,
     playerBUsername: string,
@@ -103,9 +107,12 @@ async function createLichessGame(
         'clock.limit': String(clockLimit),
         'clock.increment': String(clockIncrement),
         rated: String(rated),
+        // Lock game to these two players only. First username = white.
+        // Side preference: if creator chose black, swap order so they get black.
         users: sidePreference === 'black'
             ? `${playerBUsername},${playerAUsername}`
             : `${playerAUsername},${playerBUsername}`,
+        // Prevent draws/early quits to protect wager integrity
         rules: 'noRematch,noEarlyDraw',
         name: 'GameGambit Wager',
     });
@@ -223,106 +230,6 @@ async function validateSessionToken(token: string): Promise<string | null> {
     }
 }
 
-// ── Get display name for a wallet (username > truncated address) ──────────────
-async function getDisplayName(supabase: ReturnType<typeof createClient>, walletAddress: string): Promise<string> {
-    try {
-        const { data } = await supabase
-            .from('players')
-            .select('username')
-            .eq('wallet_address', walletAddress)
-            .single();
-        if (data?.username) return data.username;
-    } catch { /* ignore */ }
-    return walletAddress.slice(0, 4) + '...' + walletAddress.slice(-4);
-}
-
-// ── Insert notifications ───────────────────────────────────────────────────────
-async function insertNotifications(
-    supabase: ReturnType<typeof createClient>,
-    items: Array<{
-        player_wallet: string
-        type: string
-        title: string
-        message: string
-        wager_id?: string
-    }>
-) {
-    try {
-        const { error } = await supabase.from('notifications').insert(items);
-        if (error) console.warn('[secure-wager] notification insert error:', error);
-        // Fire Web Push for each recipient
-        await Promise.allSettled(items.map(item => sendWebPush(supabase, item)));
-    } catch (e) {
-        console.warn('[secure-wager] Failed to insert notifications:', e);
-    }
-}
-
-// ── Web Push sender ───────────────────────────────────────────────────────────
-async function sendWebPush(
-    supabase: ReturnType<typeof createClient>,
-    notification: { player_wallet: string; title: string; message: string; wager_id?: string }
-): Promise<void> {
-    try {
-        const vapidPrivateKey = Deno.env.get('VAPID_PRIVATE_KEY');
-        const vapidPublicKey = Deno.env.get('VAPID_PUBLIC_KEY');
-        const vapidSubject = Deno.env.get('VAPID_SUBJECT');
-        if (!vapidPrivateKey || !vapidPublicKey || !vapidSubject) return;
-
-        const { data: subs } = await supabase
-            .from('push_subscriptions')
-            .select('endpoint, p256dh, auth')
-            .eq('player_wallet', notification.player_wallet);
-
-        if (!subs || subs.length === 0) return;
-
-        const payload = JSON.stringify({
-            title: notification.title,
-            body: notification.message,
-            icon: '/logo.png',
-            badge: '/favicon.png',
-            tag: 'gamegambit-' + Date.now(),
-            url: notification.wager_id ? '/my-wagers' : '/',
-        });
-
-        // Build VAPID JWT
-        const vapidJwt = await buildVapidJwt(vapidSubject, vapidPublicKey, vapidPrivateKey);
-
-        await Promise.allSettled(subs.map(async (sub) => {
-            try {
-                const res = await fetch(sub.endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `vapid t=${vapidJwt},k=${vapidPublicKey}`,
-                        'Content-Type': 'application/octet-stream',
-                        'Content-Encoding': 'aes128gcm',
-                        'TTL': '86400',
-                    },
-                    body: payload,
-                });
-                if (!res.ok && (res.status === 404 || res.status === 410)) {
-                    // Subscription expired — remove it
-                    await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
-                }
-            } catch { /* non-fatal */ }
-        }));
-    } catch (e) {
-        console.warn('[secure-wager] sendWebPush error:', e);
-    }
-}
-
-async function buildVapidJwt(subject: string, publicKey: string, privateKey: string): Promise<string> {
-    const now = Math.floor(Date.now() / 1000);
-    const header = { typ: 'JWT', alg: 'ES256' };
-    const payload = { aud: 'https://fcm.googleapis.com', exp: now + 3600, sub: subject };
-    const encode = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-    const unsignedToken = `${encode(header)}.${encode(payload)}`;
-    const keyData = Uint8Array.from(atob(privateKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
-    const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, cryptoKey, new TextEncoder().encode(unsignedToken));
-    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-    return `${unsignedToken}.${sigB64}`;
-}
-
 serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { status: 200, headers: corsHeaders });
 
@@ -358,6 +265,7 @@ serve(async (req) => {
             if (!game || !['chess', 'codm', 'pubg'].includes(game)) return respond({ error: 'Invalid game type' }, 400);
             if (!stake_lamports || stake_lamports <= 0) return respond({ error: 'Invalid stake amount' }, 400);
 
+            // For chess: verify the creating player has Lichess connected
             if (game === 'chess') {
                 const { data: p } = await supabase.from('players').select('lichess_username').eq('wallet_address', walletAddress).single();
                 if (!p?.lichess_username) return respond({ error: 'Connect your Lichess account in your profile before creating chess wagers' }, 400);
@@ -369,6 +277,7 @@ serve(async (req) => {
                 stake_lamports,
                 is_public: is_public !== false,
                 stream_url: stream_url || null,
+                // Store time control preferences — used by createLichessGame when both deposit
                 ...(game === 'chess' && {
                     chess_clock_limit: chess_clock_limit ?? 300,
                     chess_clock_increment: chess_clock_increment ?? 3,
@@ -392,6 +301,7 @@ serve(async (req) => {
             if (wager.status !== 'created') return respond({ error: 'Wager is not available to join' }, 400);
             if (wager.player_a_wallet === walletAddress) return respond({ error: 'Cannot join your own wager' }, 400);
 
+            // For chess: verify the joining player has Lichess connected
             if (wager.game === 'chess') {
                 const { data: p } = await supabase.from('players').select('lichess_username').eq('wallet_address', walletAddress).single();
                 if (!p?.lichess_username) return respond({ error: 'Connect your Lichess account in your profile before joining chess wagers' }, 400);
@@ -401,17 +311,6 @@ serve(async (req) => {
                 .update({ player_b_wallet: walletAddress, status: 'joined' })
                 .eq('id', wagerId).eq('status', 'created').select().single();
             if (error) return respond({ error: 'Failed to join wager' }, 500);
-
-            // Get joiner's display name for notification
-            const joinerName = await getDisplayName(supabase, walletAddress);
-            await insertNotifications(supabase, [{
-                player_wallet: wager.player_a_wallet,
-                type: 'wager_joined',
-                title: 'Someone joined your wager!',
-                message: `${joinerName} accepted your wager. Head to the Ready Room to get started.`,
-                wager_id: wagerId,
-            }]);
-
             return respond({ wager: updatedWager });
         }
 
@@ -543,13 +442,10 @@ serve(async (req) => {
             const { data: updated, error } = await supabase.from('wagers').update(updatePayload).eq('id', wagerId).select().single();
             if (error) return respond({ error: 'Failed to record deposit' }, 500);
 
+            // If both deposited and this is a chess wager, create the Lichess game
             if (bothDeposited && wager.game === 'chess') {
                 console.log(`[secure-wager] Both deposited on chess wager ${wagerId} — creating Lichess game`);
                 const lichessResult = await tryCreateLichessGame(supabase, wagerId, wager);
-                await insertNotifications(supabase, [
-                    { player_wallet: wager.player_a_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
-                    { player_wallet: wager.player_b_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
-                ]);
                 return respond({ success: true, wager: { ...updated, ...lichessResult }, gameStarted: true });
             }
 
@@ -572,13 +468,10 @@ serve(async (req) => {
             const { data: updated, error } = await supabase.from('wagers').update(updatePayload).eq('id', wagerId).select().single();
             if (error) return respond({ error: 'Failed to record deposit' }, 500);
 
+            // If both deposited and this is a chess wager, create the Lichess game
             if (bothDeposited && wager.game === 'chess') {
                 console.log(`[secure-wager] Both deposited on chess wager ${wagerId} — creating Lichess game`);
                 const lichessResult = await tryCreateLichessGame(supabase, wagerId, wager);
-                await insertNotifications(supabase, [
-                    { player_wallet: wager.player_a_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
-                    { player_wallet: wager.player_b_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
-                ]);
                 return respond({ success: true, wager: { ...updated, ...lichessResult }, gameStarted: true });
             }
 
@@ -657,22 +550,6 @@ serve(async (req) => {
 
                 const txSig = await resolveOnChain(supabase, wager, winnerWallet, resultType as 'playerA' | 'playerB' | 'draw');
 
-                const stake = wager.stake_lamports as number;
-                const payout = Math.floor(stake * 2 * 0.9);
-                const payoutSol = (payout / 1e9).toFixed(4);
-                if (resultType === 'draw') {
-                    await insertNotifications(supabase, [
-                        { player_wallet: wager.player_a_wallet, type: 'wager_draw', title: 'Game ended in a draw', message: 'Your stake has been refunded in full.', wager_id: wagerId },
-                        { player_wallet: wager.player_b_wallet, type: 'wager_draw', title: 'Game ended in a draw', message: 'Your stake has been refunded in full.', wager_id: wagerId },
-                    ]);
-                } else if (winnerWallet) {
-                    const loserWallet = winnerWallet === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
-                    await insertNotifications(supabase, [
-                        { player_wallet: winnerWallet, type: 'wager_won', title: '🏆 You won!', message: `${payoutSol} SOL has been sent to your wallet.`, wager_id: wagerId },
-                        { player_wallet: loserWallet as string, type: 'wager_lost', title: 'You lost this one', message: 'Better luck next time. Create a new wager and get your SOL back.', wager_id: wagerId },
-                    ]);
-                }
-
                 return respond({
                     gameComplete: true, status: game.status, winner: game.winner,
                     resultType, winnerWallet: resultType === 'draw' ? null : winnerWallet,
@@ -735,19 +612,6 @@ serve(async (req) => {
                 }
             }
 
-            // Notify the other player — use display name
-            const otherPlayer = walletAddress === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
-            if (otherPlayer) {
-                const cancellerName = await getDisplayName(supabase, walletAddress);
-                await insertNotifications(supabase, [{
-                    player_wallet: otherPlayer,
-                    type: 'wager_cancelled',
-                    title: 'Wager cancelled',
-                    message: `${cancellerName} cancelled the wager. Your stake has been refunded.`,
-                    wager_id: wagerId,
-                }]);
-            }
-
             return respond({ wager: updatedWager, message: 'Wager cancelled.', refundInitiated: true });
         }
 
@@ -759,7 +623,9 @@ serve(async (req) => {
     }
 });
 
-// ── Helper: try creating Lichess game ─────────────────────────────────────────
+// ── Helper: try creating Lichess game, save result to wager ───────────────────
+// Called after both players deposit. Non-fatal — wager proceeds even if it fails,
+// but logs the error so it can be retried/debugged.
 async function tryCreateLichessGame(
     supabase: ReturnType<typeof createClient>,
     wagerId: string,

@@ -78,9 +78,9 @@ function OpenWagerCard({
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <div className="font-gaming text-lg font-bold text-accent">{formatSol(wager.stake_lamports)} SOL</div>
+              <div className="font-gaming text-sm sm:text-lg font-bold text-accent whitespace-nowrap">{formatSol(wager.stake_lamports)} SOL</div>
             </div>
-            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+            <div className="flex gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
               {isOwner ? (
                 <>
                   <Button variant="outline" size="sm" onClick={() => onEdit?.(wager)}><Pencil className="h-4 w-4" /></Button>
@@ -127,10 +127,10 @@ function LiveMatchCard({
   return (
     <Card variant="wager" className="cursor-pointer border-primary/20 hover:border-primary/40 transition-all duration-300" onClick={handleClick}>
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <div className="text-3xl">{game.icon}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative flex-shrink-0">
+              <div className="text-2xl sm:text-3xl">{game.icon}</div>
               {!isResolved && (
                 <span className="absolute -top-1 -right-1 flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
@@ -138,29 +138,29 @@ function LiveMatchCard({
                 </span>
               )}
             </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-gaming text-sm">{truncateAddress(wager.player_a_wallet)}</span>
-                <Swords className="h-4 w-4 text-primary" />
-                <span className="font-gaming text-sm">{wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 sm:gap-2 mb-1 flex-wrap">
+                <span className="font-gaming text-xs sm:text-sm truncate max-w-[80px] sm:max-w-none">{truncateAddress(wager.player_a_wallet)}</span>
+                <Swords className="h-3 w-3 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
+                <span className="font-gaming text-xs sm:text-sm truncate max-w-[80px] sm:max-w-none">{wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}</span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
                 <span>{game.name}</span>
                 <span>•</span>
                 <span>{timeDiff}m</span>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="font-gaming text-accent">{formatSol(wager.stake_lamports * 2)} SOL</div>
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-3 flex-shrink-0">
+            <div className="font-gaming text-sm sm:text-base text-accent whitespace-nowrap">{formatSol(wager.stake_lamports * 2)} SOL</div>
             {isResolved ? (
-              <Badge variant="outline" className="cursor-pointer">{wager.winner_wallet ? '🏆 View Result' : '🤝 Draw'}</Badge>
+              <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap">{wager.winner_wallet ? '🏆 View Result' : '🤝 Draw'}</Badge>
             ) : canEnterReadyRoom ? (
-              <Badge variant="joined" className="cursor-pointer">Enter Ready Room</Badge>
+              <Badge variant="joined" className="cursor-pointer text-xs whitespace-nowrap">Ready Room</Badge>
             ) : isInProgress && isParticipant ? (
-              <Badge variant="voting" className="cursor-pointer flex items-center gap-1"><Play className="h-3 w-3" /> Watch Game</Badge>
+              <Badge variant="voting" className="cursor-pointer flex items-center gap-1 text-xs whitespace-nowrap"><Play className="h-3 w-3" /> Watch</Badge>
             ) : (
-              <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'}>
+              <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'} className="text-xs whitespace-nowrap">
                 {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
               </Badge>
             )}
@@ -479,9 +479,9 @@ export default function ArenaPage() {
             <h1 className="text-3xl font-bold mb-2 font-gaming"><span className="text-primary">Arena</span></h1>
             <p className="text-muted-foreground">Find opponents and stake your claim</p>
           </div>
-          <div className="flex gap-3">
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button variant="neon" className="group" onClick={handleCreateWager}>
+          <div className="flex gap-3 w-full md:w-auto">
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-full md:w-auto">
+              <Button variant="neon" className="group w-full md:w-auto" onClick={handleCreateWager}>
                 <Plus className="h-4 w-4 mr-2" />Create Wager
               </Button>
             </motion.div>
@@ -611,7 +611,9 @@ export default function ArenaPage() {
                             <div className="flex items-center gap-2">
                               <span>{game.icon}</span>
                               <span className="font-gaming text-xs">
-                                {wager.winner_wallet ? truncateAddress(wager.winner_wallet) : 'Unknown'}
+                                {wager.winner_wallet
+                                  ? (playerUsernameMap[wager.winner_wallet.toLowerCase()] || truncateAddress(wager.winner_wallet))
+                                  : 'Unknown'}
                               </span>
                             </div>
                             <span className="text-accent font-gaming">+{formatSol(wager.stake_lamports)}</span>

@@ -108,11 +108,23 @@ export default function DashboardPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3 }}
-              className="mt-8 p-4 rounded-lg bg-muted/40 border border-border/50"
+              className="mt-4 space-y-3"
             >
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                We support all major Solana wallets including Phantom, Magic Eden, and more.
-              </p>
+              <div className="p-4 rounded-lg bg-muted/40 border border-border/50">
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  We support Phantom, Solflare, WalletConnect, and more.
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <p className="text-xs sm:text-sm text-amber-400 font-medium mb-1">📱 On mobile?</p>
+                <p className="text-xs text-muted-foreground">
+                  Regular Chrome and Safari on mobile don't support wallet extensions.
+                  For the best experience, open this app inside{' '}
+                  <span className="text-amber-400 font-medium">Phantom's built-in browser</span>,{' '}
+                  <span className="text-amber-400 font-medium">Mises Browser</span>, or{' '}
+                  <span className="text-amber-400 font-medium">Kiwi Browser</span> — they support wallet connections natively.
+                </p>
+              </div>
             </motion.div>
           </div>
         </div>
@@ -172,7 +184,7 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground uppercase">{stat.label}</p>
-                    <p className={`text-xl font-gaming font-bold ${stat.color}`}>{stat.value}</p>
+                    <p className={`text-sm sm:text-xl font-gaming font-bold truncate ${stat.color}`}>{stat.value}</p>
                   </div>
                 </div>
               </Card>

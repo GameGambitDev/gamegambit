@@ -38,14 +38,14 @@ const steps = [
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="py-24 relative overflow-hidden">
+    <section id="how-it-works" className="py-12 sm:py-24 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0 bg-gradient-to-b from-background via-card/30 to-background" />
       <div className="absolute inset-0 cyber-grid opacity-10" />
 
       <div className="container relative z-10 px-4">
         {/* Header */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-8 sm:mb-16">
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -75,7 +75,7 @@ export function HowItWorks() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: index * 0.1 }}
-              className="relative group"
+              className="relative group pt-3 pl-3"
             >
               {/* Connector Line */}
               {index < steps.length - 1 && (
