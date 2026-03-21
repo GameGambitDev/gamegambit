@@ -403,6 +403,36 @@ export type Database = {
                     },
                 ]
             }
+            push_subscriptions: {
+                Row: {
+                    id: string
+                    player_wallet: string
+                    endpoint: string
+                    p256dh: string
+                    auth: string
+                    created_at: string | null
+                    updated_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    player_wallet: string
+                    endpoint: string
+                    p256dh: string
+                    auth: string
+                    created_at?: string | null
+                    updated_at?: string | null
+                }
+                Update: {
+                    id?: string
+                    player_wallet?: string
+                    endpoint?: string
+                    p256dh?: string
+                    auth?: string
+                    created_at?: string | null
+                    updated_at?: string | null
+                }
+                Relationships: []
+            }
             notifications: {
                 Row: {
                     id: string
