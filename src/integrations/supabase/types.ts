@@ -403,6 +403,47 @@ export type Database = {
                     },
                 ]
             }
+            notifications: {
+                Row: {
+                    id: string
+                    player_wallet: string
+                    type: string
+                    title: string
+                    message: string
+                    wager_id: string | null
+                    read: boolean
+                    created_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    player_wallet: string
+                    type: string
+                    title: string
+                    message: string
+                    wager_id?: string | null
+                    read?: boolean
+                    created_at?: string | null
+                }
+                Update: {
+                    id?: string
+                    player_wallet?: string
+                    type?: string
+                    title?: string
+                    message?: string
+                    wager_id?: string | null
+                    read?: boolean
+                    created_at?: string | null
+                }
+                Relationships: [
+                    {
+                        foreignKeyName: "notifications_wager_id_fkey"
+                        columns: ["wager_id"]
+                        isOneToOne: false
+                        referencedRelation: "wagers"
+                        referencedColumns: ["id"]
+                    },
+                ]
+            }
             players: {
                 Row: {
                     avatar_url: string | null
@@ -594,6 +635,7 @@ export type Database = {
                     chess_clock_increment: number | null
                     chess_clock_limit: number | null
                     chess_rated: boolean | null
+                    chess_side_preference: string | null
                     countdown_started_at: string | null
                     created_at: string | null
                     deposit_player_a: boolean
@@ -630,6 +672,7 @@ export type Database = {
                     chess_clock_increment?: number | null
                     chess_clock_limit?: number | null
                     chess_rated?: boolean | null
+                    chess_side_preference?: string | null
                     countdown_started_at?: string | null
                     created_at?: string | null
                     deposit_player_a?: boolean
@@ -666,6 +709,7 @@ export type Database = {
                     chess_clock_increment?: number | null
                     chess_clock_limit?: number | null
                     chess_rated?: boolean | null
+                    chess_side_preference?: string | null
                     countdown_started_at?: string | null
                     created_at?: string | null
                     deposit_player_a?: boolean
@@ -740,6 +784,7 @@ export type Database = {
                     chess_clock_increment: number | null
                     chess_clock_limit: number | null
                     chess_rated: boolean | null
+                    chess_side_preference: string | null
                     countdown_started_at: string | null
                     created_at: string | null
                     deposit_player_a: boolean
