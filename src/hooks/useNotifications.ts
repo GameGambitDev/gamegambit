@@ -57,7 +57,8 @@ export function useNotifications() {
     useEffect(() => {
         offsetRef.current = 0
         fetchPage(0, false)
-    }, [fetchPage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wallet])
 
     const loadMore = useCallback(() => {
         fetchPage(offsetRef.current, true)
