@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Loader2, AlertCircle, Swords, Search, User, X,
-  Users, UserPlus, Lock, CheckCircle2,
+  Users, UserPlus, Lock, CheckCircle2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useCreateWager, GameType } from '@/hooks/useWagers';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
@@ -30,14 +30,47 @@ const GAME_OPTIONS: { value: GameType; label: string; icon: string; live: boolea
 
 const STAKE_PRESETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
 
-const TIME_CONTROLS = [
-  { label: '1+0', limit: 60, increment: 0 },
-  { label: '3+2', limit: 180, increment: 2 },
-  { label: '5+3', limit: 300, increment: 3 },
-  { label: '10+0', limit: 600, increment: 0 },
-  { label: '15+10', limit: 900, increment: 10 },
-  { label: '30+0', limit: 1800, increment: 0 },
+export type TimeControlCategory = 'Bullet' | 'Blitz' | 'Rapid' | 'Classical';
+
+export interface TimeControl {
+  label: string;
+  limit: number;       // seconds
+  increment: number;   // seconds
+  category: TimeControlCategory;
+  description: string;
+}
+
+export const TIME_CONTROLS: TimeControl[] = [
+  // Bullet
+  { label: '1+0', limit: 60, increment: 0, category: 'Bullet', description: 'Ultra-fast, 1 min each' },
+  { label: '2+1', limit: 120, increment: 1, category: 'Bullet', description: '2 min + 1 sec/move' },
+  { label: '3+0', limit: 180, increment: 0, category: 'Bullet', description: '3 min each, no increment' },
+  // Blitz
+  { label: '3+2', limit: 180, increment: 2, category: 'Blitz', description: '3 min + 2 sec/move' },
+  { label: '5+0', limit: 300, increment: 0, category: 'Blitz', description: '5 min each, no increment' },
+  { label: '5+3', limit: 300, increment: 3, category: 'Blitz', description: '5 min + 3 sec/move' },
+  // Rapid
+  { label: '10+0', limit: 600, increment: 0, category: 'Rapid', description: '10 min each — popular choice' },
+  { label: '15+10', limit: 900, increment: 10, category: 'Rapid', description: '15 min + 10 sec/move' },
+  { label: '20+0', limit: 1200, increment: 0, category: 'Rapid', description: '20 min each' },
+  { label: '25+0', limit: 1500, increment: 0, category: 'Rapid', description: '25 min each' },
+  { label: '30+0', limit: 1800, increment: 0, category: 'Rapid', description: '30 min each' },
+  // Classical
+  { label: '45+45', limit: 2700, increment: 45, category: 'Classical', description: '45 min + 45 sec/move' },
+  { label: '60+0', limit: 3600, increment: 0, category: 'Classical', description: '1 hour each — ⚠ long game' },
+  { label: '90+30', limit: 5400, increment: 30, category: 'Classical', description: '90 min + 30 sec/move — ⚠ 2–4 hrs' },
 ];
+
+const CATEGORY_STYLES: Record<TimeControlCategory, { dot: string; label: string; border: string; activeBg: string; activeText: string }> = {
+  Bullet: { dot: 'bg-red-500', label: 'text-red-400', border: 'border-red-500/40', activeBg: 'bg-red-500/20', activeText: 'text-red-400' },
+  Blitz: { dot: 'bg-orange-400', label: 'text-orange-400', border: 'border-orange-400/40', activeBg: 'bg-orange-400/20', activeText: 'text-orange-400' },
+  Rapid: { dot: 'bg-green-500', label: 'text-green-400', border: 'border-green-500/40', activeBg: 'bg-green-500/20', activeText: 'text-green-400' },
+  Classical: { dot: 'bg-blue-500', label: 'text-blue-400', border: 'border-blue-500/40', activeBg: 'bg-blue-500/20', activeText: 'text-blue-400' },
+};
+
+const CATEGORIES: TimeControlCategory[] = ['Bullet', 'Blitz', 'Rapid', 'Classical'];
+
+export type SidePreference = 'random' | 'white' | 'black';
 
 type WagerMode = 'open' | 'challenge';
 
@@ -50,9 +83,11 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
   const [error, setError] = useState('');
   const [opponentSearch, setOpponentSearch] = useState('');
   const [selectedOpponent, setSelectedOpponent] = useState<Player | null>(null);
-  const [selectedTimeControl, setSelectedTimeControl] = useState(TIME_CONTROLS[2]);
+  const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControl>(TIME_CONTROLS[6]);
   const [isRated, setIsRated] = useState(false);
   const [isConnectingLichess, setIsConnectingLichess] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [sidePreference, setSidePreference] = useState<SidePreference>('random');
 
   const createWager = useCreateWager();
   const { data: balance } = useWalletBalance();
@@ -127,6 +162,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
           chess_clock_limit: selectedTimeControl.limit,
           chess_clock_increment: selectedTimeControl.increment,
           chess_rated: isRated,
+          chess_side_preference: sidePreference,
         }),
       });
       toast.success(
@@ -142,8 +178,10 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
       setStreamUrl('');
       setSelectedOpponent(null);
       setOpponentSearch('');
-      setSelectedTimeControl(TIME_CONTROLS[2]);
+      setSelectedTimeControl(TIME_CONTROLS[6]);
       setIsRated(false);
+      setSidePreference('random');
+      setShowAdvanced(false);
     } catch (err: any) {
       setError(err.message || 'Failed to create wager');
     }
@@ -290,11 +328,25 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                 </div>
               )}
 
-              {/* Time control — only show when connected */}
+              {/* Time controls — grouped by category */}
               {isLichessConnected && (
-                <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
+                <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/10">
+                  {/* Header row: label + rated toggle */}
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground font-medium">Time control</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">Time Control</p>
+                      {/* Active selection badge */}
+                      <span className={cn(
+                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border",
+                        CATEGORY_STYLES[selectedTimeControl.category].border,
+                        CATEGORY_STYLES[selectedTimeControl.category].activeBg,
+                        CATEGORY_STYLES[selectedTimeControl.category].activeText,
+                      )}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full", CATEGORY_STYLES[selectedTimeControl.category].dot)} />
+                        {selectedTimeControl.label} · {selectedTimeControl.category}
+                      </span>
+                    </div>
+                    {/* Rated toggle */}
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -312,26 +364,101 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                       <span className="text-xs text-muted-foreground">Rated</span>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {TIME_CONTROLS.map((tc) => (
-                      <button
-                        key={tc.label}
-                        type="button"
-                        onClick={() => setSelectedTimeControl(tc)}
-                        className={cn(
-                          "px-2.5 py-1 rounded text-xs border transition-all",
-                          selectedTimeControl.label === tc.label
-                            ? "border-primary bg-primary/20 text-primary font-medium"
-                            : "border-border hover:border-primary/50"
-                        )}
-                      >
-                        {tc.label}
-                      </button>
-                    ))}
+
+                  {/* Grouped time control buttons */}
+                  <div className="space-y-2.5">
+                    {CATEGORIES.map((cat) => {
+                      const style = CATEGORY_STYLES[cat];
+                      const options = TIME_CONTROLS.filter(tc => tc.category === cat);
+                      return (
+                        <div key={cat}>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className={cn("w-2 h-2 rounded-full flex-shrink-0", style.dot)} />
+                            <span className={cn("text-[11px] font-semibold uppercase tracking-wide", style.label)}>
+                              {cat}
+                            </span>
+                            {cat === 'Classical' && (
+                              <span className="text-[10px] text-muted-foreground ml-1">⚠ Long games</span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {options.map((tc) => {
+                              const isSelected = selectedTimeControl.label === tc.label && selectedTimeControl.category === tc.category;
+                              return (
+                                <button
+                                  key={`${tc.category}-${tc.label}`}
+                                  type="button"
+                                  title={tc.description}
+                                  onClick={() => setSelectedTimeControl(tc)}
+                                  className={cn(
+                                    "px-2.5 py-1 rounded text-xs border transition-all",
+                                    isSelected
+                                      ? cn("font-semibold", style.border, style.activeBg, style.activeText)
+                                      : "border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
+                                  )}
+                                >
+                                  {tc.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    The Lichess game will be created automatically when both players are ready.
+
+                  <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/50">
+                    {selectedTimeControl.description} · Game created automatically when both players deposit.
                   </p>
+                </div>
+              )}
+
+              {/* Advanced options toggle */}
+              {isLichessConnected && (
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+                >
+                  {showAdvanced ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  Advanced options
+                </button>
+              )}
+
+              {/* Advanced panel */}
+              {isLichessConnected && showAdvanced && (
+                <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-3">
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Side Preference</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Choose which side you want to play. Your opponent will see your preference when they view the wager.
+                    </p>
+                    <div className="grid grid-cols-3 gap-1.5 mt-2">
+                      {(['random', 'white', 'black'] as SidePreference[]).map((side) => (
+                        <button
+                          key={side}
+                          type="button"
+                          onClick={() => setSidePreference(side)}
+                          className={cn(
+                            "flex flex-col items-center gap-1 py-2 px-1 rounded-lg border-2 text-xs font-medium transition-all",
+                            sidePreference === side
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-background hover:border-primary/50 text-muted-foreground"
+                          )}
+                        >
+                          <span className="text-base">
+                            {side === 'random' ? '🎲' : side === 'white' ? '⬜' : '⬛'}
+                          </span>
+                          <span className="capitalize">{side}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {sidePreference !== 'random' && (
+                      <p className="text-[11px] text-primary/80 mt-1">
+                        You'll play as {sidePreference}. Opponent will see this when joining.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -480,12 +607,22 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
               </div>
             )}
             {isChess && isLichessConnected && (
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-muted-foreground">Time Control</span>
-                <span className="font-mono text-sm text-primary">
-                  {selectedTimeControl.label} {isRated ? '· Rated' : '· Casual'}
-                </span>
-              </div>
+              <>
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-muted-foreground">Time Control</span>
+                  <span className={cn("font-mono text-sm font-semibold", CATEGORY_STYLES[selectedTimeControl.category].activeText)}>
+                    {selectedTimeControl.label} · {selectedTimeControl.category} {isRated ? '· Rated' : '· Casual'}
+                  </span>
+                </div>
+                {sidePreference !== 'random' && (
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-muted-foreground">Your Side</span>
+                    <span className="font-mono text-sm text-primary capitalize">
+                      {sidePreference === 'white' ? '⬜ White' : '⬛ Black'}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
