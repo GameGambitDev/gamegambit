@@ -196,9 +196,10 @@ async function savePushSubscription(wallet: string, subscription: PushSubscripti
     }
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
     const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
     const rawData = atob(base64)
-    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
+    const arr = Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
+    return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength) as ArrayBuffer
 }
