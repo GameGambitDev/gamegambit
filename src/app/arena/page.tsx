@@ -631,7 +631,7 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      <CreateWagerModal open={createModalOpen} onOpenChange={setCreateModalOpen} onSuccess={() => setCreateModalOpen(false)} />
+      <CreateWagerModal open={createModalOpen} onOpenChange={setCreateModalOpen} onSuccess={() => { setCreateModalOpen(false); queryClient.invalidateQueries({ queryKey: ['wagers'] }) }} />
       <QuickMatchModal open={quickMatchModalOpen} onOpenChange={setQuickMatchModalOpen} onMatch={handleQuickMatchSubmit} isPending={quickMatch.isPending} />
       <WagerDetailsModal
         wager={selectedWager}
