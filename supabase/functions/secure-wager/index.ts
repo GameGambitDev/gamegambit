@@ -98,6 +98,7 @@ async function createLichessGame(
     clockLimit: number,
     clockIncrement: number,
     rated: boolean,
+    sidePreference: string = 'random',
 ): Promise<{ gameId: string; urlWhite: string; urlBlack: string }> {
     const platformToken = Deno.env.get('LICHESS_PLATFORM_TOKEN');
     if (!platformToken) throw new Error('LICHESS_PLATFORM_TOKEN not configured');
@@ -107,7 +108,10 @@ async function createLichessGame(
         'clock.increment': String(clockIncrement),
         rated: String(rated),
         // Lock game to these two players only. First username = white.
-        users: `${playerAUsername},${playerBUsername}`,
+        // Side preference: if creator chose black, swap order so they get black.
+        users: sidePreference === 'black'
+            ? `${playerBUsername},${playerAUsername}`
+            : `${playerAUsername},${playerBUsername}`,
         // Prevent draws/early quits to protect wager integrity
         rules: 'noRematch,noEarlyDraw',
         name: 'GameGambit Wager',
@@ -226,6 +230,25 @@ async function validateSessionToken(token: string): Promise<string | null> {
     }
 }
 
+
+// ── Insert notifications for one or more players ──────────────────────────────
+async function insertNotifications(
+    supabase: ReturnType<typeof createClient>,
+    items: Array<{
+        player_wallet: string
+        type: string
+        title: string
+        message: string
+        wager_id?: string
+    }>
+) {
+    try {
+        await supabase.from('notifications').insert(items)
+    } catch (e) {
+        console.warn('[secure-wager] Failed to insert notifications:', e)
+    }
+}
+
 serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { status: 200, headers: corsHeaders });
 
@@ -257,7 +280,7 @@ serve(async (req) => {
 
         // ── create ─────────────────────────────────────────────────────────────
         if (action === 'create') {
-            const { game, stake_lamports, is_public, stream_url, chess_clock_limit, chess_clock_increment, chess_rated } = data;
+            const { game, stake_lamports, is_public, stream_url, chess_clock_limit, chess_clock_increment, chess_rated, chess_side_preference } = data;
             if (!game || !['chess', 'codm', 'pubg'].includes(game)) return respond({ error: 'Invalid game type' }, 400);
             if (!stake_lamports || stake_lamports <= 0) return respond({ error: 'Invalid stake amount' }, 400);
 
@@ -278,6 +301,7 @@ serve(async (req) => {
                     chess_clock_limit: chess_clock_limit ?? 300,
                     chess_clock_increment: chess_clock_increment ?? 3,
                     chess_rated: chess_rated ?? false,
+                    chess_side_preference: chess_side_preference ?? 'random',
                 }),
             }).select().single();
 
@@ -306,6 +330,17 @@ serve(async (req) => {
                 .update({ player_b_wallet: walletAddress, status: 'joined' })
                 .eq('id', wagerId).eq('status', 'created').select().single();
             if (error) return respond({ error: 'Failed to join wager' }, 500);
+
+            // Notify Player A that someone joined their wager
+            const joinerShort = walletAddress.slice(0, 4) + '...' + walletAddress.slice(-4);
+            await insertNotifications(supabase, [{
+                player_wallet: wager.player_a_wallet,
+                type: 'wager_joined',
+                title: 'Someone joined your wager!',
+                message: `${joinerShort} accepted your wager. Head to the Ready Room to get started.`,
+                wager_id: wagerId,
+            }]);
+
             return respond({ wager: updatedWager });
         }
 
@@ -441,6 +476,11 @@ serve(async (req) => {
             if (bothDeposited && wager.game === 'chess') {
                 console.log(`[secure-wager] Both deposited on chess wager ${wagerId} — creating Lichess game`);
                 const lichessResult = await tryCreateLichessGame(supabase, wagerId, wager);
+                // Notify both players game has started
+                await insertNotifications(supabase, [
+                    { player_wallet: wager.player_a_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
+                    { player_wallet: wager.player_b_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
+                ]);
                 return respond({ success: true, wager: { ...updated, ...lichessResult }, gameStarted: true });
             }
 
@@ -467,6 +507,11 @@ serve(async (req) => {
             if (bothDeposited && wager.game === 'chess') {
                 console.log(`[secure-wager] Both deposited on chess wager ${wagerId} — creating Lichess game`);
                 const lichessResult = await tryCreateLichessGame(supabase, wagerId, wager);
+                // Notify both players game has started
+                await insertNotifications(supabase, [
+                    { player_wallet: wager.player_a_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
+                    { player_wallet: wager.player_b_wallet, type: 'game_started', title: 'Game started!', message: 'Both players have deposited. Your Lichess game is ready — click your play link.', wager_id: wagerId },
+                ]);
                 return respond({ success: true, wager: { ...updated, ...lichessResult }, gameStarted: true });
             }
 
@@ -545,6 +590,23 @@ serve(async (req) => {
 
                 const txSig = await resolveOnChain(supabase, wager, winnerWallet, resultType as 'playerA' | 'playerB' | 'draw');
 
+                // Send win/loss/draw notifications
+                const stake = wager.stake_lamports as number;
+                const payout = Math.floor(stake * 2 * 0.9);
+                const payoutSol = (payout / 1e9).toFixed(4);
+                if (resultType === 'draw') {
+                    await insertNotifications(supabase, [
+                        { player_wallet: wager.player_a_wallet, type: 'wager_draw', title: 'Game ended in a draw', message: 'Your stake has been refunded in full.', wager_id: wagerId },
+                        { player_wallet: wager.player_b_wallet, type: 'wager_draw', title: 'Game ended in a draw', message: 'Your stake has been refunded in full.', wager_id: wagerId },
+                    ]);
+                } else if (winnerWallet) {
+                    const loserWallet = winnerWallet === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
+                    await insertNotifications(supabase, [
+                        { player_wallet: winnerWallet, type: 'wager_won', title: '🏆 You won!', message: `${payoutSol} SOL has been sent to your wallet.`, wager_id: wagerId },
+                        { player_wallet: loserWallet as string, type: 'wager_lost', title: 'You lost this one', message: 'Better luck next time. Create a new wager and get your SOL back.', wager_id: wagerId },
+                    ]);
+                }
+
                 return respond({
                     gameComplete: true, status: game.status, winner: game.winner,
                     resultType, winnerWallet: resultType === 'draw' ? null : winnerWallet,
@@ -607,6 +669,19 @@ serve(async (req) => {
                 }
             }
 
+            // Notify the other player about cancellation
+            const otherPlayer = walletAddress === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
+            if (otherPlayer) {
+                const cancellerShort = walletAddress.slice(0, 4) + '...' + walletAddress.slice(-4);
+                await insertNotifications(supabase, [{
+                    player_wallet: otherPlayer,
+                    type: 'wager_cancelled',
+                    title: 'Wager cancelled',
+                    message: `${cancellerShort} cancelled the wager. Your stake has been refunded.`,
+                    wager_id: wagerId,
+                }]);
+            }
+
             return respond({ wager: updatedWager, message: 'Wager cancelled.', refundInitiated: true });
         }
 
@@ -643,6 +718,7 @@ async function tryCreateLichessGame(
         const clockLimit = (wager.chess_clock_limit as number) ?? 300;
         const clockIncrement = (wager.chess_clock_increment as number) ?? 3;
         const rated = (wager.chess_rated as boolean) ?? false;
+        const sidePreference = (wager.chess_side_preference as string) ?? 'random';
 
         const { gameId, urlWhite, urlBlack } = await createLichessGame(
             playerAUsername,
@@ -650,6 +726,7 @@ async function tryCreateLichessGame(
             clockLimit,
             clockIncrement,
             rated,
+            sidePreference,
         );
 
         console.log(`[secure-wager] Lichess game created: ${gameId} for wager ${wagerId}`);
