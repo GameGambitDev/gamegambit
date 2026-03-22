@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -187,6 +188,7 @@ export default function ArenaPage() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58()
+  const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [quickMatchModalOpen, setQuickMatchModalOpen] = useState(false)
@@ -205,6 +207,26 @@ export default function ArenaPage() {
 
   const queryClient = useQueryClient()
   const checkGameComplete = useCheckGameComplete()
+
+
+  // ── Deep-link from notification: ?wager=<id>&modal=ready-room ─────────────
+  useEffect(() => {
+    const wagerId = searchParams.get('wager')
+    const modal = searchParams.get('modal')
+    if (!wagerId || !modal) return
+    if (modal === 'ready-room') {
+      setReadyRoomWagerId(wagerId)
+    } else if (modal === 'details') {
+      // wager data loads via useWagerById when id is set
+      setReadyRoomWagerId(null)
+    }
+    // Clear the params from URL without reload
+    const url = new URL(window.location.href)
+    url.searchParams.delete('wager')
+    url.searchParams.delete('modal')
+    window.history.replaceState({}, '', url.pathname)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
