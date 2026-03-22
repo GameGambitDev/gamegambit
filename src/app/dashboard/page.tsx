@@ -1,6 +1,6 @@
 'use client'
 
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
 import dynamic from 'next/dynamic'
@@ -11,7 +11,9 @@ const WalletMultiButton = dynamic(
 )
 import {
   Trophy, Swords, TrendingUp, Wallet, Clock, Target,
-  ChevronRight, Flame, Star, Activity, Loader2
+  ChevronRight, Flame, Star, Activity, Loader2, Zap,
+  Shield, Crown, ArrowUpRight, ArrowDownRight, Minus,
+  BarChart3, CircleDot
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +24,7 @@ import Link from 'next/link'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMyWagers } from '@/hooks/useWagers'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
+import { useState } from 'react'
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -30,6 +33,149 @@ const getGameData = (game: string) => {
     case 'pubg': return GAMES.PUBG
     default: return GAMES.CHESS
   }
+}
+
+function StreakDisplay({ current, best }: { current: number; best: number }) {
+  const isHot = current >= 3
+  const isOnFire = current >= 5
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative">
+        <motion.div
+          animate={isOnFire ? {
+            scale: [1, 1.1, 1],
+            filter: ['brightness(1)', 'brightness(1.3)', 'brightness(1)'],
+          } : {}}
+          transition={{ repeat: Infinity, duration: 1.5 }}
+          className="text-4xl"
+        >
+          {isOnFire ? '🔥' : isHot ? '⚡' : current > 0 ? '✨' : '💤'}
+        </motion.div>
+        {isOnFire && (
+          <motion.div
+            className="absolute inset-0 rounded-full bg-orange-500/20 blur-xl"
+            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0.8, 0.5] }}
+            transition={{ repeat: Infinity, duration: 1.5 }}
+          />
+        )}
+      </div>
+      <div className="font-gaming text-3xl font-bold text-foreground">{current}</div>
+      <div className="text-xs text-muted-foreground">Current Streak</div>
+      <div className="text-xs text-muted-foreground/60">Best: {best}</div>
+    </div>
+  )
+}
+
+function MatchCard({ match, walletAddress, index }: {
+  match: any
+  walletAddress: string
+  index: number
+}) {
+  const [hovered, setHovered] = useState(false)
+  const game = getGameData(match.game)
+  const won = match.winner_wallet === walletAddress
+  const isDraw = match.status === 'resolved' && !match.winner_wallet
+  const opponent = match.player_a_wallet === walletAddress
+    ? match.player_b_wallet
+    : match.player_a_wallet
+  const timeAgo = Math.floor((Date.now() - new Date(match.created_at).getTime()) / 3600000)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.07 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className={`
+        relative overflow-hidden rounded-xl border transition-all duration-300 p-4
+        ${won
+          ? 'border-green-500/30 bg-green-500/5 hover:border-green-500/50 hover:bg-green-500/10'
+          : isDraw
+            ? 'border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/50 hover:bg-yellow-500/10'
+            : 'border-red-500/20 bg-red-500/5 hover:border-red-500/40 hover:bg-red-500/8'
+        }
+      `}>
+        {/* Glow effect on hover */}
+        <AnimatePresence>
+          {hovered && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={`absolute inset-0 blur-2xl -z-10 ${won ? 'bg-green-500/10' : isDraw ? 'bg-yellow-500/10' : 'bg-red-500/10'
+                }`}
+            />
+          )}
+        </AnimatePresence>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {/* Result icon */}
+            <div className={`
+              w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0
+              ${won ? 'bg-green-500/20' : isDraw ? 'bg-yellow-500/20' : 'bg-red-500/20'}
+            `}>
+              {won
+                ? <ArrowUpRight className="h-5 w-5 text-green-400" />
+                : isDraw
+                  ? <Minus className="h-5 w-5 text-yellow-400" />
+                  : <ArrowDownRight className="h-5 w-5 text-red-400" />
+              }
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-lg">{game.icon}</span>
+                <span className="font-gaming text-sm text-foreground">
+                  vs {opponent ? truncateAddress(opponent, 4) : 'Unknown'}
+                </span>
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] px-1.5 py-0 ${won
+                      ? 'border-green-500/50 text-green-400'
+                      : isDraw
+                        ? 'border-yellow-500/50 text-yellow-400'
+                        : 'border-red-500/50 text-red-400'
+                    }`}
+                >
+                  {won ? 'WIN' : isDraw ? 'DRAW' : 'LOSS'}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{game.name}</span>
+                <span>•</span>
+                <Clock className="h-3 w-3" />
+                <span>{timeAgo}h ago</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className={`font-gaming text-base font-bold ${won ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
+              }`}>
+              {won ? '+' : isDraw ? '' : '-'}{formatSol(match.stake_lamports)} SOL
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function StatBar({ value, max, color }: { value: number; max: number; color: string }) {
+  return (
+    <div className="h-2 rounded-full bg-muted overflow-hidden">
+      <motion.div
+        initial={{ width: 0 }}
+        animate={{ width: `${max > 0 ? (value / max) * 100 : 0}%` }}
+        transition={{ duration: 1, ease: 'easeOut', delay: 0.3 }}
+        className={`h-full rounded-full ${color}`}
+      />
+    </div>
+  )
 }
 
 function WalletLoader() {
@@ -54,16 +200,27 @@ export default function DashboardPage() {
 
   const activeWagers = wagers?.filter(w => ['created', 'joined', 'voting', 'disputed'].includes(w.status)) || []
   const completedWagers = wagers?.filter(w => w.status === 'resolved') || []
-  const recentMatches = completedWagers.slice(0, 4)
+  const recentMatches = completedWagers.slice(0, 5)
 
   const walletAddress = publicKey?.toBase58() || ''
-  const winRate = player && (player.total_wins + player.total_losses) > 0
-    ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
+  const totalGames = (player?.total_wins ?? 0) + (player?.total_losses ?? 0)
+  const winRate = totalGames > 0
+    ? Math.round((player!.total_wins / totalGames) * 100)
     : 0
 
   const displayName = player?.username || (publicKey ? truncateAddress(publicKey.toBase58(), 4) : '')
 
-  // Still waiting for autoConnect to resolve — don't flash the connect screen
+  // Rank tier based on wins
+  const getRank = (wins: number) => {
+    if (wins >= 50) return { label: 'Grandmaster', icon: Crown, color: 'text-yellow-400', bg: 'bg-yellow-500/20' }
+    if (wins >= 20) return { label: 'Master', icon: Shield, color: 'text-purple-400', bg: 'bg-purple-500/20' }
+    if (wins >= 10) return { label: 'Expert', icon: Star, color: 'text-blue-400', bg: 'bg-blue-500/20' }
+    if (wins >= 5) return { label: 'Skilled', icon: Zap, color: 'text-green-400', bg: 'bg-green-500/20' }
+    return { label: 'Rookie', icon: CircleDot, color: 'text-muted-foreground', bg: 'bg-muted' }
+  }
+
+  const rank = getRank(player?.total_wins ?? 0)
+
   if (!walletReady) return <WalletLoader />
 
   if (!connected) {
@@ -81,50 +238,27 @@ export default function DashboardPage() {
                 <Activity className="h-12 w-12 text-primary" />
               </div>
             </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
               <h1 className="text-2xl sm:text-3xl font-bold mb-3 font-gaming">
                 Welcome to <span className="text-primary">Game Gambit</span>
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground mb-6">
-                Connect your Solana wallet to access your dashboard and start playing competitive matches.
+                Connect your Solana wallet to access your dashboard and start playing.
               </p>
             </motion.div>
-
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-6 [&_.wallet-adapter-button]:!text-sm [&_.wallet-adapter-button]:sm:!h-14 [&_.wallet-adapter-button]:sm:!px-8 [&_.wallet-adapter-button]:sm:!text-base [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all mb-6"
+              className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-6 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all mb-6"
             >
               <WalletMultiButton />
             </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="mt-4 space-y-3"
-            >
-              <div className="p-4 rounded-lg bg-muted/40 border border-border/50">
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  We support Phantom, Solflare, WalletConnect, and more.
-                </p>
-              </div>
-              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                <p className="text-xs sm:text-sm text-amber-400 font-medium mb-1">📱 On mobile?</p>
-                <p className="text-xs text-muted-foreground">
-                  Regular Chrome and Safari on mobile don't support wallet extensions.
-                  For the best experience, open this app inside{' '}
-                  <span className="text-amber-400 font-medium">Phantom's built-in browser</span>,{' '}
-                  <span className="text-amber-400 font-medium">Mises Browser</span>, or{' '}
-                  <span className="text-amber-400 font-medium">Kiwi Browser</span> — they support wallet connections natively.
-                </p>
-              </div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="mt-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <p className="text-xs sm:text-sm text-amber-400 font-medium mb-1">📱 On mobile?</p>
+              <p className="text-xs text-muted-foreground">
+                Open in <span className="text-amber-400 font-medium">Phantom's browser</span>, <span className="text-amber-400 font-medium">Mises</span>, or <span className="text-amber-400 font-medium">Kiwi Browser</span>.
+              </p>
             </motion.div>
           </div>
         </div>
@@ -145,46 +279,95 @@ export default function DashboardPage() {
   return (
     <div className="py-8 pb-16">
       <div className="container px-4">
-        {/* Welcome Header */}
+
+        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="mb-8 flex items-start justify-between gap-4"
         >
-          <h1 className="text-3xl font-bold font-gaming mb-2">
-            Welcome back, <span className="text-primary">{displayName}</span>
-          </h1>
-          <p className="text-muted-foreground">{"Here's your gaming overview"}</p>
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-3xl font-bold font-gaming">
+                Welcome back, <span className="text-primary">{displayName}</span>
+              </h1>
+              {/* Rank badge */}
+              <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full ${rank.bg}`}>
+                <rank.icon className={`h-3.5 w-3.5 ${rank.color}`} />
+                <span className={`text-xs font-gaming ${rank.color}`}>{rank.label}</span>
+              </div>
+            </div>
+            <p className="text-muted-foreground text-sm">
+              {totalGames > 0
+                ? `${totalGames} matches played · ${winRate}% win rate`
+                : 'Ready to place your first wager?'}
+            </p>
+          </div>
+          <Link href="/arena">
+            <Button variant="neon" size="sm" className="flex-shrink-0">
+              <Swords className="h-4 w-4 mr-1.5" />
+              Find Match
+            </Button>
+          </Link>
         </motion.div>
 
-        {/* Quick Stats Row */}
+        {/* Top Stats Row */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+          className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"
         >
           {[
-            { icon: Wallet, label: 'Balance', value: balanceLoading ? '...' : `${walletBalance?.toFixed(4) || '0'} SOL`, color: 'text-primary', bgColor: 'bg-primary/20' },
-            { icon: TrendingUp, label: 'Total Earned', value: `+ ${player ? formatSol(player.total_earnings) : '0'} SOL`, color: 'text-success', bgColor: 'bg-success/20' },
-            { icon: Trophy, label: 'Wins', value: player?.total_wins || 0, color: 'text-accent', bgColor: 'bg-accent/20' },
-            { icon: Flame, label: 'Streak', value: `${player?.current_streak || 0} `, color: 'text-orange-500', bgColor: 'bg-orange-500/20' },
+            {
+              icon: Wallet,
+              label: 'Balance',
+              value: balanceLoading ? '...' : `${walletBalance?.toFixed(3) || '0'} SOL`,
+              color: 'text-primary',
+              bg: 'bg-primary/15',
+              sub: 'Available'
+            },
+            {
+              icon: TrendingUp,
+              label: 'Total Earned',
+              value: `+${player ? formatSol(player.total_earnings) : '0'} SOL`,
+              color: 'text-green-400',
+              bg: 'bg-green-500/15',
+              sub: 'All time'
+            },
+            {
+              icon: Trophy,
+              label: 'Wins',
+              value: player?.total_wins ?? 0,
+              color: 'text-yellow-400',
+              bg: 'bg-yellow-500/15',
+              sub: `${player?.total_losses ?? 0} losses`
+            },
+            {
+              icon: Flame,
+              label: 'Hot Streak',
+              value: player?.current_streak ?? 0,
+              color: (player?.current_streak ?? 0) >= 3 ? 'text-orange-400' : 'text-muted-foreground',
+              bg: (player?.current_streak ?? 0) >= 3 ? 'bg-orange-500/15' : 'bg-muted',
+              sub: `Best: ${player?.best_streak ?? 0}`
+            },
           ].map((stat, index) => (
             <motion.div
               key={stat.label}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 + index * 0.05 }}
+              transition={{ delay: 0.1 + index * 0.06 }}
               whileHover={{ scale: 1.02, y: -2 }}
             >
-              <Card variant="gaming" className="p-4 transition-all hover:border-primary/30">
+              <Card variant="gaming" className="p-4 transition-all hover:border-primary/30 overflow-hidden relative">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-                    <stat.icon className={`h-5 w-5 ${stat.color}`} />
+                  <div className={`p-2.5 rounded-xl ${stat.bg} flex-shrink-0`}>
+                    <stat.icon className={`h-4 w-4 ${stat.color}`} />
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase">{stat.label}</p>
-                    <p className={`text-sm sm:text-xl font-gaming font-bold truncate ${stat.color}`}>{stat.value}</p>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground mb-0.5">{stat.label}</div>
+                    <div className={`font-gaming text-lg font-bold truncate ${stat.color}`}>{stat.value}</div>
+                    <div className="text-[10px] text-muted-foreground/60">{stat.sub}</div>
                   </div>
                 </div>
               </Card>
@@ -193,161 +376,175 @@ export default function DashboardPage() {
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content - Left Side */}
+
+          {/* Left — Recent Matches */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Win Rate Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Card variant="gaming">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Target className="h-5 w-5 text-primary" />
-                    Performance
+
+            {/* Recent Matches */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+              <Card variant="gaming" className="overflow-hidden">
+                <CardHeader className="flex flex-row items-center justify-between pb-4">
+                  <CardTitle className="flex items-center gap-2 font-gaming">
+                    <BarChart3 className="h-5 w-5 text-primary" />
+                    Recent Matches
                   </CardTitle>
+                  <Link href="/my-wagers">
+                    <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 text-xs gap-1">
+                      View All <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </Link>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between mb-2">
-                        <span className="text-sm text-muted-foreground">Win Rate</span>
-                        <span className="font-gaming text-primary">{winRate}%</span>
-                      </div>
-                      <Progress value={winRate} className="h-3" />
+                <CardContent className="pt-0">
+                  {recentMatches.length > 0 ? (
+                    <div className="space-y-2">
+                      {recentMatches.map((match, i) => (
+                        <MatchCard
+                          key={match.id}
+                          match={match}
+                          walletAddress={walletAddress}
+                          index={i}
+                        />
+                      ))}
                     </div>
-                    <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border/50">
-                      <div className="text-center">
-                        <p className="text-2xl font-gaming text-success">{player?.total_wins || 0}</p>
-                        <p className="text-xs text-muted-foreground">Wins</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-gaming text-destructive">{player?.total_losses || 0}</p>
-                        <p className="text-xs text-muted-foreground">Losses</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-gaming text-accent">{player?.best_streak || 0}</p>
-                        <p className="text-xs text-muted-foreground">Best Streak</p>
-                      </div>
+                  ) : (
+                    <div className="text-center py-10">
+                      <div className="text-4xl mb-3">♟️</div>
+                      <p className="text-muted-foreground text-sm mb-4">No matches yet</p>
+                      <Link href="/arena">
+                        <Button variant="neon" size="sm">
+                          <Swords className="h-4 w-4 mr-2" />
+                          Find Your First Match
+                        </Button>
+                      </Link>
                     </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
 
-            {/* Recent Matches */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
+            {/* Performance breakdown */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
               <Card variant="gaming">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-primary" />
-                    Recent Matches
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-2 font-gaming">
+                    <Target className="h-5 w-5 text-primary" />
+                    Performance
                   </CardTitle>
-                  <Link href="/my-wagers">
-                    <Button variant="ghost" size="sm" className="text-primary">
-                      View All <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
-                  </Link>
                 </CardHeader>
-                <CardContent>
-                  {recentMatches.length > 0 ? (
-                    <div className="space-y-3">
-                      {recentMatches.map((match) => {
-                        const game = getGameData(match.game)
-                        const won = match.winner_wallet === walletAddress
-                        const opponent = match.player_a_wallet === walletAddress
-                          ? match.player_b_wallet
-                          : match.player_a_wallet
-                        const amount = won ? match.stake_lamports : -match.stake_lamports
-
-                        return (
-                          <div
-                            key={match.id}
-                            className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="text-2xl">{game.icon}</span>
-                              <div>
-                                <p className="font-medium">vs {opponent ? truncateAddress(opponent) : 'Unknown'}</p>
-                                <p className="text-xs text-muted-foreground">{game.name}</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <Badge variant={won ? 'success' : 'destructive'}>
-                                {won ? 'WIN' : 'LOSS'}
-                              </Badge>
-                              <p className={`text-sm font-gaming mt-1 ${amount > 0 ? 'text-success' : 'text-destructive'}`}>
-                                {amount > 0 ? '+' : ''}{formatSol(Math.abs(amount))} SOL
-                              </p>
-                            </div>
-                          </div>
-                        )
-                      })}
+                <CardContent className="pt-0 space-y-4">
+                  <div>
+                    <div className="flex justify-between mb-2 text-sm">
+                      <span className="text-muted-foreground">Win Rate</span>
+                      <span className={`font-gaming font-bold ${winRate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                        {winRate}%
+                      </span>
                     </div>
-                  ) : (
-                    <p className="text-center text-muted-foreground py-8">No matches yet. Start playing!</p>
-                  )}
+                    <Progress value={winRate} className="h-2" />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-2">
+                    {[
+                      { label: 'Wins', value: player?.total_wins ?? 0, color: 'bg-green-500', textColor: 'text-green-400' },
+                      { label: 'Losses', value: player?.total_losses ?? 0, color: 'bg-red-500', textColor: 'text-red-400' },
+                      { label: 'Total', value: totalGames, color: 'bg-primary', textColor: 'text-primary' },
+                    ].map(s => (
+                      <div key={s.label} className="text-center p-3 rounded-xl bg-muted/40">
+                        <div className={`font-gaming text-2xl font-bold ${s.textColor}`}>{s.value}</div>
+                        <div className="text-xs text-muted-foreground mt-1">{s.label}</div>
+                        <StatBar value={s.value} max={Math.max(totalGames, 1)} color={s.color} />
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
           </div>
 
-          {/* Sidebar - Right Side */}
+          {/* Right sidebar */}
           <div className="space-y-6">
+
+            {/* Streak card */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+              <Card variant="gaming" className="overflow-hidden relative">
+                {(player?.current_streak ?? 0) >= 3 && (
+                  <div className="absolute inset-0 bg-gradient-to-b from-orange-500/5 to-transparent pointer-events-none" />
+                )}
+                <CardContent className="pt-6 pb-6 flex flex-col items-center text-center">
+                  <StreakDisplay
+                    current={player?.current_streak ?? 0}
+                    best={player?.best_streak ?? 0}
+                  />
+                  {(player?.current_streak ?? 0) >= 3 && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="mt-3 text-xs text-orange-400 font-gaming"
+                    >
+                      {(player?.current_streak ?? 0) >= 5 ? "YOU'RE ON FIRE! 🔥" : "KEEP IT UP! ⚡"}
+                    </motion.p>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+
             {/* Active Wagers */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
               <Card variant="gaming">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Swords className="h-5 w-5 text-primary" />
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <CardTitle className="flex items-center gap-2 font-gaming text-base">
+                    <Swords className="h-4 w-4 text-primary" />
                     Active Wagers
                   </CardTitle>
-                  <Badge variant="outline">{activeWagers.length}</Badge>
+                  <Badge variant="outline" className="font-gaming">{activeWagers.length}</Badge>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-0 space-y-2">
                   {activeWagers.length > 0 ? (
-                    <div className="space-y-3">
-                      {activeWagers.slice(0, 3).map((wager) => {
+                    <>
+                      {activeWagers.slice(0, 3).map((wager, i) => {
                         const game = getGameData(wager.game)
                         const opponent = wager.player_a_wallet === walletAddress
                           ? wager.player_b_wallet
                           : wager.player_a_wallet
+                        const isLive = wager.status === 'joined' || wager.status === 'voting'
 
                         return (
-                          <div
+                          <motion.div
                             key={wager.id}
-                            className="p-3 rounded-lg bg-muted/30 border border-border/50"
+                            initial={{ opacity: 0, x: 10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.4 + i * 0.05 }}
+                            className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border/50 hover:border-primary/30 transition-all"
                           >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xl">{game.icon}</span>
-                                <span className="text-sm">{opponent ? truncateAddress(opponent) : 'Waiting...'}</span>
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="text-xl flex-shrink-0">{game.icon}</span>
+                              <div className="min-w-0">
+                                <div className="text-xs font-gaming truncate text-foreground">
+                                  {opponent ? truncateAddress(opponent, 4) : 'Waiting...'}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">{formatSol(wager.stake_lamports)} SOL</div>
                               </div>
-                              <Badge variant={wager.status === 'joined' ? 'live' : 'secondary'}>
-                                {wager.status === 'joined' ? 'LIVE' : wager.status.toUpperCase()}
-                              </Badge>
                             </div>
-                            <p className="text-sm text-muted-foreground">
-                              Stake: <span className="text-primary font-gaming">{formatSol(wager.stake_lamports)} SOL</span>
-                            </p>
-                          </div>
+                            {isLive && (
+                              <span className="flex h-2 w-2 flex-shrink-0">
+                                <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-green-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+                              </span>
+                            )}
+                          </motion.div>
                         )
                       })}
-                    </div>
+                      {activeWagers.length > 3 && (
+                        <p className="text-xs text-center text-muted-foreground pt-1">
+                          +{activeWagers.length - 3} more
+                        </p>
+                      )}
+                    </>
                   ) : (
-                    <p className="text-center text-muted-foreground py-4">No active wagers</p>
+                    <p className="text-center text-muted-foreground text-sm py-4">No active wagers</p>
                   )}
-                  <Link href="/arena" className="block mt-4">
-                    <Button variant="neon" className="w-full">
+                  <Link href="/arena" className="block pt-1">
+                    <Button variant="neon" className="w-full" size="sm">
+                      <Swords className="h-4 w-4 mr-2" />
                       Find Match
                     </Button>
                   </Link>
@@ -356,37 +553,38 @@ export default function DashboardPage() {
             </motion.div>
 
             {/* Quick Actions */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
               <Card variant="gaming">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Star className="h-5 w-5 text-accent" />
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 font-gaming text-base">
+                    <Star className="h-4 w-4 text-accent" />
                     Quick Actions
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <Link href="/arena" className="block">
-                    <Button variant="outline" className="w-full justify-start hover:border-primary/50 hover:shadow-neon transition-all">
-                      <Swords className="h-4 w-4 mr-2" /> Create Wager
-                    </Button>
-                  </Link>
-                  <Link href="/leaderboard" className="block">
-                    <Button variant="outline" className="w-full justify-start hover:border-primary/50 hover:shadow-neon transition-all">
-                      <Trophy className="h-4 w-4 mr-2" /> View Leaderboard
-                    </Button>
-                  </Link>
-                  <Link href="/profile" className="block">
-                    <Button variant="outline" className="w-full justify-start hover:border-primary/50 hover:shadow-neon transition-all">
-                      <Activity className="h-4 w-4 mr-2" /> Edit Profile
-                    </Button>
-                  </Link>
+                <CardContent className="pt-0 space-y-2">
+                  {[
+                    { href: '/arena', icon: Swords, label: 'Create Wager' },
+                    { href: '/leaderboard', icon: Trophy, label: 'Leaderboard' },
+                    { href: '/profile', icon: Activity, label: 'Edit Profile' },
+                  ].map(({ href, icon: Icon, label }) => (
+                    <Link key={href} href={href} className="block">
+                      <Button
+                        variant="outline"
+                        className="w-full justify-between hover:border-primary/50 hover:shadow-neon transition-all group"
+                        size="sm"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </div>
+                        <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </Button>
+                    </Link>
+                  ))}
                 </CardContent>
               </Card>
             </motion.div>
+
           </div>
         </div>
       </div>
