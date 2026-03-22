@@ -35,7 +35,7 @@ export interface Wager {
   countdown_started_at: string | null;
 }
 
-async function invokeSecureWager<T>(
+export async function invokeSecureWager<T>(
   payload: Record<string, unknown>,
   sessionToken: string,
   timeoutMs = 25000

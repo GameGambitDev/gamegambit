@@ -223,7 +223,6 @@ async function validateSessionToken(token: string): Promise<string | null> {
     }
 }
 
-// ── Get display name for a wallet (username > truncated address) ──────────────
 async function getDisplayName(supabase: ReturnType<typeof createClient>, walletAddress: string): Promise<string> {
     try {
         const { data } = await supabase
@@ -236,7 +235,6 @@ async function getDisplayName(supabase: ReturnType<typeof createClient>, walletA
     return walletAddress.slice(0, 4) + '...' + walletAddress.slice(-4);
 }
 
-// ── Insert notifications ───────────────────────────────────────────────────────
 async function insertNotifications(
     supabase: ReturnType<typeof createClient>,
     items: Array<{
@@ -250,15 +248,12 @@ async function insertNotifications(
     try {
         const { error } = await supabase.from('notifications').insert(items);
         if (error) console.warn('[secure-wager] notification insert error:', error);
-        // Fire Web Push for each recipient
         await Promise.allSettled(items.map(item => sendWebPush(supabase, item)));
     } catch (e) {
         console.warn('[secure-wager] Failed to insert notifications:', e);
     }
 }
 
-// ── Web Push sender ───────────────────────────────────────────────────────────
-// Implements RFC 8291 (Message Encryption) + RFC 8292 (VAPID)
 async function sendWebPush(
     supabase: ReturnType<typeof createClient>,
     notification: { player_wallet: string; title: string; message: string; wager_id?: string }
@@ -323,9 +318,6 @@ async function sendWebPush(
     }
 }
 
-// ── VAPID JWT (RFC 8292) ──────────────────────────────────────────────────────
-// Deno crypto does NOT support importing raw EC private keys — requires PKCS8.
-// VAPID private keys are 32-byte raw P-256 scalars. We wrap them in PKCS8.
 async function buildVapidJwt(subject: string, audience: string, publicKeyB64: string, privateKeyB64: string): Promise<string> {
     const b64url = (obj: unknown) =>
         btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -335,7 +327,6 @@ async function buildVapidJwt(subject: string, audience: string, publicKeyB64: st
     const payload = b64url({ aud: audience, exp: now + 3600, sub: subject });
     const unsigned = `${header}.${payload}`;
 
-    // Convert raw 32-byte private key + uncompressed public key to PKCS8 DER
     const privBytes = b64urlDecode(privateKeyB64);
     const pubBytes = b64urlDecode(publicKeyB64);
     const pkcs8 = buildPkcs8(privBytes, pubBytes);
@@ -357,23 +348,19 @@ async function buildVapidJwt(subject: string, audience: string, publicKeyB64: st
     return `${unsigned}.${sigB64}`;
 }
 
-// Build a minimal PKCS8 DER structure for a P-256 private key
-// Structure: SEQUENCE { version, privateKeyAlgorithm (OID), privateKey (ECPrivateKey) }
 function buildPkcs8(privKey: Uint8Array, pubKey: Uint8Array): ArrayBuffer {
-    // ECPrivateKey ::= SEQUENCE { version(1), privateKey OCTET STRING, publicKey [1] BIT STRING }
     const ecPrivKey = concat(
-        new Uint8Array([0x30]), // SEQUENCE
+        new Uint8Array([0x30]),
         derLength(1 + 2 + 32 + 2 + 2 + 66),
-        new Uint8Array([0x02, 0x01, 0x01]), // version = 1
-        new Uint8Array([0x04, 0x20]), ...[privKey], // privateKey OCTET STRING (32 bytes)
-        new Uint8Array([0xa1, 0x44, 0x03, 0x42, 0x00]), ...[pubKey], // publicKey [1] BIT STRING
+        new Uint8Array([0x02, 0x01, 0x01]),
+        new Uint8Array([0x04, 0x20]), ...[privKey],
+        new Uint8Array([0xa1, 0x44, 0x03, 0x42, 0x00]), ...[pubKey],
     );
 
-    // AlgorithmIdentifier: { OID id-ecPublicKey, OID secp256r1 }
     const oid = new Uint8Array([
         0x30, 0x13,
-        0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // id-ecPublicKey
-        0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, // secp256r1
+        0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+        0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
     ]);
 
     const ecPrivKeyWrapped = new Uint8Array([0x04, ...tlvLength(ecPrivKey.length), ...ecPrivKey]);
@@ -381,7 +368,7 @@ function buildPkcs8(privKey: Uint8Array, pubKey: Uint8Array): ArrayBuffer {
     return concat(
         new Uint8Array([0x30]),
         derLength(1 + 2 + oid.length + ecPrivKeyWrapped.length),
-        new Uint8Array([0x02, 0x01, 0x00]), // version = 0
+        new Uint8Array([0x02, 0x01, 0x00]),
         oid,
         ecPrivKeyWrapped,
     ).buffer;
@@ -399,14 +386,12 @@ function tlvLength(len: number): number[] {
     return [0x82, len >> 8, len & 0xff];
 }
 
-// ── Web Push payload encryption (RFC 8291 / aes128gcm) ────────────────────────
 async function encryptWebPushPayload(plaintext: string, p256dhB64: string, authB64: string): Promise<Uint8Array> {
     const encoder = new TextEncoder();
     const plaintextBytes = encoder.encode(plaintext);
     const receiverPubKeyBytes = b64urlDecode(p256dhB64);
     const authSecret = b64urlDecode(authB64);
 
-    // Generate ephemeral sender ECDH key pair
     const senderKP = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
     const receiverPubKey = await crypto.subtle.importKey('raw', receiverPubKeyBytes, { name: 'ECDH', namedCurve: 'P-256' }, true, []);
 
@@ -416,7 +401,6 @@ async function encryptWebPushPayload(plaintext: string, p256dhB64: string, authB
 
     const salt = crypto.getRandomValues(new Uint8Array(16));
 
-    // PRK via HKDF-SHA-256 with auth as salt
     const prkMaterial = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveBits']);
     const authInfo = concat(encoder.encode('WebPush: info\0'), receiverPubKeyBytes, senderPubKeyRaw);
     const prkBits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: authSecret, info: authInfo }, prkMaterial, 256);
@@ -429,14 +413,12 @@ async function encryptWebPushPayload(plaintext: string, p256dhB64: string, authB
     const cek = await crypto.subtle.importKey('raw', cekBits, 'AES-GCM', false, ['encrypt']);
     const nonce = new Uint8Array(nonceBits);
 
-    // Pad + delimiter
     const record = new Uint8Array(plaintextBytes.length + 1);
     record.set(plaintextBytes);
     record[plaintextBytes.length] = 0x02;
 
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, cek, record));
 
-    // aes128gcm header: salt(16) + rs(4) + idlen(1) + keyid(65)
     const hdr = new Uint8Array(86);
     hdr.set(salt, 0);
     new DataView(hdr.buffer).setUint32(16, 4096, false);
@@ -539,7 +521,6 @@ serve(async (req) => {
                 .eq('id', wagerId).eq('status', 'created').select().single();
             if (error) return respond({ error: 'Failed to join wager' }, 500);
 
-            // Get joiner's display name for notification
             const joinerName = await getDisplayName(supabase, walletAddress);
             await insertNotifications(supabase, [{
                 player_wallet: wager.player_a_wallet,
@@ -594,12 +575,120 @@ serve(async (req) => {
             if (stream_url !== undefined) updateData.stream_url = stream_url || null;
 
             if (Object.keys(updateData).length === 0) {
-                return respond({ wager }, 200); // nothing to change
+                return respond({ wager }, 200);
             }
 
             const { data: updatedWager, error } = await supabase.from('wagers').update(updateData).eq('id', wagerId).select().single();
             if (error) return respond({ error: 'Failed to edit wager' }, 500);
             return respond({ wager: updatedWager });
+        }
+
+        // ── applyProposal ──────────────────────────────────────────────────────
+        // Called when either player accepts a wager_messages proposal.
+        // Unlike 'edit', this accepts auth from either participant (not owner-only)
+        // and applies the change regardless of wager status.
+        if (action === 'applyProposal') {
+            const { wagerId, field, newValue } = data;
+            if (!wagerId || !field || newValue === undefined) {
+                return respond({ error: 'wagerId, field, and newValue required' }, 400);
+            }
+
+            const wager = await getWager(wagerId);
+
+            // Must be a participant
+            const isParticipant =
+                wager.player_a_wallet === walletAddress ||
+                wager.player_b_wallet === walletAddress;
+            if (!isParticipant) return respond({ error: 'Not a participant in this wager' }, 403);
+
+            // Only these fields can be changed via proposal
+            const allowedFields = ['stake_lamports', 'is_public', 'stream_url'];
+            if (!allowedFields.includes(field)) {
+                return respond({ error: `Field '${field}' cannot be changed via proposal` }, 400);
+            }
+
+            // Validate values
+            if (field === 'stake_lamports' && (typeof newValue !== 'number' || newValue <= 0)) {
+                return respond({ error: 'Invalid stake amount' }, 400);
+            }
+
+            const { data: updatedWager, error } = await supabase
+                .from('wagers')
+                .update({ [field]: newValue })
+                .eq('id', wagerId)
+                .select()
+                .single();
+
+            if (error) return respond({ error: 'Failed to apply proposal' }, 500);
+
+            console.log(`[secure-wager] applyProposal: ${field} = ${newValue} on wager ${wagerId} by ${walletAddress}`);
+            return respond({ wager: updatedWager });
+        }
+
+        // ── notifyChat ─────────────────────────────────────────────────────────
+        // Rate-limited: sends at most 1 "X is messaging you" notification per
+        // 5 minutes per wager to the opponent. Deduplication is server-side.
+        if (action === 'notifyChat') {
+            const { wagerId } = data;
+            if (!wagerId) return respond({ error: 'wagerId required' }, 400);
+
+            const wager = await getWager(wagerId);
+            const opponentWallet = wager.player_a_wallet === walletAddress
+                ? wager.player_b_wallet
+                : wager.player_a_wallet;
+            if (!opponentWallet) return respond({ ok: true });
+
+            // Check if we already sent a chat notification in the last 5 minutes
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const { data: recent } = await supabase
+                .from('notifications')
+                .select('id')
+                .eq('player_wallet', opponentWallet)
+                .eq('wager_id', wagerId)
+                .eq('type', 'chat_message')
+                .gte('created_at', fiveMinutesAgo)
+                .limit(1);
+
+            if (recent && recent.length > 0) {
+                return respond({ ok: true, skipped: true }); // already notified recently
+            }
+
+            const senderName = await getDisplayName(supabase, walletAddress);
+            await insertNotifications(supabase, [{
+                player_wallet: opponentWallet,
+                type: 'chat_message',
+                title: 'New message',
+                message: `${senderName} is messaging you in the ready room.`,
+                wager_id: wagerId,
+            }]);
+
+            return respond({ ok: true });
+        }
+
+        // ── notifyProposal ─────────────────────────────────────────────────────
+        // Sends a one-time notification to the opponent when a proposal is sent.
+        if (action === 'notifyProposal') {
+            const { wagerId, proposalCount } = data;
+            if (!wagerId) return respond({ error: 'wagerId required' }, 400);
+
+            const wager = await getWager(wagerId);
+            const opponentWallet = wager.player_a_wallet === walletAddress
+                ? wager.player_b_wallet
+                : wager.player_a_wallet;
+            if (!opponentWallet) return respond({ ok: true });
+
+            const senderName = await getDisplayName(supabase, walletAddress);
+            const count = typeof proposalCount === 'number' && proposalCount > 1 ? proposalCount : 1;
+
+            await insertNotifications(supabase, [{
+                player_wallet: opponentWallet,
+                type: 'wager_proposal',
+                title: 'Wager change proposed',
+                message: `${senderName} proposed ${count > 1 ? `${count} changes` : 'a change'} to your wager. Open the ready room to review.`,
+                wager_id: wagerId,
+            }]);
+
+            return respond({ ok: true });
         }
 
         // ── delete ─────────────────────────────────────────────────────────────
@@ -883,7 +972,6 @@ serve(async (req) => {
                 }
             }
 
-            // Notify the other player — use display name
             const otherPlayer = walletAddress === wager.player_a_wallet ? wager.player_b_wallet : wager.player_a_wallet;
             if (otherPlayer) {
                 const cancellerName = await getDisplayName(supabase, walletAddress);

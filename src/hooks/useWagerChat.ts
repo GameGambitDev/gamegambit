@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { getSupabaseClient } from '@/integrations/supabase/client'
-import { useEditWager, Wager } from '@/hooks/useWagers'
+import { invokeSecureWager, Wager } from '@/hooks/useWagers'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { toast } from 'sonner'
 
 export interface WagerMessage {
@@ -32,7 +33,7 @@ export function useWagerChat(wagerId: string | null) {
     const [messages, setMessages] = useState<WagerMessage[]>([])
     const [loading, setLoading] = useState(false)
     const [sending, setSending] = useState(false)
-    const editWager = useEditWager()
+    const { getSessionToken } = useWalletAuth()
     const bottomRef = useRef<HTMLDivElement | null>(null)
 
     // Initial fetch
@@ -55,7 +56,10 @@ export function useWagerChat(wagerId: string | null) {
             })
     }, [wagerId])
 
-    // Realtime subscription
+    // Realtime subscription.
+    // NOTE: Only ONE channel per wagerId per client. Do NOT call useWagerChat
+    // for the same wagerId in a parent component — it creates a duplicate channel
+    // and Supabase silently drops one, breaking realtime delivery.
     useEffect(() => {
         if (!wagerId) return
         const supabase = getSupabaseClient()
@@ -103,13 +107,23 @@ export function useWagerChat(wagerId: string | null) {
                 message_type: 'chat',
             })
             if (error) throw error
+
+            // Fire-and-forget rate-limited notification to opponent.
+            // Server deduplicates — only sends 1 notification per 5 minutes per wager.
+            getSessionToken().then(token => {
+                if (!token) return
+                invokeSecureWager<{ ok: boolean }>(
+                    { action: 'notifyChat', wagerId },
+                    token
+                ).catch(() => { /* non-critical */ })
+            }).catch(() => { /* non-critical */ })
         } catch (err) {
             console.error('[useWagerChat] sendMessage error:', err)
             toast.error('Failed to send message')
         } finally {
             setSending(false)
         }
-    }, [wagerId, wallet])
+    }, [wagerId, wallet, getSessionToken])
 
     const sendProposal = useCallback(async (wager: Wager, updates: {
         stake_lamports?: number
@@ -176,14 +190,24 @@ export function useWagerChat(wagerId: string | null) {
 
             const { error } = await db().from('wager_messages').insert(proposals)
             if (error) throw error
+
             toast.success(`${proposals.length} proposal${proposals.length > 1 ? 's' : ''} sent to opponent`)
+
+            // Notify opponent about the proposal(s) — fire-and-forget
+            getSessionToken().then(token => {
+                if (!token) return
+                invokeSecureWager<{ ok: boolean }>(
+                    { action: 'notifyProposal', wagerId, proposalCount: proposals.length },
+                    token
+                ).catch(() => { /* non-critical */ })
+            }).catch(() => { /* non-critical */ })
         } catch (err) {
             console.error('[useWagerChat] sendProposal error:', err)
             toast.error('Failed to send proposal')
         } finally {
             setSending(false)
         }
-    }, [wagerId, wallet])
+    }, [wagerId, wallet, getSessionToken])
 
     const respondToProposal = useCallback(async (
         messageId: string,
@@ -192,6 +216,7 @@ export function useWagerChat(wagerId: string | null) {
         wagerId: string
     ) => {
         try {
+            // Update the proposal message status
             const { error: updateError } = await db()
                 .from('wager_messages')
                 .update({ proposal_status: status })
@@ -199,9 +224,22 @@ export function useWagerChat(wagerId: string | null) {
             if (updateError) throw updateError
 
             if (status === 'accepted') {
-                const updates: Record<string, unknown> = {}
-                updates[proposalData.field] = proposalData.new_value
-                await editWager.mutateAsync({ wagerId, ...updates as any })
+                // Use applyProposal — NOT editWager — because:
+                // 1. The acceptor may be player B, who is blocked by the 'edit' action (owner-only)
+                // 2. 'edit' blocks stake_lamports/is_public changes when status === 'joined'
+                // applyProposal accepts auth from either participant and applies regardless of status.
+                const token = await getSessionToken()
+                if (!token) throw new Error('Wallet verification required')
+
+                await invokeSecureWager<{ wager: Wager }>(
+                    {
+                        action: 'applyProposal',
+                        wagerId,
+                        field: proposalData.field,
+                        newValue: proposalData.new_value,
+                    },
+                    token
+                )
                 toast.success('Change accepted and applied')
             } else {
                 toast.info('Change rejected')
@@ -210,7 +248,7 @@ export function useWagerChat(wagerId: string | null) {
             console.error('[useWagerChat] respondToProposal error:', err)
             toast.error('Failed to respond to proposal')
         }
-    }, [editWager])
+    }, [getSessionToken])
 
     const pendingProposals = messages.filter(
         m => m.message_type === 'proposal' && m.proposal_status === 'pending' && m.sender_wallet !== wallet
