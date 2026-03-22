@@ -24,6 +24,8 @@ import { GAMES, formatSol } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import { motion, AnimatePresence } from 'framer-motion';
+import { WagerChat } from '@/components/WagerChat';
+import { useWagerChat } from '@/hooks/useWagerChat';
 import { useCreateWagerOnChain, useJoinWagerOnChain, normalizeSolanaError } from '@/hooks/useSolanaProgram';
 import { toast } from 'sonner';
 
@@ -120,6 +122,7 @@ export function ReadyRoomModal({
   const createWagerOnChain = useCreateWagerOnChain();
   const joinWagerOnChain = useJoinWagerOnChain();
   const cancelWagerMutation = useCancelWager();
+  const { sendProposal, respondToProposal } = useWagerChat(wager?.id ?? null);
 
   const isPlayerA = currentWallet === wager?.player_a_wallet;
   const isPlayerB = currentWallet === wager?.player_b_wallet;
@@ -789,6 +792,15 @@ export function ReadyRoomModal({
                 </div>
                 <span className="text-xs text-amber-400 font-gaming flex-shrink-0">{updateNotice.countdown}s</span>
               </motion.div>
+            )}
+
+            {/* ── Chat ───────────────────────────────────────────────── */}
+            {wager.status === 'joined' && wager.player_b_wallet && (
+              <WagerChat
+                wager={wager}
+                currentWallet={currentWallet ?? ''}
+                opponentWallet={isPlayerA ? (wager.player_b_wallet ?? '') : wager.player_a_wallet}
+              />
             )}
 
             {/* Actions */}

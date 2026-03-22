@@ -33,6 +33,7 @@ import { GameResultModal } from '@/components/GameResultModal'
 import { PlayerLink } from '@/components/PlayerLink'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
 import { useGameEvents } from '@/contexts/GameEventContext'
+import { useWagerChat } from '@/hooks/useWagerChat'
 import { useBalanceAnimation } from '@/contexts/BalanceAnimationContext'
 import { toast } from 'sonner'
 
@@ -213,6 +214,9 @@ function ArenaInner() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [deepLinkResultId, setDeepLinkResultId] = useState<string | null>(null)
 
+  // ── useWagerChat — must come AFTER editWager useState ───────────────────
+  const { sendProposal } = useWagerChat(editWager?.id ?? null)
+
   // ── Deep-link from notification ──────────────────────────────────────────
   useEffect(() => {
     const wagerId = searchParams.get('wager')
@@ -235,8 +239,6 @@ function ArenaInner() {
   useEffect(() => { liveGameWagerIdRef.current = liveGameWagerId }, [liveGameWagerId])
 
   // ── GameEventContext: real-time result detection ─────────────────────────
-  // This replaces the old setInterval + checkGameComplete polling.
-  // Both players get the resolved event simultaneously via Supabase Realtime.
   useEffect(() => {
     if (!walletAddress) return
     const unsub = onWagerResolved((wager) => {
@@ -245,15 +247,12 @@ function ArenaInner() {
         wager.player_b_wallet === walletAddress
       if (!isParticipant) return
 
-      // Auto-close Ready Room and Live Game if this wager was in either
-      // Use refs so we always read the current IDs, not the stale closure value
       if (readyRoomWagerIdRef.current === wager.id) setReadyRoomWagerId(null)
       if (liveGameWagerIdRef.current === wager.id) {
         setLiveGameModalOpen(false)
         setLiveGameWagerId(null)
       }
 
-      // Queue SOL balance animation for dashboard
       const won = wager.winner_wallet === walletAddress
       const isDraw = !wager.winner_wallet
       const payout = Math.floor(wager.stake_lamports * 2 * 0.9)
@@ -263,7 +262,6 @@ function ArenaInner() {
         type: isDraw ? 'draw' : won ? 'win' : 'lose',
       })
 
-      // Show result modal
       setGameResultWager(wager)
       setGameResultOpen(true)
       clearPendingResult(wager.id)
@@ -371,8 +369,13 @@ function ArenaInner() {
   const handleSaveEditWager = async (updates: EditWagerData) => {
     if (!editWager) return
     try {
-      await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
-      toast.success('Wager updated successfully')
+      if (editWager.status === 'joined' && Object.keys(updates).some(k => k !== 'stream_url')) {
+        await sendProposal(editWager, updates)
+        toast.success('Proposals sent — waiting for opponent approval')
+      } else {
+        await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
+        toast.success('Wager updated successfully')
+      }
       setEditModalOpen(false)
       setEditWager(null)
     } catch (err: any) {

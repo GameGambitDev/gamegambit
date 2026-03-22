@@ -27,6 +27,7 @@ import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal'
 import { useEditWager } from '@/hooks/useWagers'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
 import { useGameEvents } from '@/contexts/GameEventContext'
+import { useWagerChat } from '@/hooks/useWagerChat'
 import { useBalanceAnimation } from '@/contexts/BalanceAnimationContext'
 import { toast } from 'sonner'
 
@@ -181,13 +182,15 @@ function MyWagersInner() {
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [resultWager, setResultWager] = useState<Wager | null>(null)
   const [resultOpen, setResultOpen] = useState(false)
-  // Deep-link result (from notification click)
   const [deepLinkResultId, setDeepLinkResultId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [visibleAll, setVisibleAll] = useState(10)
   const [visibleCompleted, setVisibleCompleted] = useState(10)
   const PAGE_SIZE = 10
+
+  // ── useWagerChat — must come AFTER editWager useState ───────────────────
+  const { sendProposal } = useWagerChat(editWager?.id ?? null)
 
   // ── Deep-link from notification ──────────────────────────────────────────
   useEffect(() => {
@@ -203,8 +206,6 @@ function MyWagersInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
-  // Track readyRoomWagerId in a ref so the onWagerResolved callback
-  // always reads the current value without needing to re-subscribe.
   const readyRoomWagerIdRef = useRef(readyRoomWagerId)
   useEffect(() => { readyRoomWagerIdRef.current = readyRoomWagerId }, [readyRoomWagerId])
 
@@ -217,10 +218,8 @@ function MyWagersInner() {
         wager.player_b_wallet === walletAddress
       if (!isParticipant) return
 
-      // Auto-close Ready Room if this was the active wager — use ref to avoid stale closure
       if (readyRoomWagerIdRef.current === wager.id) setReadyRoomWagerId(null)
 
-      // Queue balance animation for dashboard
       const won = wager.winner_wallet === walletAddress
       const isDraw = !wager.winner_wallet
       const payout = Math.floor(wager.stake_lamports * 2 * 0.9)
@@ -284,8 +283,13 @@ function MyWagersInner() {
   const handleSaveEditWager = async (updates: EditWagerData) => {
     if (!editWager) return
     try {
-      await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
-      toast.success('Wager updated successfully')
+      if (editWager.status === 'joined' && Object.keys(updates).some(k => k !== 'stream_url')) {
+        await sendProposal(editWager, updates)
+        toast.success('Proposals sent — waiting for opponent approval')
+      } else {
+        await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
+        toast.success('Wager updated successfully')
+      }
       setEditModalOpen(false)
       setEditWager(null)
     } catch (err: any) {
@@ -293,14 +297,11 @@ function MyWagersInner() {
     }
   }
 
-  // Open result modal from completed wager row click
   const handleViewResult = (wagerId: string) => {
     const w = wagers?.find(x => x.id === wagerId)
     if (w) { setResultWager(w); setResultOpen(true) }
   }
 
-  // Auto-start game when both players are ready and countdown has elapsed.
-  // Must be in a useEffect — never run mutation logic directly in render body.
   useEffect(() => {
     if (
       readyRoomWager?.ready_player_a &&
@@ -377,7 +378,6 @@ function MyWagersInner() {
           <p className="text-muted-foreground">Track all your active and completed matches</p>
         </motion.div>
 
-        {/* Stats */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -412,7 +412,6 @@ function MyWagersInner() {
           ))}
         </motion.div>
 
-        {/* Tabs */}
         <Tabs defaultValue="all" className="space-y-6">
           <div className="flex items-center justify-between">
             <TabsList className="bg-muted/50">
@@ -524,7 +523,6 @@ function MyWagersInner() {
         currentWallet={walletAddress}
       />
 
-      {/* Primary result — fired by GameEventContext OR row click */}
       <GameResultModal
         open={resultOpen}
         onOpenChange={(open) => { setResultOpen(open); if (!open) setResultWager(null) }}
@@ -537,7 +535,6 @@ function MyWagersInner() {
         refundAmount={resultWager?.stake_lamports}
       />
 
-      {/* Deep-link result — notification clicked */}
       <GameResultModal
         open={!!deepLinkResultId && !!deepLinkResultWager}
         onOpenChange={(open) => !open && setDeepLinkResultId(null)}
