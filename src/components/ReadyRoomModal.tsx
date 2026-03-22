@@ -1,12 +1,10 @@
 /**
- * ReadyRoomModal.tsx (v8)
+ * ReadyRoomModal.tsx (v9)
  *
- * Changes vs v7:
- *  - Removed iframe (Lichess blocks embedding for live games)
- *  - Board tab now shows colored play links (urlWhite / urlBlack) from the wager
- *    so each player gets their specific color URL — they click and play on Lichess
- *  - Shows which color each player is assigned
- *  - Keeps Board/Details tab switcher
+ * Fix: removed top-level useWagerChat call that was creating a duplicate
+ * Supabase realtime channel (wager-chat:${wagerId}) alongside the one
+ * WagerChat creates internally. Duplicate channels cause one to be silently
+ * dropped, breaking realtime message delivery.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -25,7 +23,6 @@ import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WagerChat } from '@/components/WagerChat';
-import { useWagerChat } from '@/hooks/useWagerChat';
 import { useCreateWagerOnChain, useJoinWagerOnChain, normalizeSolanaError } from '@/hooks/useSolanaProgram';
 import { toast } from 'sonner';
 
@@ -100,7 +97,6 @@ export function ReadyRoomModal({
     }
     if (wager.stake_lamports !== prevStakeRef.current) {
       prevStakeRef.current = wager.stake_lamports;
-      // Reset both players' ready status happens server-side
       let secs = 5;
       setUpdateNotice({ message: `Wager updated — stake changed to ${(wager.stake_lamports / 1e9).toFixed(4)} SOL. Review before marking ready.`, countdown: secs });
       if (updateNoticeRef.current) clearInterval(updateNoticeRef.current);
@@ -122,7 +118,10 @@ export function ReadyRoomModal({
   const createWagerOnChain = useCreateWagerOnChain();
   const joinWagerOnChain = useJoinWagerOnChain();
   const cancelWagerMutation = useCancelWager();
-  const { sendProposal, respondToProposal } = useWagerChat(wager?.id ?? null);
+
+  // NOTE: Do NOT call useWagerChat here — WagerChat component manages its own
+  // subscription internally. A second useWagerChat(wager.id) here would create
+  // a duplicate channel name and Supabase silently drops one, breaking realtime.
 
   const isPlayerA = currentWallet === wager?.player_a_wallet;
   const isPlayerB = currentWallet === wager?.player_b_wallet;
@@ -137,25 +136,16 @@ export function ReadyRoomModal({
   const lichessGameUrl = hasLichessGame ? `https://lichess.org/${wager.lichess_game_id}` : null;
   const gameLink = getGameLink(wager?.game ?? '', wager?.lichess_game_id ?? null);
 
-  // Per-color URLs saved by secure-wager when platform token creates the game.
   const urlWhite = (wager as any)?.lichess_url_white as string | null;
   const urlBlack = (wager as any)?.lichess_url_black as string | null;
   const sidePreference = (wager as any)?.chess_side_preference as string | null;
 
-  // Derive actual color from which URL this player got.
-  // urlWhite/urlBlack are player-specific Lichess links — if urlWhite contains
-  // a player-specific token, the player with that URL is white.
-  // Fallback: use chess_side_preference if game hasn't started yet.
   const deriveMyColor = (): 'white' | 'black' | 'random' => {
     if (urlWhite && urlBlack) {
-      // Once game is created, the URLs are definitive
-      // Player A gets urlWhite unless creator chose black
       if (sidePreference === 'black') return isPlayerA ? 'black' : 'white';
       if (sidePreference === 'white') return isPlayerA ? 'white' : 'black';
-      // Random: Player A always gets white in our Lichess API call
       return isPlayerA ? 'white' : 'black';
     }
-    // Before game starts — show the preference
     if (sidePreference === 'black') return isPlayerA ? 'black' : 'white';
     if (sidePreference === 'white') return isPlayerA ? 'white' : 'black';
     return 'random';
@@ -171,7 +161,6 @@ export function ReadyRoomModal({
 
   useEffect(() => { setLocalReady(myReady ?? false); }, [myReady]);
 
-  // Auto-switch to board tab when game starts
   useEffect(() => {
     if (hasLichessGame && activeTab === 'details') {
       setActiveTab('board');
@@ -294,7 +283,6 @@ export function ReadyRoomModal({
     onReady(next);
   }, [localReady, onReady]);
 
-
   // ── Resolved / Cancelled state ────────────────────────────────────────────
   const isResolved = wager?.status === 'resolved';
   const isCancelled = wager?.status === 'cancelled';
@@ -309,7 +297,6 @@ export function ReadyRoomModal({
 
   if (!wager) return null;
 
-  // Declare game early — needed in both ended overlay and main render
   const game = getGameData(wager.game);
 
   // ── Render resolved/cancelled overlay ─────────────────────────────────────
@@ -364,7 +351,6 @@ export function ReadyRoomModal({
                 </p>
               </div>
             )}
-            {/* Lichess game link if available */}
             {wager.lichess_game_id && (
               <a
                 href={`https://lichess.org/${wager.lichess_game_id}`}
@@ -406,7 +392,6 @@ export function ReadyRoomModal({
                 <Badge variant="joined">Match Found</Badge>
               </div>
             </div>
-            {/* Tab switcher — only visible once game starts */}
             {hasLichessGame && (
               <div className="flex rounded-lg border border-border overflow-hidden">
                 <button
@@ -428,11 +413,9 @@ export function ReadyRoomModal({
           </div>
         </DialogHeader>
 
-        {/* ── PLAY TAB — shown when game is live ────────────────────────── */}
+        {/* ── PLAY TAB ────────────────────────────────────────────────────── */}
         {hasLichessGame && activeTab === 'board' && (
           <div className="mt-4 space-y-4">
-
-            {/* Your color + play button */}
             <div className="p-4 rounded-lg border border-primary/20 bg-primary/5 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -446,24 +429,16 @@ export function ReadyRoomModal({
                   </p>
                 </div>
               </div>
-
-              <a
-                href={myPlayUrl!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block"
-              >
+              <a href={myPlayUrl!} target="_blank" rel="noopener noreferrer" className="block">
                 <Button variant="neon" className="w-full h-12 text-base font-gaming">
                   ♟ Play on Lichess <ExternalLink className="h-4 w-4 ml-2" />
                 </Button>
               </a>
-
               <p className="text-[11px] text-muted-foreground text-center">
                 Opens Lichess in a new tab — your color is pre-assigned, just click the link and make your move.
               </p>
             </div>
 
-            {/* Both player links */}
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground font-medium">Both player links</p>
               <div className="grid grid-cols-2 gap-2">
@@ -498,7 +473,6 @@ export function ReadyRoomModal({
               </div>
             </div>
 
-            {/* Game ID */}
             <div className="flex items-center justify-between p-2 rounded-lg bg-muted/20 border border-border">
               <span className="text-xs text-muted-foreground">Game ID</span>
               <a
@@ -517,11 +491,10 @@ export function ReadyRoomModal({
           </div>
         )}
 
-        {/* ── DETAILS TAB (or default when no board) ────────────────────── */}
+        {/* ── DETAILS TAB ─────────────────────────────────────────────────── */}
         {(!hasLichessGame || activeTab === 'details') && (
           <div className="space-y-4 sm:space-y-6 mt-4">
 
-            {/* Countdown */}
             <AnimatePresence>
               {showCountdown && (
                 <motion.div
@@ -564,7 +537,6 @@ export function ReadyRoomModal({
               )}
             </AnimatePresence>
 
-            {/* Tx state feedback */}
             <AnimatePresence>
               {txState === 'signing' && (
                 <motion.div key="signing" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -661,7 +633,6 @@ export function ReadyRoomModal({
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Each player stakes {formatSol(wager.stake_lamports)} SOL — winner gets 90%
               </p>
-              {/* Chess side preference — shown to both players */}
               {wager.game === 'chess' && sidePreference && !hasLichessGame && (
                 <div className="mt-2 pt-2 border-t border-primary/20 flex items-center justify-center gap-2">
                   {sidePreference === 'random' ? (
@@ -769,17 +740,15 @@ export function ReadyRoomModal({
               </div>
             )}
 
-            {/* Waiting for game to be created */}
+            {/* Waiting for Lichess game to be created */}
             {!wager.lichess_game_id && wager.game === 'chess' && wager.status === 'voting' && (
               <div className="p-2 sm:p-3 rounded-lg bg-muted/30 border border-border flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
-                <p className="text-xs text-muted-foreground">
-                  Creating your Lichess game…
-                </p>
+                <p className="text-xs text-muted-foreground">Creating your Lichess game…</p>
               </div>
             )}
 
-            {/* Wager update notice — shown when creator edits wager mid-ready-room */}
+            {/* Wager update notice */}
             {updateNotice && (
               <motion.div
                 initial={{ opacity: 0, y: -8 }}
@@ -794,7 +763,10 @@ export function ReadyRoomModal({
               </motion.div>
             )}
 
-            {/* ── Chat ───────────────────────────────────────────────── */}
+            {/* ── Chat ─────────────────────────────────────────────────────
+                WagerChat manages its own useWagerChat subscription internally.
+                Do NOT add another useWagerChat call in this file.
+            ────────────────────────────────────────────────────────────── */}
             {wager.status === 'joined' && wager.player_b_wallet && (
               <WagerChat
                 wager={wager}
@@ -806,7 +778,6 @@ export function ReadyRoomModal({
             {/* Actions */}
             {txState !== 'confirmed' && txState !== 'error' && (
               <div className="space-y-2 pt-2">
-                {/* Creator controls — always visible, even when opponent is ready */}
                 {isPlayerA && wager.status !== 'voting' && (
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={onEditWager}>

@@ -176,13 +176,7 @@ export function WagerDetailsModal({
 
   // Open the inline edit modal (intercept the parent's onEdit for joined wagers)
   const handleEditClick = () => {
-    if (wager.status === 'joined') {
-      // Handle inline so we can route proposals
-      setEditOpen(true)
-    } else {
-      // 'created' — let parent handle it (or inline, same thing)
-      onEdit ? onEdit(wager) : setEditOpen(true)
-    }
+    setEditOpen(true)
   }
 
   return (
