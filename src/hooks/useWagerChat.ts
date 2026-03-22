@@ -44,8 +44,13 @@ export function useWagerChat(wagerId: string | null) {
             .select('*')
             .eq('wager_id', wagerId)
             .order('created_at', { ascending: true })
-            .then(({ data }: { data: WagerMessage[] | null }) => {
-                if (data) setMessages(data)
+            .then(({ data, error }: { data: WagerMessage[] | null; error: any }) => {
+                if (error) {
+                    console.error('[useWagerChat] Failed to fetch messages:', error)
+                    toast.error('Failed to load chat messages')
+                } else if (data) {
+                    setMessages(data)
+                }
                 setLoading(false)
             })
     }, [wagerId])
@@ -63,14 +68,22 @@ export function useWagerChat(wagerId: string | null) {
                 filter: `wager_id=eq.${wagerId}`,
             }, (payload: any) => {
                 if (payload.eventType === 'INSERT') {
-                    setMessages(prev => [...prev, payload.new as WagerMessage])
+                    setMessages(prev => {
+                        // Deduplicate in case optimistic insert already added it
+                        if (prev.some(m => m.id === payload.new.id)) return prev
+                        return [...prev, payload.new as WagerMessage]
+                    })
                 } else if (payload.eventType === 'UPDATE') {
                     setMessages(prev => prev.map(m =>
                         m.id === payload.new.id ? (payload.new as WagerMessage) : m
                     ))
                 }
             })
-            .subscribe()
+            .subscribe((status: string) => {
+                if (status === 'CHANNEL_ERROR') {
+                    console.error('[useWagerChat] Realtime subscription error for', wagerId)
+                }
+            })
         return () => { supabase.removeChannel(channel) }
     }, [wagerId])
 
@@ -83,13 +96,15 @@ export function useWagerChat(wagerId: string | null) {
         if (!wagerId || !wallet || !text.trim()) return
         setSending(true)
         try {
-            await db().from('wager_messages').insert({
+            const { error } = await db().from('wager_messages').insert({
                 wager_id: wagerId,
                 sender_wallet: wallet,
                 message: text.trim(),
                 message_type: 'chat',
             })
-        } catch {
+            if (error) throw error
+        } catch (err) {
+            console.error('[useWagerChat] sendMessage error:', err)
             toast.error('Failed to send message')
         } finally {
             setSending(false)
@@ -154,9 +169,16 @@ export function useWagerChat(wagerId: string | null) {
                 })
             }
 
-            if (proposals.length === 0) return
-            await db().from('wager_messages').insert(proposals)
-        } catch {
+            if (proposals.length === 0) {
+                toast.info('No changes to propose')
+                return
+            }
+
+            const { error } = await db().from('wager_messages').insert(proposals)
+            if (error) throw error
+            toast.success(`${proposals.length} proposal${proposals.length > 1 ? 's' : ''} sent to opponent`)
+        } catch (err) {
+            console.error('[useWagerChat] sendProposal error:', err)
             toast.error('Failed to send proposal')
         } finally {
             setSending(false)
@@ -170,10 +192,11 @@ export function useWagerChat(wagerId: string | null) {
         wagerId: string
     ) => {
         try {
-            await db()
+            const { error: updateError } = await db()
                 .from('wager_messages')
                 .update({ proposal_status: status })
                 .eq('id', messageId)
+            if (updateError) throw updateError
 
             if (status === 'accepted') {
                 const updates: Record<string, unknown> = {}
@@ -183,7 +206,8 @@ export function useWagerChat(wagerId: string | null) {
             } else {
                 toast.info('Change rejected')
             }
-        } catch {
+        } catch (err) {
+            console.error('[useWagerChat] respondToProposal error:', err)
             toast.error('Failed to respond to proposal')
         }
     }, [editWager])

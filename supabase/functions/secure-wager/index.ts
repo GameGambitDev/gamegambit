@@ -576,16 +576,27 @@ serve(async (req) => {
 
         // ── edit ───────────────────────────────────────────────────────────────
         if (action === 'edit') {
-            const { wagerId, stake_lamports, stream_url, is_public } = data;
+            const { wagerId, stake_lamports, lichess_game_id, stream_url, is_public } = data;
             if (!wagerId) return respond({ error: 'Wager ID required' }, 400);
             const wager = await getWager(wagerId);
             if (wager.player_a_wallet !== walletAddress) return respond({ error: 'Only the wager owner can edit' }, 403);
+
             const updateData: Record<string, unknown> = {};
+
+            // Fields only editable before opponent joins
             if (wager.status === 'created') {
                 if (stake_lamports !== undefined) updateData.stake_lamports = stake_lamports;
                 if (is_public !== undefined) updateData.is_public = is_public;
+                if (lichess_game_id !== undefined) updateData.lichess_game_id = lichess_game_id || null;
             }
+
+            // stream_url is always editable by owner
             if (stream_url !== undefined) updateData.stream_url = stream_url || null;
+
+            if (Object.keys(updateData).length === 0) {
+                return respond({ wager }, 200); // nothing to change
+            }
+
             const { data: updatedWager, error } = await supabase.from('wagers').update(updateData).eq('id', wagerId).select().single();
             if (error) return respond({ error: 'Failed to edit wager' }, 500);
             return respond({ wager: updatedWager });
