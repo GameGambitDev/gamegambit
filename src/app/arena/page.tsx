@@ -1,11 +1,11 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
-import { useSearchParams, useRouter as useNextRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -18,7 +18,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
-import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useWagerById, useCheckGameComplete, Wager, GameType } from '@/hooks/useWagers'
+import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useWagerById, Wager, GameType } from '@/hooks/useWagers'
 import { usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import { useQuickMatch } from '@/hooks/useQuickMatch'
@@ -32,6 +32,8 @@ import { LiveGameModal } from '@/components/LiveGameModal'
 import { GameResultModal } from '@/components/GameResultModal'
 import { PlayerLink } from '@/components/PlayerLink'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
+import { useGameEvents } from '@/contexts/GameEventContext'
+import { useBalanceAnimation } from '@/contexts/BalanceAnimationContext'
 import { toast } from 'sonner'
 
 const getGameData = (game: string) => {
@@ -189,7 +191,14 @@ function ArenaInner() {
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58()
   const searchParams = useSearchParams()
-  const notifRouter = useNextRouter()
+  const queryClient = useQueryClient()
+
+  // ── Contexts ────────────────────────────────────────────────────────────────
+  const { onWagerResolved, clearPendingResult } = useGameEvents()
+  const { queueAnimation } = useBalanceAnimation()
+  const { data: player } = usePlayer()
+
+  // ── Modal state ─────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [quickMatchModalOpen, setQuickMatchModalOpen] = useState(false)
@@ -198,38 +207,70 @@ function ArenaInner() {
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
-
   const [liveGameWagerId, setLiveGameWagerId] = useState<string | null>(null)
   const [liveGameModalOpen, setLiveGameModalOpen] = useState(false)
-
-  const [gameResultOpen, setGameResultOpen] = useState(false)
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
+  const [gameResultOpen, setGameResultOpen] = useState(false)
   const [deepLinkResultId, setDeepLinkResultId] = useState<string | null>(null)
-  const shownResultForRef = useRef<Set<string>>(new Set())
 
-  const queryClient = useQueryClient()
-  const checkGameComplete = useCheckGameComplete()
-
-
-  // ── Deep-link from notification: ?wager=<id>&modal=ready-room|result ───────
+  // ── Deep-link from notification ──────────────────────────────────────────
   useEffect(() => {
     const wagerId = searchParams.get('wager')
     const modal = searchParams.get('modal')
     if (!wagerId || !modal) return
-    if (modal === 'ready-room') {
-      setReadyRoomWagerId(wagerId)
-    } else if (modal === 'result') {
-      setDeepLinkResultId(wagerId)
-    } else if (modal === 'details') {
-      setReadyRoomWagerId(null)
-    }
-    // Clear the params from URL without reload
+    if (modal === 'ready-room') setReadyRoomWagerId(wagerId)
+    else if (modal === 'result') setDeepLinkResultId(wagerId)
     const url = new URL(window.location.href)
     url.searchParams.delete('wager')
     url.searchParams.delete('modal')
     window.history.replaceState({}, '', url.pathname)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
+
+  // Track readyRoomWagerId and liveGameWagerId in refs so the onWagerResolved
+  // callback always reads the latest values without needing to re-subscribe.
+  const readyRoomWagerIdRef = useRef(readyRoomWagerId)
+  const liveGameWagerIdRef = useRef(liveGameWagerId)
+  useEffect(() => { readyRoomWagerIdRef.current = readyRoomWagerId }, [readyRoomWagerId])
+  useEffect(() => { liveGameWagerIdRef.current = liveGameWagerId }, [liveGameWagerId])
+
+  // ── GameEventContext: real-time result detection ─────────────────────────
+  // This replaces the old setInterval + checkGameComplete polling.
+  // Both players get the resolved event simultaneously via Supabase Realtime.
+  useEffect(() => {
+    if (!walletAddress) return
+    const unsub = onWagerResolved((wager) => {
+      const isParticipant =
+        wager.player_a_wallet === walletAddress ||
+        wager.player_b_wallet === walletAddress
+      if (!isParticipant) return
+
+      // Auto-close Ready Room and Live Game if this wager was in either
+      // Use refs so we always read the current IDs, not the stale closure value
+      if (readyRoomWagerIdRef.current === wager.id) setReadyRoomWagerId(null)
+      if (liveGameWagerIdRef.current === wager.id) {
+        setLiveGameModalOpen(false)
+        setLiveGameWagerId(null)
+      }
+
+      // Queue SOL balance animation for dashboard
+      const won = wager.winner_wallet === walletAddress
+      const isDraw = !wager.winner_wallet
+      const payout = Math.floor(wager.stake_lamports * 2 * 0.9)
+      queueAnimation({
+        delta: isDraw ? 0 : won ? payout : -wager.stake_lamports,
+        wagerId: wager.id,
+        type: isDraw ? 'draw' : won ? 'win' : 'lose',
+      })
+
+      // Show result modal
+      setGameResultWager(wager)
+      setGameResultOpen(true)
+      clearPendingResult(wager.id)
+    })
+    return unsub
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletAddress, onWagerResolved, queueAnimation, clearPendingResult])
 
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
@@ -239,82 +280,7 @@ function ArenaInner() {
     return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
   }, [liveGameWagerId, liveWagers])
 
-  const showResult = useCallback((w: Wager) => {
-    if (!walletAddress) return
-    if (shownResultForRef.current.has(w.id)) return
-
-    const isParticipant = w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress
-    if (!isParticipant) return
-
-    shownResultForRef.current.add(w.id)
-
-    if (liveGameWagerId === w.id) {
-      setLiveGameModalOpen(false)
-      setLiveGameWagerId(null)
-    }
-
-    setGameResultWager(w)
-    setGameResultOpen(true)
-  }, [walletAddress, liveGameWagerId])
-
-  const inFlightChecksRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    const votingWagers = liveWagers?.filter(w => w.status === 'voting') ?? []
-    if (votingWagers.length === 0) return
-
-    const interval = setInterval(() => {
-      votingWagers.forEach(w => {
-        if (inFlightChecksRef.current.has(w.id)) return
-        inFlightChecksRef.current.add(w.id)
-
-        checkGameComplete.mutate({ wagerId: w.id }, {
-          onSuccess: (result: any) => {
-            if (result?.gameComplete && result?.wager && result.wager.status === 'resolved') {
-              showResult(result.wager)
-            }
-            queryClient.invalidateQueries({ queryKey: ['wagers'] })
-          },
-          onSettled: () => {
-            inFlightChecksRef.current.delete(w.id)
-          }
-        })
-      })
-    }, 8000)
-
-    return () => clearInterval(interval)
-  }, [liveWagers, showResult, queryClient])
-
-  useEffect(() => {
-    return queryClient.getQueryCache().subscribe((event) => {
-      if (event.type !== 'updated') return
-      const key = event.query.queryKey
-      if (!Array.isArray(key) || key[0] !== 'wagers' || key[1] !== 'last-resolved') return
-
-      const w = event.query.state.data as Wager | undefined
-      if (!w) return
-
-      showResult(w)
-      queryClient.removeQueries({ queryKey: ['wagers', 'last-resolved'] })
-    })
-  }, [queryClient, showResult])
-
-  const prevLiveWagersRef = useRef<Wager[]>([])
-  useEffect(() => {
-    if (!liveWagers || !walletAddress) return
-    const prev = prevLiveWagersRef.current
-
-    liveWagers.forEach(w => {
-      if (w.status !== 'resolved' && (w.status as string) !== 'closed') return
-      const wasLive = prev.find(p => p.id === w.id && p.status !== 'resolved' && (p.status as string) !== 'closed')
-      if (wasLive) showResult(w)
-    })
-
-    prevLiveWagersRef.current = liveWagers
-  }, [liveWagers, walletAddress, showResult])
-
   const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
-  const { data: player } = usePlayer()
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
   const { data: readyRoomWager } = useWagerById(readyRoomWagerId)
   const { data: deepLinkResultWager } = useWagerById(deepLinkResultId)
@@ -323,7 +289,7 @@ function ArenaInner() {
   const editWagerMutation = useEditWager()
   const deleteWagerMutation = useDeleteWager()
   const setReadyMutation = useSetReady()
-  const { isComplete: profileComplete, needsSetup } = useIsProfileComplete()
+  const { needsSetup } = useIsProfileComplete()
   const { data: searchedPlayers } = useSearchPlayers(searchQuery)
 
   const { data: winnerPlayerA } = usePlayerByWallet(gameResultWager?.player_a_wallet || null)
@@ -455,11 +421,8 @@ function ArenaInner() {
   const gameResultIsDraw = gameResultWager?.status === 'resolved' && !gameResultWager?.winner_wallet
   const gameResultType: 'win' | 'lose' | 'draw' = gameResultIsDraw
     ? 'draw'
-    : gameResultWager?.winner_wallet === walletAddress
-      ? 'win'
-      : 'lose'
+    : gameResultWager?.winner_wallet === walletAddress ? 'win' : 'lose'
 
-  // Still waiting for autoConnect to resolve — don't flash the connect screen
   if (!walletReady) {
     return (
       <div className="py-8 pb-16">
@@ -696,9 +659,14 @@ function ArenaInner() {
         }}
         currentWallet={walletAddress}
       />
+
+      {/* Primary game result — fired by GameEventContext realtime */}
       <GameResultModal
         open={gameResultOpen}
-        onOpenChange={setGameResultOpen}
+        onOpenChange={(open) => {
+          setGameResultOpen(open)
+          if (!open) setGameResultWager(null)
+        }}
         result={gameResultType}
         winnerWallet={gameResultWager?.winner_wallet}
         winnerUsername={gameResultWinnerUsername}
@@ -711,7 +679,8 @@ function ArenaInner() {
           if (gameResultWager) handleViewDetails(gameResultWager)
         }}
       />
-      {/* Deep-link result: notification clicked while on arena page */}
+
+      {/* Deep-link result — notification clicked */}
       <GameResultModal
         open={!!deepLinkResultId && !!deepLinkResultWager}
         onOpenChange={(open) => !open && setDeepLinkResultId(null)}
@@ -730,6 +699,7 @@ function ArenaInner() {
     </div>
   )
 }
+
 import { Suspense } from 'react'
 import { Loader2 as _L2 } from 'lucide-react'
 
