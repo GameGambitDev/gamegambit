@@ -18,6 +18,9 @@ import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { useAutoCreatePlayer } from '@/hooks/useAutoCreatePlayer'
 import { PWAInstallPrompt, ServiceWorkerUpdater } from '@/components/PWASetup'
+import { GameEventProvider } from '@/contexts/GameEventContext'
+import { ModalProvider } from '@/contexts/ModalContext'
+import { BalanceAnimationProvider } from '@/contexts/BalanceAnimationContext'
 
 import '@solana/wallet-adapter-react-ui/styles.css'
 
@@ -52,17 +55,13 @@ function WalletReadyProvider({ children }: { children: ReactNode }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ProvidersProps {
-  children: ReactNode
-}
-
 function AutoPlayerSetup() {
   const { error } = useAutoCreatePlayer()
   if (error) console.error('Failed to create player:', error)
   return null
 }
 
-export function Providers({ children }: ProvidersProps) {
+export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -124,14 +123,20 @@ export function Providers({ children }: ProvidersProps) {
         >
           <WalletModalProvider>
             <WalletReadyProvider>
-              <TooltipProvider>
-                <PWAInstallPrompt />
-                <ServiceWorkerUpdater />
-                <AutoPlayerSetup />
-                {children}
-                <Toaster />
-                <Sonner />
-              </TooltipProvider>
+              <BalanceAnimationProvider>
+                <ModalProvider>
+                  <GameEventProvider>
+                    <TooltipProvider>
+                      <PWAInstallPrompt />
+                      <ServiceWorkerUpdater />
+                      <AutoPlayerSetup />
+                      {children}
+                      <Toaster />
+                      <Sonner />
+                    </TooltipProvider>
+                  </GameEventProvider>
+                </ModalProvider>
+              </BalanceAnimationProvider>
             </WalletReadyProvider>
           </WalletModalProvider>
         </WalletProvider>
