@@ -7,6 +7,7 @@ import {
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getSupabaseClient } from '@/integrations/supabase/client'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
 import type { Wager } from '@/hooks/useWagers'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -131,6 +132,61 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
 
         return () => { supabase.removeChannel(channel) }
     }, [walletAddress, queryClient, fireResolved])
+
+    // ── Poll Lichess for voting wagers ────────────────────────────────────────
+    // GameEventContext Realtime only fires when the DB changes — but chess games
+    // end on Lichess, not on-chain. Someone has to call checkGameComplete to
+    // detect the result and update the DB. This polling loop does it automatically
+    // every 8 seconds for any wager in 'voting' status that the user is in.
+    const { getSessionToken } = useWalletAuth()
+    const inFlightRef = useRef<Set<string>>(new Set())
+
+    useEffect(() => {
+        if (!walletAddress) return
+
+        const checkVotingWagers = async () => {
+            // Get voting wagers from cache
+            const liveWagers = queryClient.getQueryData<Wager[]>(['wagers', 'live']) ?? []
+            const votingWagers = liveWagers.filter(w =>
+                w.status === 'voting' &&
+                (w.player_a_wallet === walletAddress || w.player_b_wallet === walletAddress)
+            )
+            if (votingWagers.length === 0) return
+
+            const sessionToken = await getSessionToken().catch(() => null)
+            if (!sessionToken) return
+
+            const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL)!
+            const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)!
+
+            for (const wager of votingWagers) {
+                if (inFlightRef.current.has(wager.id)) continue
+                inFlightRef.current.add(wager.id)
+
+                fetch(`${supabaseUrl}/functions/v1/secure-wager`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${supabaseAnonKey}`,
+                        'X-Session-Token': sessionToken,
+                    },
+                    body: JSON.stringify({ action: 'checkGameComplete', wagerId: wager.id }),
+                })
+                    .then(r => r.json())
+                    .then(result => {
+                        if (result?.gameComplete && result?.wager?.status === 'resolved') {
+                            // Realtime will pick this up — but also fire directly as backup
+                            fireResolved(result.wager)
+                        }
+                    })
+                    .catch(() => { })
+                    .finally(() => inFlightRef.current.delete(wager.id))
+            }
+        }
+
+        const interval = setInterval(checkVotingWagers, 8000)
+        return () => clearInterval(interval)
+    }, [walletAddress, queryClient, getSessionToken, fireResolved])
 
     return (
         <GameEventContext.Provider value={{ onWagerResolved, pendingResults, markResultSeen, clearPendingResult }}>

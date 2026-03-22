@@ -22,6 +22,7 @@ import { Progress } from '@/components/ui/progress'
 import { truncateAddress, formatSol, GAMES } from '@/lib/constants'
 import Link from 'next/link'
 import { usePlayer } from '@/hooks/usePlayer'
+import { useQueryClient } from '@tanstack/react-query'
 import { useMyWagers } from '@/hooks/useWagers'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -223,30 +224,34 @@ export default function DashboardPage() {
   const rank = getRank(player?.total_wins ?? 0)
 
   // ── Balance animation from BalanceAnimationContext ───────────────────────
+  const queryClient = useQueryClient()
   const { consumeAnimation, hasAnimation } = useBalanceAnimation()
   const [balanceDelta, setBalanceDelta] = useState<{ value: number; type: 'win' | 'lose' | 'draw' } | null>(null)
   const [showDeltaBadge, setShowDeltaBadge] = useState(false)
-  const [animatedDelta, setAnimatedDelta] = useState(0)
+  // Animated balance: starts at current balance, counts up/down to new balance
+  const [animatedBalance, setAnimatedBalance] = useState<number | null>(null)
   const deltaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const rafRef = useRef<number | null>(null)
   const startTimeRef = useRef<number | null>(null)
 
-  const runCounterAnimation = useCallback((targetDelta: number, type: 'win' | 'lose' | 'draw') => {
-    const duration = 2000
+  const runBalanceAnimation = useCallback((startBalance: number, delta: number, type: 'win' | 'lose' | 'draw') => {
+    if (type === 'draw' || delta === 0) return
+    const duration = 2500
+    const endBalance = startBalance + (delta / 1e9) // delta in lamports → SOL
     startTimeRef.current = null
-    const from = 0
-    const to = Math.abs(targetDelta) / 1e9
-
-    const animate = (timestamp: number) => {
-      if (startTimeRef.current === null) startTimeRef.current = timestamp
-      const elapsed = timestamp - startTimeRef.current
-      const progress = Math.min(elapsed / duration, 1)
+    const animate = (ts: number) => {
+      if (startTimeRef.current === null) startTimeRef.current = ts
+      const progress = Math.min((ts - startTimeRef.current) / duration, 1)
       const eased = 1 - Math.pow(1 - progress, 3)
-      setAnimatedDelta(from + (to - from) * eased)
+      setAnimatedBalance(startBalance + (endBalance - startBalance) * eased)
       if (progress < 1) rafRef.current = requestAnimationFrame(animate)
+      else {
+        // Animation done — refetch real balance from chain
+        queryClient.invalidateQueries({ queryKey: ['walletBalance'] })
+      }
     }
     rafRef.current = requestAnimationFrame(animate)
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     const tryConsume = () => {
@@ -255,18 +260,19 @@ export default function DashboardPage() {
       if (!anim || anim.delta === 0) return false
       setBalanceDelta({ value: anim.delta, type: anim.type })
       setShowDeltaBadge(true)
-      runCounterAnimation(anim.delta, anim.type)
+      // Start balance animation from current balance
+      const currentBal = walletBalance ?? 0
+      runBalanceAnimation(currentBal, anim.delta, anim.type)
       if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
       deltaTimerRef.current = setTimeout(() => {
         setShowDeltaBadge(false)
-        setAnimatedDelta(0)
-      }, 5000)
+        setAnimatedBalance(null)
+      }, 5500)
       return true
     }
 
     if (tryConsume()) return
 
-    // Poll for up to 10s in case we arrived before animation was queued
     let attempts = 0
     const interval = setInterval(() => {
       attempts++
@@ -279,7 +285,7 @@ export default function DashboardPage() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [walletBalance])
 
   if (!walletReady) return <WalletLoader />
 
@@ -382,14 +388,14 @@ export default function DashboardPage() {
             {
               icon: Wallet,
               label: 'Balance',
-              value: balanceLoading ? '...' : `${walletBalance?.toFixed(3) || '0'} SOL`,
+              value: balanceLoading ? '...' : animatedBalance !== null ? `${animatedBalance.toFixed(4)} SOL` : `${walletBalance?.toFixed(3) || '0'} SOL`,
               color: 'text-primary',
               bg: 'bg-primary/15',
               sub: showDeltaBadge && balanceDelta
                 ? balanceDelta.type === 'win'
-                  ? `+${animatedDelta.toFixed(4)} SOL won! 🏆`
+                  ? `+${(balanceDelta.value / 1e9).toFixed(3)} SOL won! 🏆`
                   : balanceDelta.type === 'lose'
-                    ? `-${animatedDelta.toFixed(4)} SOL lost`
+                    ? `-${(Math.abs(balanceDelta.value) / 1e9).toFixed(3)} SOL lost`
                     : 'Draw — refunded'
                 : 'Available',
               highlight: showDeltaBadge && balanceDelta
