@@ -1,6 +1,6 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 21, 2026  
+**Last Updated:** March 22, 2026  
 **Database:** PostgreSQL (Supabase)  
 **Environment:** Production
 
@@ -16,7 +16,6 @@ GameGambit uses a comprehensive relational PostgreSQL database to manage players
 
 1. [Custom Enum Types](#custom-enum-types)
 2. [Core Tables](#core-tables)
-   - [Notifications](#12-notifications)
 3. [Admin Tables](#admin-tables)
 4. [Supporting Tables](#supporting-tables)
 5. [Relationships Diagram](#relationships-diagram)
@@ -80,6 +79,7 @@ Role-based access control:
 | `players` | User accounts with stats | wallet_address (UNIQUE), username, skill_rating, total_wins/losses |
 | `wagers` | Gaming matches with state | match_id (UNIQUE), player_a/b_wallet, status, stake_lamports |
 | `wager_transactions` | Blockchain transaction ledger | wager_id, tx_type, tx_signature (UNIQUE), status |
+| `wager_messages` | In-match chat and edit proposals | wager_id, sender_wallet, message_type, proposal_data, proposal_status |
 
 ---
 
@@ -103,6 +103,8 @@ Role-based access control:
 | `nfts` | Victory NFTs on Solana | mint_address (UNIQUE), owner_wallet, tier, wager_id |
 | `achievements` | Player achievement badges | player_wallet, achievement_type, unlocked_at |
 | `notifications` | In-app real-time notifications | player_wallet, type, read, wager_id |
+| `push_subscriptions` | Web Push notification subscriptions | player_wallet, endpoint (UNIQUE), p256dh, auth |
+| `rate_limit_logs` | Per-wallet endpoint rate limiting | wallet_address, endpoint, request_count, window_reset_at |
 
 ---
 
@@ -114,14 +116,18 @@ players (1) ──────────────────────�
 players (1) ──────────────────────────────────────────────── (N) wagers [winner_wallet]
 players (1) ──────────────────────────────────────────────── (N) wagers [cancelled_by]
 players (1) ──────────────────────────────────────────────── (N) wager_transactions
+players (1) ──────────────────────────────────────────────── (N) wager_messages [sender_wallet]
 players (1) ──────────────────────────────────────────────── (N) nfts
 players (1) ──────────────────────────────────────────────── (N) achievements
 players (1) ──────────────────────────────────────────────── (N) admin_notes
+players (1) ──────────────────────────────────────────────── (N) rate_limit_logs
 
 wagers  (1) ──────────────────────────────────────────────── (N) wager_transactions
+wagers  (1) ──────────────────────────────────────────────── (N) wager_messages
 wagers  (1) ──────────────────────────────────────────────── (N) nfts
 wagers  (1) ──────────────────────────────────────────────── (N) admin_logs
 wagers  (1) ──────────────────────────────────────────────── (N) admin_notes
+wagers  (1) ──────────────────────────────────────────────── (N) notifications
 
 admin_users (1) ──────────────────────────────────────────── (N) admin_sessions
 admin_users (1) ──────────────────────────────────────────── (N) admin_wallet_bindings
@@ -153,6 +159,14 @@ Players connect their Lichess account via OAuth PKCE flow. The callback saves `l
 
 ### Platform Token Game Creation
 When both players are deposited and the wager enters voting, `secure-wager` calls the Lichess API using `LICHESS_PLATFORM_TOKEN` (a server-side secret) with `users=PlayerA,PlayerB` to create a locked open challenge. Per-color URLs (`lichess_url_white`, `lichess_url_black`) are saved to the wager row and served to each player directly — no manual game ID entry needed.
+
+### Wager Chat & Proposals
+`wager_messages` supports two message types. `chat` messages are plain text sent between the two players in the ready room. `proposal` messages carry a `proposal_data` JSONB payload describing a requested wager edit (field, old value, new value) and a `proposal_status` of `pending`, `accepted`, or `rejected`. When a proposal is accepted, the edge function applies the change to the `wagers` row directly. The table is included in the `supabase_realtime` publication so both players receive messages instantly without polling.
+
+**Critical:** Never create more than one Supabase channel with the same name (`wager-chat:${wagerId}`) from the same client. Duplicate channel names cause Supabase to silently drop one subscription, breaking realtime delivery.
+
+### Rate Limiting
+`rate_limit_logs` provides a sliding-window rate limiter keyed on `(wallet_address, endpoint)`. Each row tracks the request count within the current window and the timestamp when the window resets. The edge function increments `request_count` on each call and rejects requests that exceed the configured limit before the window expires.
 
 ---
 
@@ -241,6 +255,10 @@ CREATE TABLE wagers (
   chess_rated           BOOLEAN DEFAULT false,
   lichess_url_white     TEXT,                         -- Per-color play URL for Player A
   lichess_url_black     TEXT,                         -- Per-color play URL for Player B
+
+  -- Chess side preference (v1.2.0)
+  chess_side_preference TEXT DEFAULT 'random'
+    CHECK (chess_side_preference IN ('random', 'white', 'black')),
 
   -- Match Status
   status                wager_status DEFAULT 'created'::wager_status,
@@ -339,7 +357,57 @@ CREATE INDEX idx_tx_signature ON wager_transactions(tx_signature);
 
 ---
 
-### 4. **NFTs**
+### 4. **WAGER_MESSAGES**
+
+Per-wager chat and edit proposal messages between the two players.
+Included in `supabase_realtime` publication — both players receive new rows instantly.
+
+```sql
+CREATE TABLE wager_messages (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- References
+  wager_id        UUID NOT NULL REFERENCES wagers(id),
+  sender_wallet   TEXT NOT NULL,                 -- FK to players(wallet_address)
+
+  -- Content
+  message         TEXT NOT NULL,
+  message_type    TEXT DEFAULT 'chat'            -- 'chat' | 'proposal'
+    CHECK (message_type IN ('chat', 'proposal')),
+
+  -- Proposal fields (null when message_type = 'chat')
+  proposal_data   JSONB,                         -- { field, old_value, new_value, label }
+  proposal_status TEXT                           -- 'pending' | 'accepted' | 'rejected'
+    CHECK (proposal_status IN ('pending', 'accepted', 'rejected')),
+
+  -- Timestamps
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_wager_messages_wager_id ON wager_messages(wager_id);
+CREATE INDEX idx_wager_messages_created  ON wager_messages(wager_id, created_at ASC);
+```
+
+**Message Types:**
+- `chat` — Plain text message between the two players in the ready room. `proposal_data` and `proposal_status` are null.
+- `proposal` — A requested wager edit sent by the owner. `proposal_data` carries `{ field, old_value, new_value, label }`. `proposal_status` starts as `pending` and is updated to `accepted` or `rejected` by the opponent. On acceptance the edge function applies the change to the `wagers` row.
+
+**Proposal Data Shape:**
+```json
+{
+  "field": "stake_lamports",
+  "old_value": 10000000,
+  "new_value": 50000000,
+  "label": "Stake: 0.0100 → 0.0500 SOL"
+}
+```
+Supported fields: `stake_lamports`, `is_public`, `stream_url`.
+
+**Realtime:** `wager_messages` is in the `supabase_realtime` publication. The frontend subscribes to `postgres_changes` filtered by `wager_id`. Do NOT create more than one subscription per wager ID per client — duplicate channel names cause Supabase to silently drop one, breaking realtime delivery.
+
+---
+
+### 5. **NFTs**
 
 Victory/achievement NFTs minted to Solana blockchain.
 
@@ -382,7 +450,7 @@ CREATE INDEX idx_nft_mint   ON nfts(mint_address);
 
 ---
 
-### 5. **ACHIEVEMENTS**
+### 6. **ACHIEVEMENTS**
 
 User badges and milestones.
 
@@ -413,7 +481,7 @@ CREATE INDEX idx_achievement_type   ON achievements(achievement_type);
 
 ## Admin Tables
 
-### 6. **ADMIN_USERS**
+### 7. **ADMIN_USERS**
 
 Admin portal accounts. Separate from player accounts.
 
@@ -449,7 +517,7 @@ CREATE INDEX idx_admin_role     ON admin_users(role);
 
 ---
 
-### 7. **ADMIN_SESSIONS**
+### 8. **ADMIN_SESSIONS**
 
 JWT session tracking for admin portal.
 
@@ -480,7 +548,7 @@ CREATE INDEX idx_session_active ON admin_sessions(is_active) WHERE is_active = t
 
 ---
 
-### 8. **ADMIN_WALLET_BINDINGS**
+### 9. **ADMIN_WALLET_BINDINGS**
 
 Solana wallets bound to admin accounts for on-chain verification.
 
@@ -510,7 +578,7 @@ CREATE INDEX idx_wallet_verified ON admin_wallet_bindings(verified);
 
 ---
 
-### 9. **ADMIN_AUDIT_LOGS**
+### 10. **ADMIN_AUDIT_LOGS**
 
 Full audit trail of all admin actions for compliance.
 
@@ -546,7 +614,7 @@ CREATE INDEX idx_audit_created  ON admin_audit_logs(created_at DESC);
 
 ---
 
-### 10. **ADMIN_LOGS**
+### 11. **ADMIN_LOGS**
 
 Wager-specific admin action log.
 
@@ -577,7 +645,7 @@ CREATE INDEX idx_admin_log_created ON admin_logs(created_at DESC);
 
 ---
 
-### 11. **ADMIN_NOTES**
+### 12. **ADMIN_NOTES**
 
 Admin notes attached to players or wagers.
 
@@ -604,7 +672,7 @@ CREATE INDEX idx_note_wager  ON admin_notes(wager_id);
 
 ---
 
-### 12. **NOTIFICATIONS**
+### 13. **NOTIFICATIONS**
 
 Real-time in-app notifications for wager events. Written by edge functions, read by the frontend via Supabase Realtime.
 
@@ -668,6 +736,75 @@ CREATE POLICY "Players can update own notifications"
 
 **Indexes:** Optimized for the two primary queries — fetch all for a wallet (ordered by created_at) and fetch unread count.
 
+---
+
+### 14. **PUSH_SUBSCRIPTIONS**
+
+Web Push API subscriptions for background notifications (RFC 8291 / VAPID).
+
+```sql
+CREATE TABLE push_subscriptions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+
+  player_wallet TEXT NOT NULL,
+  endpoint      TEXT NOT NULL UNIQUE,    -- Push service URL
+  p256dh        TEXT NOT NULL,           -- Client public key (base64url)
+  auth          TEXT NOT NULL,           -- Client auth secret (base64url)
+
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_push_subscriptions_wallet ON push_subscriptions(player_wallet);
+
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Players can manage own subscriptions"
+  ON push_subscriptions FOR ALL
+  USING (true) WITH CHECK (true);
+```
+
+**Notes:**
+- `endpoint` is unique — if a push service returns 404 or 410, the row is deleted automatically by the edge function
+- `p256dh` and `auth` are base64url-encoded values from the browser's `PushSubscription` object
+- VAPID signing is handled server-side in `secure-wager` using `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` env vars
+
+---
+
+### 15. **RATE_LIMIT_LOGS**
+
+Sliding-window rate limiter keyed on wallet + endpoint. Used by edge functions to reject excessive requests before they hit business logic.
+
+```sql
+CREATE TABLE rate_limit_logs (
+  id              BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+
+  wallet_address  TEXT NOT NULL,
+  endpoint        TEXT NOT NULL,
+  request_count   INTEGER DEFAULT 1,
+  window_reset_at TIMESTAMPTZ NOT NULL,
+
+  created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**How it works:**
+- On each request the edge function upserts a row keyed on `(wallet_address, endpoint)`
+- If `window_reset_at` is in the past, the window resets and `request_count` returns to 1
+- If `request_count` exceeds the configured limit before `window_reset_at`, the request is rejected with 429
+- Table is expected to be small and periodically pruned — no additional indexes beyond PK
+
+---
+
+## Supabase Realtime Publication
+
+The following tables are enabled in the `supabase_realtime` publication and emit `postgres_changes` events to subscribed clients:
+
+| Table | Events Used | Notes |
+|-------|------------|-------|
+| `wagers` | INSERT, UPDATE | GameEventContext keeps query cache in sync for all wager state changes |
+| `wager_transactions` | INSERT | Used to track on-chain deposit confirmations |
+| `notifications` | INSERT | Bell icon dropdown, filtered by `player_wallet` |
+| `wager_messages` | INSERT, UPDATE | Ready room chat and proposals, filtered by `wager_id` — **one subscription per wager per client** |
 
 ---
 
@@ -689,6 +826,9 @@ CREATE POLICY "Players can update own notifications"
 | `idx_notifications_player_wallet` | Fetch player notifications | `SELECT * FROM notifications WHERE player_wallet = ?` |
 | `idx_notifications_read` | Unread count | `SELECT COUNT(*) FROM notifications WHERE player_wallet = ? AND read = false` |
 | `idx_session_admin` | Admin sessions | `SELECT * FROM admin_sessions WHERE admin_id = ?` |
+| `idx_wager_messages_wager_id` | Fetch messages for a wager | `SELECT * FROM wager_messages WHERE wager_id = ?` |
+| `idx_wager_messages_created` | Ordered message fetch | `SELECT * FROM wager_messages WHERE wager_id = ? ORDER BY created_at ASC` |
+| `idx_push_subscriptions_wallet` | Fetch push subscriptions | `SELECT * FROM push_subscriptions WHERE player_wallet = ?` |
 
 ### Query Performance Targets
 
@@ -712,6 +852,7 @@ CREATE POLICY "Players can update own notifications"
 6. **Match ID Uniqueness**: Each wager has a unique match_id for PDA derivation
 7. **TX Signature Uniqueness**: Prevents duplicate transactions from concurrent calls
 8. **Dual Deposit Gate**: `status` cannot transition to `voting` unless both `deposit_player_a` and `deposit_player_b` are true
+9. **Proposal Integrity**: `wager_messages` rows with `message_type = 'proposal'` must have non-null `proposal_data` and `proposal_status`
 
 ### Database Constraints
 
@@ -736,6 +877,63 @@ ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_sig
 ---
 
 ## Recent Migrations
+
+### v1.4.0 — March 22, 2026
+
+```sql
+-- Wager chat and edit proposals
+CREATE TABLE IF NOT EXISTS wager_messages (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wager_id        UUID NOT NULL REFERENCES wagers(id),
+  sender_wallet   TEXT NOT NULL,
+  message         TEXT NOT NULL,
+  message_type    TEXT DEFAULT 'chat' CHECK (message_type IN ('chat', 'proposal')),
+  proposal_data   JSONB,
+  proposal_status TEXT CHECK (proposal_status IN ('pending', 'accepted', 'rejected')),
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_wager_messages_wager_id ON wager_messages(wager_id);
+CREATE INDEX idx_wager_messages_created  ON wager_messages(wager_id, created_at ASC);
+
+-- Enable realtime for chat
+ALTER PUBLICATION supabase_realtime ADD TABLE wager_messages;
+
+-- Rate limiting
+CREATE TABLE IF NOT EXISTS rate_limit_logs (
+  id              BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  wallet_address  TEXT NOT NULL,
+  endpoint        TEXT NOT NULL,
+  request_count   INTEGER DEFAULT 1,
+  window_reset_at TIMESTAMPTZ NOT NULL,
+  created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+### v1.3.0 — March 21, 2026
+
+```sql
+-- Push subscriptions for Web Push notifications
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  player_wallet TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_push_subscriptions_wallet ON push_subscriptions(player_wallet);
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Players can manage own subscriptions"
+  ON push_subscriptions FOR ALL
+  USING (true) WITH CHECK (true);
+```
+
+---
 
 ### v1.2.0 — March 21, 2026
 
@@ -844,6 +1042,33 @@ WHERE wager_id = $1
 ORDER BY created_at DESC;
 ```
 
+### Chat + Proposals for a Wager
+
+```sql
+SELECT
+  id,
+  sender_wallet,
+  message,
+  message_type,
+  proposal_data,
+  proposal_status,
+  created_at
+FROM wager_messages
+WHERE wager_id = $1
+ORDER BY created_at ASC;
+```
+
+### Pending Proposals for a Wager (opponent's view)
+
+```sql
+SELECT * FROM wager_messages
+WHERE wager_id = $1
+  AND message_type = 'proposal'
+  AND proposal_status = 'pending'
+  AND sender_wallet != $2   -- $2 = current player's wallet
+ORDER BY created_at ASC;
+```
+
 ### Admin Actions on a Player (Audit Trail)
 
 ```sql
@@ -878,6 +1103,16 @@ FROM wagers
 WHERE status = 'disputed'
    OR (status = 'voting' AND requires_moderator = true)
 ORDER BY vote_timestamp ASC;
+```
+
+### Rate Limit Check for a Wallet + Endpoint
+
+```sql
+SELECT request_count, window_reset_at
+FROM rate_limit_logs
+WHERE wallet_address = $1
+  AND endpoint = $2
+  AND window_reset_at > NOW();
 ```
 
 ---
@@ -929,26 +1164,5 @@ Contact Supabase support with:
 **Version Control**  
 This schema is version controlled in GitHub. Update this document whenever database changes are made.
 
-Last updated: March 21, 2026  
-Schema version: 1.2.0 (Supabase PostgreSQL)
----
-
-### v1.3.0 — March 21, 2026
-```sql
--- Push subscriptions for Web Push notifications
-CREATE TABLE IF NOT EXISTS push_subscriptions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  player_wallet TEXT NOT NULL,
-  endpoint TEXT NOT NULL UNIQUE,
-  p256dh TEXT NOT NULL,
-  auth TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_push_subscriptions_wallet ON push_subscriptions(player_wallet);
-ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Players can manage own subscriptions"
-  ON push_subscriptions FOR ALL
-  USING (true) WITH CHECK (true);
-```
+Last updated: March 22, 2026  
+Schema version: 1.4.0 (Supabase PostgreSQL)
