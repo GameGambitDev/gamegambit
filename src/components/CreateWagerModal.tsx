@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Loader2, AlertCircle, Swords, Search, User, X,
-  Users, UserPlus, Lock, CheckCircle2, ChevronDown, ChevronUp,
+  Users, UserPlus, Lock, CheckCircle2,
 } from 'lucide-react';
 import { useCreateWager, GameType } from '@/hooks/useWagers';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
@@ -86,7 +86,6 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
   const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControl>(TIME_CONTROLS[6]);
   const [isRated, setIsRated] = useState(false);
   const [isConnectingLichess, setIsConnectingLichess] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [sidePreference, setSidePreference] = useState<SidePreference>('random');
 
   const createWager = useCreateWager();
@@ -181,7 +180,6 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
       setSelectedTimeControl(TIME_CONTROLS[6]);
       setIsRated(false);
       setSidePreference('random');
-      setShowAdvanced(false);
     } catch (err: any) {
       setError(err.message || 'Failed to create wager');
     }
@@ -413,51 +411,36 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
                 </div>
               )}
 
-              {/* Advanced options toggle */}
+              {/* Side Preference — always visible for chess */}
               {isLichessConnected && (
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
-                >
-                  {showAdvanced ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  Advanced options
-                </button>
-              )}
-
-              {/* Advanced panel */}
-              {isLichessConnected && showAdvanced && (
-                <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-3">
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium text-muted-foreground">Side Preference</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Choose which side you want to play. Your opponent will see your preference when they view the wager.
-                    </p>
-                    <div className="grid grid-cols-3 gap-1.5 mt-2">
-                      {(['random', 'white', 'black'] as SidePreference[]).map((side) => (
-                        <button
-                          key={side}
-                          type="button"
-                          onClick={() => setSidePreference(side)}
-                          className={cn(
-                            "flex flex-col items-center gap-1 py-2 px-1 rounded-lg border-2 text-xs font-medium transition-all",
-                            sidePreference === side
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border bg-background hover:border-primary/50 text-muted-foreground"
-                          )}
-                        >
-                          <span className="text-base">
-                            {side === 'random' ? '🎲' : side === 'white' ? '⬜' : '⬛'}
-                          </span>
-                          <span className="capitalize">{side}</span>
-                        </button>
-                      ))}
-                    </div>
+                <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">Your Side</p>
                     {sidePreference !== 'random' && (
-                      <p className="text-[11px] text-primary/80 mt-1">
-                        You'll play as {sidePreference}. Opponent will see this when joining.
-                      </p>
+                      <span className="text-[10px] text-primary">
+                        You play {sidePreference} · opponent sees this
+                      </span>
                     )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['random', 'white', 'black'] as SidePreference[]).map((side) => (
+                      <button
+                        key={side}
+                        type="button"
+                        onClick={() => setSidePreference(side)}
+                        className={cn(
+                          "flex flex-col items-center gap-1 py-2 px-1 rounded-lg border-2 text-xs font-medium transition-all",
+                          sidePreference === side
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-background hover:border-primary/50 text-muted-foreground"
+                        )}
+                      >
+                        <span className="text-base">
+                          {side === 'random' ? '🎲' : side === 'white' ? '♔' : '♚'}
+                        </span>
+                        <span className="capitalize text-[11px]">{side}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}

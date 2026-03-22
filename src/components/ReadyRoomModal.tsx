@@ -16,7 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import {
   Check, X, Clock, ExternalLink, Swords,
   Loader2, AlertCircle, ShieldCheck, Ban, Hourglass,
-  Monitor, LayoutGrid, Trophy, Scale,
+  Monitor, LayoutGrid, Trophy, Scale, Pencil, Info,
+  Shuffle,
 } from 'lucide-react';
 import { Wager, useCancelWager } from '@/hooks/useWagers';
 import { GAMES, formatSol } from '@/lib/constants';
@@ -84,6 +85,35 @@ export function ReadyRoomModal({
   const wagerRef = useRef<Wager | null>(wager);
   useEffect(() => { wagerRef.current = wager; }, [wager]);
 
+  // ── Wager update notification state ─────────────────────────────────────
+  const [updateNotice, setUpdateNotice] = useState<{ message: string; countdown: number } | null>(null);
+  const updateNoticeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevStakeRef = useRef<number | null>(null);
+
+  // Detect when wager details change while in ready room — alert both players
+  useEffect(() => {
+    if (!wager || prevStakeRef.current === null) {
+      if (wager) prevStakeRef.current = wager.stake_lamports;
+      return;
+    }
+    if (wager.stake_lamports !== prevStakeRef.current) {
+      prevStakeRef.current = wager.stake_lamports;
+      // Reset both players' ready status happens server-side
+      let secs = 5;
+      setUpdateNotice({ message: `Wager updated — stake changed to ${(wager.stake_lamports / 1e9).toFixed(4)} SOL. Review before marking ready.`, countdown: secs });
+      if (updateNoticeRef.current) clearInterval(updateNoticeRef.current);
+      updateNoticeRef.current = setInterval(() => {
+        secs--;
+        if (secs <= 0) {
+          clearInterval(updateNoticeRef.current!);
+          setUpdateNotice(null);
+        } else {
+          setUpdateNotice(prev => prev ? { ...prev, countdown: secs } : null);
+        }
+      }, 1000);
+    }
+  }, [wager?.stake_lamports]);
+
   const hasTriggeredTx = useRef(false);
   const depositConfirmedRef = useRef(false);
 
@@ -105,17 +135,36 @@ export function ReadyRoomModal({
   const gameLink = getGameLink(wager?.game ?? '', wager?.lichess_game_id ?? null);
 
   // Per-color URLs saved by secure-wager when platform token creates the game.
-  // Player A = white, Player B = black (as per `users=A,B` param we send).
   const urlWhite = (wager as any)?.lichess_url_white as string | null;
   const urlBlack = (wager as any)?.lichess_url_black as string | null;
+  const sidePreference = (wager as any)?.chess_side_preference as string | null;
 
-  // My specific play URL — uses colored URL if available, falls back to main URL
+  // Derive actual color from which URL this player got.
+  // urlWhite/urlBlack are player-specific Lichess links — if urlWhite contains
+  // a player-specific token, the player with that URL is white.
+  // Fallback: use chess_side_preference if game hasn't started yet.
+  const deriveMyColor = (): 'white' | 'black' | 'random' => {
+    if (urlWhite && urlBlack) {
+      // Once game is created, the URLs are definitive
+      // Player A gets urlWhite unless creator chose black
+      if (sidePreference === 'black') return isPlayerA ? 'black' : 'white';
+      if (sidePreference === 'white') return isPlayerA ? 'white' : 'black';
+      // Random: Player A always gets white in our Lichess API call
+      return isPlayerA ? 'white' : 'black';
+    }
+    // Before game starts — show the preference
+    if (sidePreference === 'black') return isPlayerA ? 'black' : 'white';
+    if (sidePreference === 'white') return isPlayerA ? 'white' : 'black';
+    return 'random';
+  };
+
+  const myColorResult = deriveMyColor();
   const myPlayUrl = isPlayerA
     ? (urlWhite || lichessGameUrl)
     : (urlBlack || lichessGameUrl);
 
-  const myColor = isPlayerA ? 'White ♔' : 'Black ♚';
-  const myColorClass = isPlayerA ? 'text-foreground' : 'text-muted-foreground';
+  const myColor = myColorResult === 'white' ? 'White ♔' : myColorResult === 'black' ? 'Black ♚' : 'Random 🎲';
+  const myColorClass = myColorResult === 'white' ? 'text-foreground font-semibold' : myColorResult === 'black' ? 'text-muted-foreground font-semibold' : 'text-primary';
 
   useEffect(() => { setLocalReady(myReady ?? false); }, [myReady]);
 
@@ -609,6 +658,18 @@ export function ReadyRoomModal({
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Each player stakes {formatSol(wager.stake_lamports)} SOL — winner gets 90%
               </p>
+              {/* Chess side preference — shown to both players */}
+              {wager.game === 'chess' && sidePreference && !hasLichessGame && (
+                <div className="mt-2 pt-2 border-t border-primary/20 flex items-center justify-center gap-2">
+                  {sidePreference === 'random' ? (
+                    <><Shuffle className="h-3 w-3 text-muted-foreground" /><span className="text-[10px] text-muted-foreground">Sides assigned randomly</span></>
+                  ) : sidePreference === 'white' ? (
+                    <><span className="text-[10px] text-muted-foreground">Creator plays</span><span className="text-[10px] font-medium text-foreground">White ♔</span></>
+                  ) : (
+                    <><span className="text-[10px] text-muted-foreground">Creator plays</span><span className="text-[10px] font-medium text-muted-foreground">Black ♚</span></>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Players */}
@@ -715,41 +776,71 @@ export function ReadyRoomModal({
               </div>
             )}
 
+            {/* Wager update notice — shown when creator edits wager mid-ready-room */}
+            {updateNotice && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 flex items-start gap-2"
+              >
+                <Info className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs text-amber-300 font-medium">{updateNotice.message}</p>
+                </div>
+                <span className="text-xs text-amber-400 font-gaming flex-shrink-0">{updateNotice.countdown}s</span>
+              </motion.div>
+            )}
+
             {/* Actions */}
             {txState !== 'confirmed' && txState !== 'error' && (
-              <div className="flex gap-2 pt-2">
-                {isPlayerA && !bothReady && (
-                  <Button variant="outline" className="flex-1 text-xs sm:text-sm" onClick={onEditWager}>
-                    Edit Wager
-                  </Button>
+              <div className="space-y-2 pt-2">
+                {/* Creator controls — always visible, even when opponent is ready */}
+                {isPlayerA && wager.status !== 'voting' && (
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={onEditWager}>
+                      <Pencil className="h-3 w-3 mr-1" /> Edit Wager
+                    </Button>
+                    <Button
+                      variant="destructive" size="sm" className="flex-1 text-xs"
+                      onClick={handleCancelWager} disabled={cancelWagerMutation.isPending}
+                    >
+                      {cancelWagerMutation.isPending
+                        ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                        : <Ban className="h-3 w-3 mr-1" />
+                      }
+                      Delete Wager
+                    </Button>
+                  </div>
                 )}
-                {txState === 'signing' || txState === 'waiting_other' ? (
-                  <Button
-                    variant="destructive" className="flex-1 text-xs sm:text-sm"
-                    onClick={handleCancelWager} disabled={cancelWagerMutation.isPending}
-                  >
-                    {cancelWagerMutation.isPending
-                      ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      : <Ban className="h-4 w-4 mr-2" />
-                    }
-                    Cancel Wager
-                  </Button>
-                ) : (
-                  <Button
-                    variant={localReady ? 'destructive' : 'neon'}
-                    className="flex-1 text-xs sm:text-sm"
-                    onClick={handleReadyClick}
-                    disabled={isSettingReady || (countdown !== null && countdown <= 0)}
-                  >
-                    {isSettingReady
-                      ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      : localReady
-                        ? <X className="h-4 w-4 mr-2" />
-                        : <Check className="h-4 w-4 mr-2" />
-                    }
-                    {localReady ? 'Not Ready' : 'Ready'}
-                  </Button>
-                )}
+                <div className="flex gap-2">
+                  {txState === 'signing' || txState === 'waiting_other' ? (
+                    <Button
+                      variant="destructive" className="flex-1 text-xs sm:text-sm"
+                      onClick={handleCancelWager} disabled={cancelWagerMutation.isPending}
+                    >
+                      {cancelWagerMutation.isPending
+                        ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        : <Ban className="h-4 w-4 mr-2" />
+                      }
+                      Cancel Wager
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={localReady ? 'destructive' : 'neon'}
+                      className="flex-1 text-xs sm:text-sm"
+                      onClick={handleReadyClick}
+                      disabled={isSettingReady || (countdown !== null && countdown <= 0)}
+                    >
+                      {isSettingReady
+                        ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        : localReady
+                          ? <X className="h-4 w-4 mr-2" />
+                          : <Check className="h-4 w-4 mr-2" />
+                      }
+                      {localReady ? 'Not Ready' : 'Ready'}
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </div>
