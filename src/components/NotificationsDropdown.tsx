@@ -10,10 +10,13 @@ import {
 import { cn } from '@/lib/utils';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { AppNotification } from '@/hooks/useNotifications';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useCallback, useState } from 'react';
 
 export function NotificationsDropdown() {
   const { notifications, unreadCount, hasMore, loadMore, loadingMore, loading, markAllRead, markRead } = useNotifications();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
 
   const getNotificationIcon = (type: AppNotification['type']) => {
     switch (type) {
@@ -34,8 +37,40 @@ export function NotificationsDropdown() {
     }
   };
 
+  const getModalTarget = (type: AppNotification['type']): string => {
+    switch (type) {
+      case 'wager_joined':
+      case 'game_started':
+        return 'ready-room';
+      case 'wager_won':
+      case 'wager_lost':
+      case 'wager_draw':
+        return 'result';
+      case 'wager_cancelled':
+        return 'details';
+      default:
+        return 'details';
+    }
+  };
+
+  const handleNotificationClick = useCallback((notification: AppNotification) => {
+    if (!notification.read) markRead(notification.id);
+    setOpen(false);
+
+    if (!notification.wager_id) return;
+
+    const modal = getModalTarget(notification.type);
+    const params = new URLSearchParams({ wager: notification.wager_id, modal });
+
+    if (modal === 'ready-room') {
+      router.push(`/arena?${params.toString()}`);
+    } else {
+      router.push(`/my-wagers?${params.toString()}`);
+    }
+  }, [markRead, router]);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
@@ -80,7 +115,7 @@ export function NotificationsDropdown() {
                 {notifications.map((notification) => (
                   <div
                     key={notification.id}
-                    onClick={() => !notification.read && markRead(notification.id)}
+                    onClick={() => handleNotificationClick(notification)}
                     className={cn(
                       "p-4 hover:bg-muted/50 cursor-pointer transition-colors",
                       !notification.read && "bg-primary/5 border-l-2 border-l-primary"
@@ -100,14 +135,10 @@ export function NotificationsDropdown() {
                             {formatTimeAgo(notification.created_at)}
                           </p>
                           {notification.wager_id && (
-                            <Link
-                              href="/my-wagers"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
-                            >
-                              View wager
+                            <span className="text-[10px] text-primary flex items-center gap-0.5">
+                              {getActionLabel(notification.type)}
                               <ExternalLink className="h-2.5 w-2.5" />
-                            </Link>
+                            </span>
                           )}
                         </div>
                       </div>
@@ -123,7 +154,7 @@ export function NotificationsDropdown() {
               {hasMore && (
                 <div className="p-3 border-t border-border">
                   <button
-                    onClick={loadMore}
+                    onClick={(e) => { e.stopPropagation(); loadMore(); }}
                     disabled={loadingMore}
                     className="w-full flex items-center justify-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
                   >
@@ -151,6 +182,22 @@ export function NotificationsDropdown() {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function getActionLabel(type: AppNotification['type']): string {
+  switch (type) {
+    case 'wager_joined':
+    case 'game_started':
+      return 'Open Ready Room →';
+    case 'wager_won':
+    case 'wager_lost':
+    case 'wager_draw':
+      return 'View Result →';
+    case 'wager_cancelled':
+      return 'View Details →';
+    default:
+      return 'View →';
+  }
 }
 
 function formatTimeAgo(dateStr: string): string {

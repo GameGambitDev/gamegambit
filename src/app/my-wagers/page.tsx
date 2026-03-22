@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -164,12 +165,31 @@ export default function MyWagersPage() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58() || ''
+  const searchParams = useSearchParams()
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
   const [editWager, setEditWager] = useState<Wager | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [visibleAll, setVisibleAll] = useState(10)
   const [visibleCompleted, setVisibleCompleted] = useState(10)
   const PAGE_SIZE = 10
+
+
+  // ── Deep-link from notification: ?wager=<id>&modal=ready-room|result ──────
+  useEffect(() => {
+    const wagerId = searchParams.get('wager')
+    const modal = searchParams.get('modal')
+    if (!wagerId || !modal) return
+    // Both ready-room and result open the ReadyRoomModal on this page
+    if (modal === 'ready-room' || modal === 'result') {
+      setReadyRoomWagerId(wagerId)
+    }
+    // Clear params from URL without reload
+    const url = new URL(window.location.href)
+    url.searchParams.delete('wager')
+    url.searchParams.delete('modal')
+    window.history.replaceState({}, '', url.pathname)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const { data: wagers, isLoading } = useMyWagers()
   const { data: player } = usePlayer()
