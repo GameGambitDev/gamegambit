@@ -96,7 +96,8 @@ export function useWagers() {
 
 export function useOpenWagers() {
   return useQuery({
-    queryKey: ['wagers', 'open'],
+    queryKey: ["wagers", "open"],
+    refetchInterval: 10000,
     queryFn: async () => {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
