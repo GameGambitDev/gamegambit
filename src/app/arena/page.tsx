@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter as useNextRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 
 const WalletMultiButton = dynamic(
@@ -189,6 +189,7 @@ function ArenaInner() {
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58()
   const searchParams = useSearchParams()
+  const notifRouter = useNextRouter()
   const [searchQuery, setSearchQuery] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [quickMatchModalOpen, setQuickMatchModalOpen] = useState(false)
