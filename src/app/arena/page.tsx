@@ -184,7 +184,7 @@ function EmptyState({ title, description }: { title: string; description: string
   )
 }
 
-export default function ArenaPage() {
+function ArenaInner() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58()
@@ -225,7 +225,7 @@ export default function ArenaPage() {
     url.searchParams.delete('wager')
     url.searchParams.delete('modal')
     window.history.replaceState({}, '', url.pathname)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
@@ -708,5 +708,21 @@ export default function ArenaPage() {
         }}
       />
     </div>
+  )
+}
+import { Suspense } from 'react'
+import { Loader2 as _L2 } from 'lucide-react'
+
+export default function ArenaPage() {
+  return (
+    <Suspense fallback={
+      <div className="py-8 pb-16">
+        <div className="container px-4 flex justify-center items-center py-20">
+          <_L2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    }>
+      <ArenaInner />
+    </Suspense>
   )
 }

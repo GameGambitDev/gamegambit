@@ -161,7 +161,7 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
-export default function MyWagersPage() {
+function MyWagersInner() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58() || ''
@@ -467,5 +467,21 @@ export default function MyWagersPage() {
         canEditGameId={editWager?.status === 'created'}
       />
     </div>
+  )
+}
+import { Suspense } from 'react'
+import { Loader2 as _L2 } from 'lucide-react'
+
+export default function MyWagersPage() {
+  return (
+    <Suspense fallback={
+      <div className="py-8 pb-16">
+        <div className="container px-4 flex justify-center items-center py-20">
+          <_L2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    }>
+      <MyWagersInner />
+    </Suspense>
   )
 }
