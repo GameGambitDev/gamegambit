@@ -9,7 +9,21 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '**',
+        hostname: 'lichess.org',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.lichess.org',
+      },
+      {
+        protocol: 'https',
+        // Replace with your actual Supabase project ref
+        // e.g. abcdefghijklmnop.supabase.co
+        hostname: '*.supabase.co',
+      },
+      {
+        protocol: 'https',
+        hostname: 'gateway.pinata.cloud',
       },
     ],
   },

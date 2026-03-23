@@ -13,6 +13,13 @@ function removeToken() {
   try { localStorage.removeItem(STORAGE_KEY) } catch { }
 }
 
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[0]))
+    return payload.exp < Date.now()
+  } catch { return true }
+}
+
 export function useWalletAuth() {
   const { publicKey, signMessage } = useWallet();
   const [isVerifying, setIsVerifying] = useState(false);
@@ -20,7 +27,13 @@ export function useWalletAuth() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    setSessionToken(readToken());
+    const token = readToken();
+    if (token && isTokenExpired(token)) {
+      removeToken();
+      setSessionToken(null);
+    } else {
+      setSessionToken(token);
+    }
     setIsHydrated(true);
   }, []);
 
@@ -36,10 +49,13 @@ export function useWalletAuth() {
     if (!publicKey || !signMessage) return null;
 
     const existing = readToken();
-    if (existing) {
+    if (existing && !isTokenExpired(existing)) {
       setSessionToken(existing);
       return existing;
     }
+
+    // Token missing or expired — clear it and re-verify
+    removeToken();
 
     setIsVerifying(true);
     const walletAddress = publicKey.toBase58();
@@ -63,8 +79,6 @@ export function useWalletAuth() {
 
       const { message } = await nonceRes.json();
 
-      // FIX: Buffer.from() is Node.js only and crashes in Phantom/Solflare
-      // mobile in-app browser. TextEncoder works everywhere.
       const signature = await signMessage(new TextEncoder().encode(message));
 
       const verifyRes = await fetch(`${supabaseUrl}/functions/v1/verify-wallet`, {
@@ -110,7 +124,9 @@ export function useWalletAuth() {
 
   const getSessionToken = useCallback(async (): Promise<string | null> => {
     const stored = readToken();
-    if (stored) return stored;
+    if (stored && !isTokenExpired(stored)) return stored;
+    // Expired or missing — trigger re-verification
+    removeToken();
     return await verifyWallet();
   }, [verifyWallet]);
 
