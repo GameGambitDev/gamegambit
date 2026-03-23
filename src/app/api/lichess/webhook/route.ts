@@ -1,13 +1,14 @@
 // src/app/api/lichess/webhook/route.ts
 //
-// Receives game-end notifications from Lichess.
-// Lichess POSTs here when a game finishes (configure in your Lichess team/app settings).
+// Called by your own Supabase Edge Function / cron when it detects a game-end
+// event on the Lichess SSE stream. NOT called directly by Lichess.
 //
-// Setup: add this URL to your Lichess OAuth app as a webhook endpoint:
-//   https://thegamegambit.vercel.app/api/lichess/webhook
+// The Edge Function signs its POST with LICHESS_WEBHOOK_SECRET (shared secret).
+// This route verifies that signature so random actors can't trigger payouts.
 //
-// Lichess signs requests with HMAC-SHA256 using your app secret.
-// Set LICHESS_WEBHOOK_SECRET in your environment variables.
+// Env vars needed:
+//   LICHESS_WEBHOOK_SECRET  — generate with: openssl rand -hex 32
+//                             Set the same value in both Vercel and Supabase secrets.
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
@@ -16,7 +17,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const WEBHOOK_SECRET = process.env.LICHESS_WEBHOOK_SECRET;
 
-// ── Verify Lichess HMAC-SHA256 signature ──────────────────────────────────────
+// ── Verify HMAC-SHA256 signature ──────────────────────────────────────────────
 
 function verifySignature(body: string, signature: string | null): boolean {
     if (!WEBHOOK_SECRET || !signature) return false;
