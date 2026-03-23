@@ -9,18 +9,18 @@ export function useWalletBalance() {
   return useQuery({
     queryKey: ['walletBalance', publicKey?.toBase58()],
     queryFn: async () => {
-      if (!publicKey) {
-        console.log('[useWalletBalance] No public key available');
-        return 0;
-      }
-      
+      if (!publicKey) return 0;
+
       try {
-        console.log('[useWalletBalance] Fetching balance for:', publicKey.toBase58());
         const balance = await connection.getBalance(publicKey);
-        console.log('[useWalletBalance] Balance in lamports:', balance);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[useWalletBalance] fetched for:', publicKey.toBase58(), '→', balance, 'lamports');
+        }
         return balance / LAMPORTS_PER_SOL;
       } catch (error) {
-        console.error('[useWalletBalance] Error fetching balance:', error);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[useWalletBalance] Error fetching balance:', error);
+        }
         throw error;
       }
     },

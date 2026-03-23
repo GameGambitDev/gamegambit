@@ -92,8 +92,9 @@ export function useWagers() {
 
 export function useOpenWagers() {
   return useQuery({
-    queryKey: ["wagers", "open"],
-    refetchInterval: 10000,
+    queryKey: ['wagers', 'open'],
+    // refetchInterval removed: GameEventContext Realtime keeps this cache key
+    // up to date on every INSERT/UPDATE — polling is redundant load.
     queryFn: async () => {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
@@ -114,6 +115,8 @@ export function useOpenWagers() {
 export function useLiveWagers() {
   return useQuery({
     queryKey: ['wagers', 'live'],
+    // refetchInterval removed: GameEventContext Realtime keeps this cache key
+    // up to date on every status transition — polling is redundant load.
     queryFn: async () => {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
@@ -124,7 +127,6 @@ export function useLiveWagers() {
       if (error) throw error;
       return data as Wager[];
     },
-    refetchInterval: 10000,
   });
 }
 
@@ -198,7 +200,10 @@ export function useWagerById(wagerId: string | null) {
       return data as Wager;
     },
     enabled: !!wagerId,
-    refetchInterval: 2000,
+    // refetchInterval removed: GameEventContext writes directly into
+    // ['wagers', wagerId] on every Realtime event, making 2s polling
+    // redundant — it was generating ~5 queries/second with 10 concurrent
+    // users each having a modal open.
   });
 }
 
@@ -337,9 +342,10 @@ export function useStartGame() {
   });
 }
 
-// NOTE: useCheckGameComplete is kept for backwards compatibility but is no longer
-// called anywhere — GameEventContext + Supabase Realtime handles game completion
-// detection for both players simultaneously without polling.
+// NOTE: useCheckGameComplete is kept because LiveGameModal imports it as a
+// manual fallback trigger. Automatic game-completion detection is handled
+// server-side via the Lichess webhook (Batch 4) — this hook is no longer
+// called automatically by GameEventContext.
 export function useCheckGameComplete() {
   const queryClient = useQueryClient();
   const { getSessionToken } = useWalletAuth();

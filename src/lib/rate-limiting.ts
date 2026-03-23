@@ -8,8 +8,10 @@ export interface RateLimitConfig {
 }
 
 /**
- * Rate limiting store using Map with automatic cleanup
- * For production, use Redis (Upstash) for distributed rate limiting
+ * Rate limiting store using Map with automatic cleanup.
+ * NOTE: This is in-memory and resets on every cold start (serverless).
+ * For production distributed rate limiting, replace with Upstash Redis
+ * sliding window — tracked as C1 in the fix plan (Batch 6).
  */
 class RateLimitStore {
   private store = new Map<string, { count: number; resetTime: number }>()
@@ -40,7 +42,7 @@ class RateLimitStore {
 
   private cleanup(): void {
     const now = Date.now()
-    const keysToDelete = []
+    const keysToDelete: string[] = []
     for (const [key, entry] of this.store.entries()) {
       if (entry.resetTime < now) {
         keysToDelete.push(key)
@@ -194,14 +196,18 @@ export function setCacheHeaders(
 }
 
 /**
- * Conditional cache validation using ETags
+ * Conditional cache validation using ETags.
+ *
+ * FIX (H4): The original used `a & a` which is a no-op — it always returns a
+ * unchanged. For strings longer than a few characters the accumulator
+ * overflowed to NaN, making every ETag "NaN" and causing all conditional
+ * cache checks to always miss. Fixed by masking to 32-bit with 0xFFFFFFFF.
  */
-export function generateETag(data: any): string {
+export function generateETag(data: unknown): string {
   const hash = JSON.stringify(data)
     .split('')
     .reduce((a, b) => {
-      a = (a << 5) - a + b.charCodeAt(0)
-      return a & a
+      return ((a << 5) - a + b.charCodeAt(0)) & 0xFFFFFFFF
     }, 0)
   return `"${Math.abs(hash).toString(16)}"`
 }

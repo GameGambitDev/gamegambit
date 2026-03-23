@@ -24,6 +24,22 @@ import { BalanceAnimationProvider } from '@/contexts/BalanceAnimationContext'
 
 import '@solana/wallet-adapter-react-ui/styles.css'
 
+// ─── Resolve network from env ─────────────────────────────────────────────────
+// Set NEXT_PUBLIC_SOLANA_NETWORK=mainnet-beta in production .env.
+// Falls back to devnet so local development works with no extra config.
+const rawNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK
+const SOLANA_NETWORK: WalletAdapterNetwork =
+  rawNetwork === 'mainnet-beta'
+    ? WalletAdapterNetwork.Mainnet
+    : WalletAdapterNetwork.Devnet
+
+// WalletConnectWalletAdapter only accepts Mainnet | Devnet (not Testnet).
+// Testnet is mapped to Devnet as the closest supported option.
+const WALLETCONNECT_NETWORK: WalletAdapterNetwork.Mainnet | WalletAdapterNetwork.Devnet =
+  SOLANA_NETWORK === WalletAdapterNetwork.Mainnet
+    ? WalletAdapterNetwork.Mainnet
+    : WalletAdapterNetwork.Devnet
+
 // ─── WalletReady context ──────────────────────────────────────────────────────
 const WalletReadyContext = createContext(false)
 
@@ -74,7 +90,7 @@ export function Providers({ children }: { children: ReactNode }) {
       })
   )
 
-  const endpoint = useMemo(() => clusterApiUrl('devnet'), [])
+  const endpoint = useMemo(() => clusterApiUrl(SOLANA_NETWORK), [])
 
   const wallets = useMemo(() => {
     const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
@@ -91,7 +107,7 @@ export function Providers({ children }: { children: ReactNode }) {
     if (projectId) {
       list.unshift(
         new WalletConnectWalletAdapter({
-          network: WalletAdapterNetwork.Devnet,
+          network: WALLETCONNECT_NETWORK,
           options: {
             projectId,
             metadata: {
