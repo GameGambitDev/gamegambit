@@ -99,9 +99,10 @@ bump: u8
 ### Full-Stack Client
 A Next.js 15 application providing complete player and admin interfaces:
 - Real-time wager lobby with live status updates via Supabase Realtime
-- Ready Room with countdown timer and on-chain deposit confirmation
+- Ready Room with countdown timer, on-chain deposit confirmation, in-room chat, and wager edit proposals
 - Lichess OAuth (PKCE) — players verify ownership of their Lichess account; platform token auto-creates locked games server-side with per-color play links; automatic result verification triggers `resolve_wager`
 - Transaction history with Solana Explorer links for every on-chain event
+- PWA with Web Push notifications for match events (wager joined, game started, win/loss/draw)
 - Admin panel for dispute resolution, player management and audit logging
 
 ---
@@ -239,6 +240,8 @@ Solana (source of truth for funds)        Supabase (source of truth for game sta
   - resolve_wager releases funds             - Real-time updates via Postgres Realtime
   - All financial events are on-chain        - Vote tracking for CODM/PUBG
                                              - Off-chain mirror of on-chain deposit status
+                                             - Ready room chat (wager_messages)
+                                             - Push notification subscriptions
 ```
 
 Storing game metadata on-chain would cost significant rent for string data (game IDs, usernames), and real-time updates would require constant RPC polling. Supabase handles high-frequency read/write while Solana handles the financial layer where trustlessness matters.
@@ -254,8 +257,9 @@ Storing game metadata on-chain would cost significant rent for string data (game
 
 **What the off-chain layer enforces:**
 - Session token auth (Ed25519 wallet signature → JWT)
+- DB triggers block direct writes to sensitive fields (`protect_player_sensitive_fields`, `protect_wager_sensitive_fields`)
 - Lichess username verification before auto-resolution
-- Rate limiting on wager creation
+- Rate limiting on wager creation and notifications
 - Admin-only dispute resolution for non-chess games
 
 **What the user must trust:**
@@ -274,6 +278,7 @@ Storing game metadata on-chain would cost significant rent for string data (game
 | Database | Supabase PostgreSQL (off-chain game state) |
 | Auth | Wallet signature verification (Ed25519) + Lichess OAuth PKCE |
 | Chess | Lichess Public API + Platform Token game creation |
+| Push Notifications | Web Push API (VAPID), PWA Service Worker |
 | Hosting | Vercel |
 
 ---
@@ -308,10 +313,12 @@ anchor deploy --provider.cluster devnet
 
 | File | Description |
 |---|---|
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | Complete database schema with all tables and relationships |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | Complete database schema — tables, triggers, functions, indexes, realtime |
+| [`README_DEV.md`](./README_DEV.md) | Developer reference — hooks, edge functions, env vars, project structure |
 | [`API_REFERENCE.md`](./API_REFERENCE.md) | Full REST API reference including admin endpoints |
 | [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) | Production deployment guide |
 | [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) | Local development setup and workflows |
+| [`PWA_GUIDE.md`](./PWA_GUIDE.md) | PWA setup, push notifications, VAPID configuration |
 | [`CHANGE_LOGS.md`](./CHANGE_LOGS.md) | Version history and release notes |
 
 ---
