@@ -60,13 +60,15 @@ export function usePlayerNFTs(walletAddress: string | null) {
     queryFn: async () => {
       const supabase = getSupabaseClient();
       if (!walletAddress) return [];
-      
+
+      // select('*') is intentional: every field in the NFT interface is consumed
+      // by NFTGallery, AchievementBadges, and useNFTCounts — no over-fetching here.
       const { data, error } = await supabase
         .from('nfts')
         .select('*')
         .eq('owner_wallet', walletAddress)
         .order('minted_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as NFT[];
     },
@@ -85,7 +87,7 @@ export function useAllNFTs(limit = 50) {
         .select('*')
         .order('minted_at', { ascending: false })
         .limit(limit);
-      
+
       if (error) throw error;
       return data as NFT[];
     },
@@ -99,13 +101,13 @@ export function usePlayerAchievements(walletAddress: string | null) {
     queryFn: async () => {
       const supabase = getSupabaseClient();
       if (!walletAddress) return [];
-      
+
       const { data, error } = await supabase
         .from('achievements')
         .select('*')
         .eq('player_wallet', walletAddress)
         .order('unlocked_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Achievement[];
     },
@@ -116,7 +118,7 @@ export function usePlayerAchievements(walletAddress: string | null) {
 // Count NFTs by tier for a player
 export function useNFTCounts(walletAddress: string | null) {
   const { data: nfts } = usePlayerNFTs(walletAddress);
-  
+
   const counts = {
     bronze: 0,
     silver: 0,
@@ -124,13 +126,13 @@ export function useNFTCounts(walletAddress: string | null) {
     diamond: 0,
     total: 0,
   };
-  
+
   if (nfts) {
     nfts.forEach(nft => {
       counts[nft.tier]++;
       counts.total++;
     });
   }
-  
+
   return counts;
 }

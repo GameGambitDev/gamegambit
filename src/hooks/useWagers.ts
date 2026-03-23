@@ -99,7 +99,8 @@ export function useOpenWagers() {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
-        .select('*')
+        // Arena list view: only fields needed for the card display
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, is_public, stream_url, created_at, updated_at')
         .eq('status', 'created')
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -121,7 +122,8 @@ export function useLiveWagers() {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
-        .select('*')
+        // Live feed card: same set as open wagers plus lichess_game_id for the stream link
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, is_public, stream_url, lichess_game_id, created_at, updated_at')
         .in('status', ['joined', 'voting', 'disputed'])
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -141,7 +143,8 @@ export function useMyWagers() {
       if (!walletAddress) return [];
       const { data, error } = await supabase
         .from('wagers')
-        .select('*')
+        // My Wagers page renders WagerDetailsModal inline — needs full row
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, lichess_game_id, status, requires_moderator, vote_player_a, vote_player_b, winner_wallet, is_public, stream_url, vote_timestamp, retract_deadline, resolved_at, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, ready_player_a, ready_player_b, countdown_started_at')
         .or(`player_a_wallet.eq.${walletAddress},player_b_wallet.eq.${walletAddress}`)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -158,7 +161,8 @@ export function useRecentWagers(limit: number = 10) {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
-        .select('*')
+        // Landing page live feed — minimal fields for the ticker
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, created_at')
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) throw error;
@@ -174,7 +178,8 @@ export function useRecentWinners(limit: number = 5) {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from('wagers')
-        .select('*')
+        // Winner banner: player wallets, game, stake, winner, resolution time
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, winner_wallet, resolved_at, created_at')
         .eq('status', 'resolved')
         .not('winner_wallet', 'is', null)
         .order('resolved_at', { ascending: false })
