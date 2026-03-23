@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
@@ -223,25 +224,56 @@ export function useLichessGame(gameId: string | null | undefined) {
 }
 
 // ── Stream game updates in real-time ──────────────────────────────────────────
+// Uses Lichess's native NDJSON streaming endpoint — pushes updates on every
+// move instead of polling. Zero cost between moves, instant on move.
 
 export function useLichessGameStream(gameId: string | null | undefined) {
-  return useQuery({
-    queryKey: ['lichessGameStream', gameId],
-    queryFn: async (): Promise<LichessGame | null> => {
-      if (!gameId) return null;
-      const response = await fetch(`${LICHESS_API}/game/${gameId}`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error('Failed to fetch game');
+  const [game, setGame] = useState<LichessGame | null>(null)
+  const [error, setError] = useState<Error | null>(null)
+
+  useEffect(() => {
+    if (!gameId) { setGame(null); return }
+
+    let cancelled = false
+
+    const stream = async () => {
+      try {
+        const res = await fetch(`${LICHESS_API}/stream/game/${gameId}`, {
+          headers: { Accept: 'application/x-ndjson' },
+        })
+        if (!res.ok || !res.body) {
+          setError(new Error('Failed to open game stream'))
+          return
+        }
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+
+        while (!cancelled) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.trim()) continue
+            try {
+              const parsed = JSON.parse(line) as LichessGame
+              if (!cancelled) setGame(parsed)
+            } catch { /* partial line */ }
+          }
+        }
+        reader.cancel()
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err : new Error('Stream error'))
       }
-      return response.json();
-    },
-    enabled: !!gameId,
-    refetchInterval: 3000,
-    staleTime: 1000,
-  });
+    }
+
+    stream()
+    return () => { cancelled = true }
+  }, [gameId])
+
+  return { data: game, error, isLoading: !game && !error }
 }
 
 // ── Verify game result between two players ────────────────────────────────────
