@@ -17,7 +17,8 @@ export function usePlayer() {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        .select('*')
+        // Own profile: full row needed for edit form and stats display
+        .select('wallet_address, username, avatar_url, bio, total_wins, total_losses, total_earnings, current_streak, best_streak, created_at, updated_at')
         .eq('wallet_address', walletAddress)
         .maybeSingle();
 
@@ -97,7 +98,8 @@ export function useLeaderboard(sortBy: 'earnings' | 'wins' | 'streak' = 'earning
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        .select('*')
+        // Leaderboard rows: rank display fields only
+        .select('wallet_address, username, avatar_url, total_wins, total_losses, total_earnings, current_streak, best_streak')
         .order(orderColumn, { ascending: false })
         .limit(50);
 
@@ -115,7 +117,8 @@ export function useSearchPlayers(searchQuery: string) {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        .select('*')
+        // Search results: avatar + name + wallet for the result row
+        .select('wallet_address, username, avatar_url, total_wins, total_losses')
         .or(`username.ilike.%${searchQuery}%,wallet_address.ilike.%${searchQuery}%`)
         .limit(20);
 
@@ -134,7 +137,8 @@ export function usePlayerByWallet(walletAddress: string | null) {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        .select('*')
+        // Public profile view: full display set
+        .select('wallet_address, username, avatar_url, bio, total_wins, total_losses, total_earnings, current_streak, best_streak, created_at, updated_at')
         .eq('wallet_address', walletAddress)
         .maybeSingle();
 
@@ -146,14 +150,19 @@ export function usePlayerByWallet(walletAddress: string | null) {
 }
 
 export function usePlayersByWallets(walletAddresses: string[]) {
+  // Sort-join produces a stable string key — avoids a new cache entry (and a
+  // fresh fetch) on every render when the array is created inline by the caller.
+  const stableKey = [...walletAddresses].sort().join(',');
+
   return useQuery({
-    queryKey: ['players', 'byWallets', walletAddresses],
+    queryKey: ['players', 'byWallets', stableKey],
     queryFn: async () => {
       if (!walletAddresses.length) return [];
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        .select('*')
+        // Player card in wager rows: avatar, name, basic stats
+        .select('wallet_address, username, avatar_url, total_wins, total_losses, current_streak')
         .in('wallet_address', walletAddresses);
 
       if (error) throw error;
