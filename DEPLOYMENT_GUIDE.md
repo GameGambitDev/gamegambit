@@ -10,136 +10,128 @@ Complete guide for deploying Game Gambit to production with Vercel, Supabase, an
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Production Stack                      │
-├─────────────────────────────────────────────────────────┤
-│                                                           │
-│  ┌──────────────┐     ┌──────────────┐                  │
-│  │   Vercel     │────▶│  Upstash     │                  │
-│  │  (Frontend)  │     │   Redis      │                  │
-│  └──────┬───────┘     └──────────────┘                  │
-│         │                                                │
-│         ▼                                                │
-│  ┌──────────────────────────────────┐                  │
-│  │   Supabase PostgreSQL             │                  │
-│  │  - Hot data (real-time)           │                  │
-│  │  - Row-level security             │                  │
-│  │  - Connection pooling             │                  │
-│  └──────────────────────────────────┘                  │
-│         ▲                                                │
-│         │                                                │
-│  ┌──────┴──────────────────────────┐                   │
-│  │   Solana RPC Endpoints            │                  │
-│  │  - Mainnet-beta (production)      │                  │
-│  │  - Backup RPC providers           │                  │
-│  └───────────────────────────────────┘                 │
-│                                                           │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Production Stack                         │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌──────────────┐     ┌──────────────┐                      │
+│  │   Vercel     │────▶│  Upstash     │                      │
+│  │  (Frontend)  │     │   Redis      │                      │
+│  └──────┬───────┘     └──────────────┘                      │
+│         │                                                     │
+│         ▼                                                     │
+│  ┌─────────────────────────────────────────────────┐        │
+│  │              Supabase                            │        │
+│  │  - PostgreSQL (15 tables, RLS, triggers)         │        │
+│  │  - Edge Functions (5 deployed)                   │        │
+│  │  - Realtime (4 tables)                           │        │
+│  │  - Row-level security                            │        │
+│  └─────────────────────────────────────────────────┘        │
+│         ▲                                                     │
+│         │                                                     │
+│  ┌──────┴──────────────────────────────────────────┐        │
+│  │   Solana (currently Devnet)                      │        │
+│  │  - Program: E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGw.. │        │
+│  │  - Authority wallet holds settlement keypair     │        │
+│  └──────────────────────────────────────────────────┘       │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+> **Network note:** The program is currently deployed on **Solana Devnet**. Moving to mainnet requires redeploying the Anchor program and updating `NEXT_PUBLIC_SOLANA_NETWORK`, `NEXT_PUBLIC_SOLANA_RPC_URL`, and the authority keypair.
 
 ## Pre-Deployment Checklist
 
 ### Code Readiness
-- [ ] All tests passing
-- [ ] Zero TypeScript errors
-- [ ] No linting warnings
-- [ ] Production build successful
+- [ ] Zero TypeScript errors (`pnpm tsc --noEmit`)
+- [ ] No linting warnings (`pnpm lint`)
+- [ ] Production build successful (`pnpm build`)
 - [ ] Environment variables documented
 
 ### Database Readiness
-- [ ] All migrations tested on staging
+- [ ] `gamegambit-setup.sql` tested on staging
+- [ ] `001_create_admin_tables.sql` applied
 - [ ] Database backups enabled
-- [ ] Row-level security policies reviewed
-- [ ] Indexes verified for performance
+- [ ] Realtime publication verified (4 tables)
 - [ ] Connection pool configured
 
 ### Solana Program
-- [ ] Program deployed to mainnet
-- [ ] IDL files updated and deployed
-- [ ] Program ID correct in config
-- [ ] Transaction fees estimated
-- [ ] Error handling verified
+- [ ] Program deployed and IDL confirmed
+- [ ] `AUTHORITY_WALLET_SECRET` keypair secured (see format note below)
+- [ ] Program ID matches `solana-config.ts`
+- [ ] Instruction discriminators match current IDL
+
+### Edge Functions
+- [ ] All 5 functions deployed
+- [ ] All 8 edge function secrets configured
+- [ ] `verify-wallet` smoke-tested
 
 ### Infrastructure
 - [ ] Vercel project created
 - [ ] Supabase project configured
-- [ ] Redis cache provisioned
 - [ ] Custom domain configured
-- [ ] SSL certificates installed
+- [ ] SSL certificate installed
+
+---
 
 ## Step 1: Prepare Supabase Database
 
 ### Create Production Project
 
 1. Go to [supabase.com](https://supabase.com)
-2. Create new project with following specs:
+2. Create a new project:
    - Database version: Latest PostgreSQL
    - Region: Closest to majority of users
    - Plan: Pro or higher for production
 
-### Apply Migrations
+### Run Database Setup
 
-```bash
-# Install Supabase CLI
-npm install -g supabase
+The repo includes a single-shot SQL file that creates all 15 tables, indexes, RLS policies, DB functions, and triggers:
 
-# Link to project
-supabase link --project-ref <project_ref>
-
-# Apply all migrations
-supabase db push
-
-# Verify migrations
-supabase migration list
+```
+Supabase Dashboard → SQL Editor → paste gamegambit-setup.sql → Run
 ```
 
-### Configure Row-Level Security
+Then run the admin tables migration separately:
 
-Enable RLS on all tables:
+```
+Supabase Dashboard → SQL Editor → paste scripts/migrations/001_create_admin_tables.sql → Run
+```
+
+> **Do not** use `supabase db push` for initial setup — run the SQL files directly in the dashboard.
+
+### Verify Database Setup
+
+After running the SQL files, confirm the schema is correct:
 
 ```sql
--- Players table
-ALTER TABLE players ENABLE ROW LEVEL SECURITY;
+-- Confirm all 15 tables exist
+SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;
 
-CREATE POLICY "Users can view public player profiles"
-  ON players FOR SELECT
-  USING (verified = true);
+-- Confirm all triggers are active
+SELECT trigger_name, event_object_table
+FROM information_schema.triggers
+WHERE trigger_schema = 'public'
+ORDER BY event_object_table;
 
-CREATE POLICY "Users can update own profile"
-  ON players FOR UPDATE
-  USING (auth.uid()::text = wallet_address);
+-- Confirm all 9 DB functions exist
+SELECT routine_name FROM information_schema.routines
+WHERE routine_schema = 'public' ORDER BY routine_name;
 
--- Wagers table
-ALTER TABLE wagers ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view public wagers"
-  ON wagers FOR SELECT
-  USING (is_public = true);
-
-CREATE POLICY "Players can view own wagers"
-  ON wagers FOR SELECT
-  USING (
-    player_a_wallet = auth.uid()::text 
-    OR player_b_wallet = auth.uid()::text
-  );
-
--- Similar policies for other tables...
+-- Confirm Realtime is enabled on the right tables
+SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
+-- Expected: wagers, wager_transactions, notifications, wager_messages
 ```
 
 ### Connection Pooling
-
-Configure connection pooling for high traffic:
 
 ```
 Supabase Dashboard → Project Settings → Database → Connection Pooling
 - Mode: Transaction
 - Max connections: 100
-- Min connections: 10
 ```
 
 ### Backups
-
-Enable automatic backups:
 
 ```
 Supabase Dashboard → Project Settings → Backups
@@ -147,7 +139,64 @@ Supabase Dashboard → Project Settings → Backups
 - Backup retention: 30 days
 ```
 
-## Step 2: Setup Vercel Deployment
+---
+
+## Step 2: Deploy Edge Functions
+
+All 5 edge functions must be deployed before the frontend.
+
+```bash
+# Install Supabase CLI
+npm install -g supabase
+
+# Link to your project
+supabase link --project-ref <project_ref>
+
+# Deploy all functions
+supabase functions deploy secure-wager
+supabase functions deploy secure-player
+supabase functions deploy admin-action
+supabase functions deploy resolve-wager
+supabase functions deploy verify-wallet
+```
+
+### Configure Edge Function Secrets
+
+Set all secrets in **Supabase Dashboard → Edge Functions → Secrets** (not in `.env.local`):
+
+| Secret | Description |
+|--------|-------------|
+| `AUTHORITY_WALLET_SECRET` | Authority keypair as a JSON byte array — see format note below |
+| `SUPABASE_URL` | Your Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (not the anon key) |
+| `SOLANA_RPC_URL` | `https://api.devnet.solana.com` (or your RPC provider) |
+| `LICHESS_PLATFORM_TOKEN` | Platform token from the GameGambit Lichess account |
+| `VAPID_PRIVATE_KEY` | VAPID private key for Web Push |
+| `VAPID_PUBLIC_KEY` | VAPID public key (must match `NEXT_PUBLIC_VAPID_PUBLIC_KEY`) |
+| `ADMIN_WALLET` | Admin wallet address used by `admin-action` |
+
+> ⚠️ **`AUTHORITY_WALLET_SECRET` format:** Must be a JSON array of bytes — e.g. `[12,34,56,78,...]` — **not** a base58 string or hex. The edge functions parse it as:
+> ```typescript
+> Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret)))
+> ```
+> If the format is wrong, the function will throw a silent parse error on every on-chain call.
+
+### Smoke Test Edge Functions
+
+After deploying, verify each function is reachable:
+
+```bash
+# Test verify-wallet (expects 400 with missing fields — that means it's running)
+curl -X POST https://<project>.supabase.co/functions/v1/verify-wallet \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Expected: {"error":"Missing required fields","success":false}
+```
+
+---
+
+## Step 3: Setup Vercel Deployment
 
 ### Create Vercel Project
 
@@ -155,54 +204,62 @@ Supabase Dashboard → Project Settings → Backups
 # Install Vercel CLI
 npm i -g vercel
 
-# Login to Vercel
+# Login and link
 vercel login
-
-# Deploy project
-vercel
-
-# Link to Git repository
 vercel link
 ```
 
 ### Configure Environment Variables
 
-In Vercel dashboard → Project Settings → Environment Variables:
+In **Vercel Dashboard → Project Settings → Environment Variables**:
 
 ```env
-# Solana Configuration
-NEXT_PUBLIC_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
-NEXT_PUBLIC_SOLANA_NETWORK=mainnet-beta
+# Solana (currently Devnet — update both when moving to mainnet)
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_NETWORK=devnet
 NEXT_PUBLIC_PROGRAM_ID=E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR
 
-# Supabase Configuration
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=xxxxx
+SUPABASE_SERVICE_ROLE_KEY=xxxxx
 
-# Upstash Redis (Optional)
+# App URL (used for Lichess OAuth PKCE redirect)
+NEXT_PUBLIC_SITE_URL=https://yourdomain.com
+
+# Admin panel
+ADMIN_JWT_SECRET=<min_32_char_random_string>
+ADMIN_SESSION_TIMEOUT=3600000
+ADMIN_REFRESH_TIMEOUT=604800000
+NEXT_PUBLIC_ADMIN_SOLANA_NETWORK=devnet
+ADMIN_SMTP_HOST=smtp.your-email.com
+ADMIN_SMTP_PORT=587
+ADMIN_SMTP_USER=your-email@example.com
+ADMIN_SMTP_PASSWORD=your-app-password
+
+# PWA Push Notifications
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=<your_vapid_public_key>
+
+# Upstash Redis (optional — for rate limiting cache)
 REDIS_URL=redis://default:xxxxx@xxxxx.upstash.io:12345
-
-# Feature Flags
-NEXT_PUBLIC_MAINTENANCE_MODE=false
-NEXT_PUBLIC_MAX_WAGER_STAKE=1000000000000  # 1000 SOL
-
-# Logging
-NEXT_PUBLIC_LOG_LEVEL=info
+REDIS_TOKEN=xxxxx
 ```
 
-### Configure Domains
+> ⚠️ **VAPID key format:** Copy `NEXT_PUBLIC_VAPID_PUBLIC_KEY` carefully — Vercel's env var UI can silently inject leading/trailing whitespace or quote characters. `useNotifications.ts` validates the key format on subscription and logs a warning if it detects invalid characters. If push notifications silently fail to subscribe, this is the first thing to check.
 
-1. Add custom domain in Vercel dashboard
-2. Update DNS records:
-   ```
-   CNAME: www → cname.vercel.com
-   A: @ → 76.76.19.20
-   ```
-3. Enable automatic SSL certificate
+> Generate a new JWT secret with: `openssl rand -base64 32`
+
+### Generate VAPID Keys (if needed)
+
+```bash
+npx web-push generate-vapid-keys
+# Copy the output Public Key → NEXT_PUBLIC_VAPID_PUBLIC_KEY (Vercel) + VAPID_PUBLIC_KEY (Supabase secrets)
+# Copy the output Private Key → VAPID_PRIVATE_KEY (Supabase secrets only — never expose this)
+```
 
 ### Build Configuration
 
-Update `vercel.json`:
+`vercel.json` (if not already present):
 
 ```json
 {
@@ -212,203 +269,106 @@ Update `vercel.json`:
   "env": {
     "NODE_ENV": "production",
     "NEXT_TELEMETRY_DISABLED": "1"
-  },
-  "redirects": [
-    {
-      "source": "/docs/:path*",
-      "destination": "/api/docs/:path*",
-      "permanent": false
-    }
-  ]
+  }
 }
 ```
 
-## Step 3: Configure Cache & Rate Limiting
+### Configure Domains
 
-### Upstash Redis Setup
+1. Add custom domain in Vercel dashboard
+2. Update DNS:
+   ```
+   CNAME: www → cname.vercel.com
+   A: @ → 76.76.19.20
+   ```
+3. Update `NEXT_PUBLIC_SITE_URL` to your production domain (needed for Lichess OAuth callback)
 
-1. Create Upstash Redis database at [upstash.com](https://console.upstash.com)
-2. Configure in Vercel environment variables
-3. Test connection:
-
-```typescript
-import { Redis } from '@upstash/redis'
-
-const redis = new Redis({
-  url: process.env.REDIS_URL!,
-  token: process.env.REDIS_TOKEN!,
-})
-
-// Test
-await redis.set('test-key', 'value')
-const value = await redis.get('test-key')
-console.log(value) // 'value'
-```
-
-### Cache Configuration
-
-Set cache headers for optimal performance:
-
-```typescript
-// src/app/api/leaderboard/route.ts
-export async function GET(request: Request) {
-  // ... fetch data ...
-  
-  return new Response(JSON.stringify(data), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
-    }
-  })
-}
-```
-
-### Rate Limiting Configuration
-
-Production settings in `src/lib/rate-limiting.ts`:
-
-```typescript
-const productionConfigs = {
-  public: { windowMs: 60_000, maxRequests: 1000 },
-  api: { windowMs: 60_000, maxRequests: 500 },
-  auth: { windowMs: 900_000, maxRequests: 10 },
-  wagerCreation: { windowMs: 60_000, maxRequests: 50 },
-  trading: { windowMs: 10_000, maxRequests: 30 },
-}
-```
+---
 
 ## Step 4: Deploy Application
 
-### Initial Deployment
-
 ```bash
-# Build locally first
+# Build locally first to catch errors
 pnpm build
 
 # Deploy to production
 vercel --prod
-
-# Verify deployment
-curl https://yourdomain.com/api/health
 ```
 
-### Monitoring Deployment
+---
 
-1. **Check Vercel Logs**:
-   ```bash
-   vercel logs <deployment_url> --since 10m
-   ```
+## Step 5: Post-Deployment Verification
 
-2. **Monitor Performance**:
-   - Visit Vercel Analytics dashboard
-   - Check Core Web Vitals
-   - Monitor response times
-
-3. **Verify Database Connection**:
-   ```bash
-   # Check Supabase logs
-   supabase logs show --level error
-   ```
-
-## Step 5: Production Verification
-
-### Health Checks
+### Frontend
 
 ```bash
-# Test API health endpoint
-curl https://yourdomain.com/api/health
+# Confirm the app loads
+curl -I https://yourdomain.com
 
-# Expected response:
-# {
-#   "status": "ok",
-#   "database": "connected",
-#   "solana": "connected",
-#   "timestamp": "2026-03-09T10:30:00Z"
-# }
+# Confirm service worker is served with correct headers
+curl -I https://yourdomain.com/sw.js
+# Expect: Cache-Control: public, max-age=0, must-revalidate
+
+# Confirm manifest
+curl -I https://yourdomain.com/manifest.json
+# Expect: Content-Type: application/manifest+json
 ```
 
-### Database Tests
+### Edge Functions
+
+```bash
+# Verify verify-wallet is running
+curl -X POST https://<project>.supabase.co/functions/v1/verify-wallet \
+  -H "Content-Type: application/json" -d '{}'
+# Expect: {"error":"Missing required fields","success":false}
+```
+
+### Database
 
 ```sql
--- Check table sizes
-SELECT tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) 
-FROM pg_tables 
-WHERE schemaname = 'public';
+-- Confirm Realtime is active on the 4 required tables
+SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
+-- Must return: wager_messages, wager_transactions, notifications, wagers
 
--- Check slow queries
-SELECT query, mean_exec_time, calls 
-FROM pg_stat_statements 
-ORDER BY mean_exec_time DESC 
-LIMIT 10;
-
--- Check indexes
-SELECT * FROM pg_stat_user_indexes 
-WHERE idx_scan < 10 
-ORDER BY pg_relation_size(indexrelid) DESC;
+-- Confirm triggers are firing (check a protected field can't be bypassed)
+-- Just try updating wager.status directly with anon key — it should silently fail
 ```
 
-### Solana Program Tests
+### Solana Program
 
-```typescript
-// Test program interaction
-const connection = new Connection(rpcUrl)
-const program = getGameGambitProgram(provider)
-
-// Get program account info
-const accountInfo = await connection.getAccountInfo(programId)
-console.log('Program account size:', accountInfo?.data.length)
-
-// Test PDA derivation
-const [playerPDA] = await derivePlayerProfilePDA(playerWallet)
-console.log('Player PDA:', playerPDA.toString())
+```bash
+# Confirm the program account exists on-chain
+solana program show E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR \
+  --url https://api.devnet.solana.com
 ```
+
+### Admin Panel
+
+1. Navigate to `https://yourdomain.com/itszaadminlogin/login`
+2. Log in with superadmin credentials
+3. Confirm wager list loads and dispute resolution is accessible
+
+---
 
 ## Step 6: Monitoring & Alerts
 
-### Setup Monitoring
+### Edge Function Logs
 
-1. **Vercel Monitoring**:
-   - Enable usage insights
-   - Configure performance alerts
-   - Set up error tracking
+```bash
+supabase functions logs secure-wager --tail
+supabase functions logs resolve-wager --tail
+supabase functions logs admin-action --tail
+```
 
-2. **Supabase Monitoring**:
-   ```
-   Project Settings → Database → Database Usage
-   - Monitor connection count
-   - Track query performance
-   - Review slow query logs
-   ```
+### Failed Transaction Monitoring
 
-3. **Solana RPC Monitoring**:
-   - Monitor RPC endpoint availability
-   - Track request latency
-   - Set up failover to backup RPC
-
-### Key Metrics to Track
-
-```typescript
-// Add to observability platform (e.g., Sentry, Datadog)
-
-// API Performance
-- Response time p50, p95, p99
-- Error rate by endpoint
-- Request volume
-
-// Database Performance
-- Query latency
-- Connection pool usage
-- Slow query count
-
-// Solana Network
-- RPC endpoint availability
-- Transaction confirmation time
-- Program instruction errors
-
-// User Experience
-- Page load time
-- Time to interactive
-- Cumulative layout shift
+```sql
+-- Monitor for failed on-chain settlements
+SELECT tx_type, count(*), max(created_at)
+FROM wager_transactions
+WHERE tx_type LIKE 'error_%'
+GROUP BY tx_type
+ORDER BY max(created_at) DESC;
 ```
 
 ### Alert Thresholds
@@ -418,168 +378,126 @@ console.log('Player PDA:', playerPDA.toString())
 | API response time P99 | > 1s | Investigate |
 | Error rate | > 1% | Page on-call |
 | Database CPU | > 80% | Scale up |
-| Memory usage | > 85% | Alert |
-| Solana RPC failures | > 5 in 5min | Switch RPC |
+| `error_*` tx_type rows | Any new ones | Investigate settlement failures |
+| Solana RPC failures | > 5 in 5 min | Switch RPC URL |
+
+### Supabase Monitoring
+
+```
+Project Settings → Database → Database Usage
+- Monitor connection count
+- Track query performance
+- Review slow query logs
+```
+
+---
 
 ## Step 7: Scaling Strategy
 
 ### Vertical Scaling
 
-For database growth > 10GB:
-
 ```
 Supabase Dashboard → Project Settings → Billing
-- Upgrade to larger machine size
-- Increase compute resources
+- Upgrade machine size when DB grows > 10GB
 ```
 
 ### Horizontal Scaling
 
 For high traffic:
 
-1. **Enable read replicas** (Supabase Enterprise)
-   ```sql
-   CREATE PUBLICATION staging FOR TABLE players, wagers;
-   ```
-
-2. **Increase connection pool**
+1. **Increase connection pool**
    ```
    Supabase → Connection Pooling → Max connections: 200+
    ```
 
-3. **Optimize queries**
-   - Add materialized views
-   - Pre-compute aggregations
-   - Use caching aggressively
+2. **Add indexes for new query patterns**
+   ```sql
+   CREATE INDEX CONCURRENTLY idx_wagers_status_created
+   ON wagers (status, created_at DESC);
+   ```
 
-### Database Partitioning
+3. **Use caching aggressively** — leaderboard, player stats, and open wager lists are the highest read volume and can be cached for 30-60 seconds without user impact
 
-For tables > 100GB:
-
-```sql
--- Partition wagers by created_at
-ALTER TABLE wagers 
-PARTITION BY RANGE (EXTRACT(YEAR FROM created_at));
-
-CREATE TABLE wagers_2026_q1 PARTITION OF wagers
-  FOR VALUES FROM (2026-01-01) TO (2026-04-01);
-```
+---
 
 ## Disaster Recovery
 
-### Backup & Restore
+### Database Restore
 
 ```bash
-# Manual backup
-supabase db backup create production
+# List available backups
+supabase db backup list
 
-# List backups
-supabase db backup list production
-
-# Restore from backup
-supabase db restore production --backup-id <id>
+# Restore from specific backup
+supabase db restore --backup-id <id>
 ```
 
-### Failover Procedures
+### Solana RPC Failover
 
-**Database Failover**:
-1. Stop application
-2. Restore from backup
-3. Verify data integrity
-4. Restart application
+1. Update `NEXT_PUBLIC_SOLANA_RPC_URL` in Vercel env vars to a backup provider (Helius, QuickNode, etc.)
+2. Update `SOLANA_RPC_URL` in Supabase edge function secrets
+3. Redeploy both
 
-**Solana RPC Failover**:
-1. Update `NEXT_PUBLIC_SOLANA_RPC_URL` to backup RPC
-2. Redeploy application
-3. Monitor transaction confirmation
+### Authority Keypair Loss
 
-## Performance Tuning
+> ⚠️ If the authority keypair is lost, all open WagerAccount PDAs are permanently locked — there is no recovery path. Back up `AUTHORITY_WALLET_SECRET` to a secure secrets manager (AWS Secrets Manager, HashiCorp Vault, etc.) before going to mainnet. Multi-sig is planned for mainnet to mitigate this.
 
-### Database Query Optimization
+---
 
-```typescript
-// ✓ Good: Batching
-const players = await db.query(
-  'SELECT * FROM players WHERE wallet_address = ANY($1)',
-  [[wallet1, wallet2, wallet3]]
-)
+## Common Issues
 
-// ❌ Avoid: N+1 queries
-for (const wallet of wallets) {
-  await db.query('SELECT * FROM players WHERE wallet_address = $1', [wallet])
-}
-```
+### Edge function returns 500 on resolve/close
+Check `AUTHORITY_WALLET_SECRET` format — must be a JSON byte array `[12,34,...]`, not a base58 string. Check edge function logs for parse errors.
 
-### API Route Optimization
+### Lichess game not auto-creating
+`LICHESS_PLATFORM_TOKEN` is missing or expired. Generate a new one from the GameGambit Lichess account at `https://lichess.org/account/oauth/token`.
 
-```typescript
-// Add response compression
-export async function GET(request: Request) {
-  const data = await fetchData()
-  
-  return new Response(JSON.stringify(data), {
-    headers: {
-      'Content-Encoding': 'gzip',
-      'Cache-Control': 'public, max-age=60'
-    }
-  })
-}
-```
+### Push notifications not delivering
+1. Confirm `NEXT_PUBLIC_VAPID_PUBLIC_KEY` has no whitespace
+2. Confirm `VAPID_PUBLIC_KEY` in Supabase secrets matches exactly
+3. Check `push_subscriptions` table for the player's endpoint
+4. Check edge function logs for VAPID errors
 
-### Frontend Optimization
+### Wager status not updating after resolve
+The `protect_wager_sensitive_fields` trigger is blocking a direct DB write somewhere. All status changes must go through `secure-wager` or `admin-action` edge functions using the service role key.
 
-```typescript
-// Use dynamic imports for large components
-import dynamic from 'next/dynamic'
+### Database Connection Timeout
+- Increase connection pool size in Supabase dashboard
+- Check that edge functions are reusing the Supabase client (not creating a new one per request)
 
-const HeavyComponent = dynamic(() => import('./Heavy'), {
-  loading: () => <div>Loading...</div>,
-  ssr: false
-})
-```
+---
 
 ## Maintenance
 
 ### Regular Tasks
 
-- [ ] Review error logs weekly
-- [ ] Check database performance monthly
+- [ ] Review edge function error logs weekly
+- [ ] Check `wager_transactions` for `error_*` rows weekly
+- [ ] Monitor Solana authority wallet balance (needs SOL for transaction fees)
 - [ ] Update dependencies quarterly
 - [ ] Run security audit quarterly
-- [ ] Review costs monthly
 
-### Scheduled Maintenance
+### Updating the Anchor Program
 
-Plan maintenance windows:
-- Off-peak hours (2-4 AM UTC)
-- Announce 1 week in advance
-- Have rollback plan ready
-- Monitor during maintenance
+If the Solana program is redeployed:
 
-## Support & Debugging
+1. Update `NEXT_PUBLIC_PROGRAM_ID` in Vercel env vars
+2. Update `PROGRAM_ID` in `src/lib/solana-config.ts`
+3. Update all instruction discriminators in `src/lib/solana-config.ts` from the new IDL
+4. Update discriminators in all 3 edge functions that build raw instructions (`secure-wager`, `admin-action`, `resolve-wager`)
+5. Redeploy all edge functions
+6. Redeploy frontend
 
-### Getting Help
+---
 
-- **Vercel Support**: [vercel.com/support](https://vercel.com/support)
-- **Supabase Docs**: [supabase.com/docs](https://supabase.com/docs)
-- **Solana Docs**: [docs.solana.com](https://docs.solana.com)
+## Resources
 
-### Common Issues
-
-**Database Connection Timeout**
-- Increase pool size
-- Check network connectivity
-- Verify connection string
-
-**High Latency**
-- Check database CPU/memory
-- Enable query caching
-- Add indexes to slow queries
-
-**RPC Errors**
-- Switch to backup RPC
-- Check rate limits
-- Verify transaction format
+- [Supabase Edge Functions](https://supabase.com/docs/guides/functions)
+- [Supabase Realtime](https://supabase.com/docs/guides/realtime)
+- [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables)
+- [Web Push / VAPID](https://web.dev/push-notifications-overview/)
+- [Anchor Deploy Docs](https://www.anchor-lang.com/docs/cli#deploy)
+- [Solana Explorer (Devnet)](https://explorer.solana.com/?cluster=devnet)
 
 ---
 
