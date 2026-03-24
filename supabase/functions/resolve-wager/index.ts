@@ -1,5 +1,15 @@
 // supabase/functions/resolve-wager/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.86.2";
+import {
+    Connection,
+    Keypair,
+    PublicKey,
+    Transaction,
+    TransactionInstruction,
+    SystemProgram,
+    LAMPORTS_PER_SOL,
+} from "https://esm.sh/@solana/web3.js@1.98.0";
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -7,36 +17,29 @@ const corsHeaders = {
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
 };
 
+// ── Constants (must match lib.rs) ─────────────────────────────────────────────
 const PROGRAM_ID = "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR";
 const PLATFORM_WALLET = "3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY";
-const PLATFORM_FEE_BPS = 1000;
+const PLATFORM_FEE_BPS = 1000;   // 10%
 const MODERATOR_FEE_SHARE = 0.40;
 
+// Discriminators from IDL
 const DISCRIMINATORS = {
     resolve_wager: [31, 179, 1, 228, 83, 224, 1, 123],
     close_wager: [167, 240, 85, 147, 127, 50, 69, 203],
 };
 
-// ── Lazy Solana loader ────────────────────────────────────────────────────────
-let _solana: typeof import("https://esm.sh/@solana/web3.js@1.98.0") | null = null;
-async function getSolana() {
-    if (!_solana) {
-        _solana = await import("https://esm.sh/@solana/web3.js@1.98.0");
-    }
-    return _solana;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function loadAuthorityKeypair(secret: string): Keypair {
+    const arr = JSON.parse(secret);
+    return Keypair.fromSecretKey(Uint8Array.from(arr));
 }
 
-async function loadAuthorityKeypair(secret: string) {
-    const { Keypair } = await getSolana();
-    return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret)));
-}
-
-// deno-lint-ignore no-explicit-any
-async function deriveWagerPda(playerAWallet: string, matchId: bigint): Promise<any> {
-    const { PublicKey } = await getSolana();
-    const playerA = new PublicKey(playerAWallet);
+function deriveWagerPda(playerA: PublicKey, matchId: bigint): PublicKey {
     const matchIdBytes = new Uint8Array(8);
-    new DataView(matchIdBytes.buffer).setBigUint64(0, matchId, true);
+    const view = new DataView(matchIdBytes.buffer);
+    view.setBigUint64(0, matchId, true); // little-endian
     const [pda] = PublicKey.findProgramAddressSync(
         [new TextEncoder().encode("wager"), playerA.toBytes(), matchIdBytes],
         new PublicKey(PROGRAM_ID)
@@ -44,9 +47,15 @@ async function deriveWagerPda(playerAWallet: string, matchId: bigint): Promise<a
     return pda;
 }
 
-// deno-lint-ignore no-explicit-any
-async function buildResolveWagerIx(wagerPda: any, authority: any, winner: any, platformWallet: any): Promise<any> {
-    const { TransactionInstruction, SystemProgram, PublicKey } = await getSolana();
+function buildResolveWagerIx(
+    wagerPda: PublicKey,
+    authority: PublicKey,
+    winner: PublicKey,
+    platformWallet: PublicKey,
+): TransactionInstruction {
+    // resolve_wager accounts — matches ResolveWager struct in lib.rs:
+    //   wager, winner, authorizer (signer), platform_wallet, system_program
+    // Args: winner pubkey (32 bytes)
     const disc = new Uint8Array(DISCRIMINATORS.resolve_wager);
     const winnerBytes = winner.toBytes();
     const resolveData = new Uint8Array(disc.length + winnerBytes.length);
@@ -65,9 +74,17 @@ async function buildResolveWagerIx(wagerPda: any, authority: any, winner: any, p
     });
 }
 
-// deno-lint-ignore no-explicit-any
-async function buildCloseWagerIx(wagerPda: any, authority: any, playerA: any, playerB: any, platformWallet: any): Promise<any> {
-    const { TransactionInstruction, SystemProgram, PublicKey } = await getSolana();
+function buildCloseWagerIx(
+    wagerPda: PublicKey,
+    authority: PublicKey,
+    playerA: PublicKey,
+    playerB: PublicKey,
+    platformWallet: PublicKey,
+): TransactionInstruction {
+    // close_wager accounts (draw refund):
+    // close_wager accounts — matches CloseWager struct in lib.rs:
+    //   wager (writable, closes to authorizer), player_a (writable), player_b (writable), authorizer (signer, writable), system_program
+    // No args needed
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -81,15 +98,18 @@ async function buildCloseWagerIx(wagerPda: any, authority: any, playerA: any, pl
     });
 }
 
-// deno-lint-ignore no-explicit-any
-async function sendAndConfirm(connection: any, authority: any, instruction: any): Promise<string> {
-    const { Transaction } = await getSolana();
+async function sendAndConfirm(
+    connection: Connection,
+    authority: Keypair,
+    instruction: TransactionInstruction,
+): Promise<string> {
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     const tx = new Transaction();
     tx.add(instruction);
     tx.recentBlockhash = blockhash;
     tx.feePayer = authority.publicKey;
     tx.sign(authority);
+
     const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
     await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
     return signature;
@@ -140,12 +160,10 @@ async function logError(
     } catch (e) { console.log('Error log failed:', e); }
 }
 
-// ── Main Handler ──────────────────────────────────────────────────────────────
-Deno.serve(async (req) => {
-    // Handle CORS preflight immediately — before any imports or async work
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { status: 200, headers: corsHeaders });
-    }
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+serve(async (req) => {
+    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
     const respond = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -153,45 +171,48 @@ Deno.serve(async (req) => {
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        // Secret name matches what you set in Supabase dashboard
         const authoritySecret = Deno.env.get('AUTHORITY_WALLET_SECRET')!;
         const rpcUrl = Deno.env.get('SOLANA_RPC_URL') || 'https://api.devnet.solana.com';
 
         if (!authoritySecret) throw new Error('AUTHORITY_WALLET_SECRET not configured');
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-        // Solana objects loaded lazily here — only after OPTIONS is already handled
-        const { Connection, PublicKey, LAMPORTS_PER_SOL } = await getSolana();
         const connection = new Connection(rpcUrl, 'confirmed');
-        const authority = await loadAuthorityKeypair(authoritySecret);
+        const authority = loadAuthorityKeypair(authoritySecret);
 
-        console.log(`resolve-wager — authority: ${authority.publicKey.toBase58()}`);
+        console.log(`📥 resolve-wager — authority: ${authority.publicKey.toBase58()}`);
 
         const body = await req.json();
         console.log('Action:', body.action);
 
         switch (body.action) {
 
-            // ── resolve_wager ─────────────────────────────────────────────────────
+            // ── resolve_wager: winner takes 90%, platform takes 10% ──────────────
             case 'resolve_wager': {
                 const { matchId, playerAWallet, playerBWallet, winnerWallet, wagerId, stakeLamports, moderatorWallet } = body;
                 if (!matchId || !playerAWallet || !winnerWallet)
                     throw new Error('Missing: matchId, playerAWallet, winnerWallet');
 
+                const playerAPubkey = new PublicKey(playerAWallet);
                 const winnerPubkey = new PublicKey(winnerWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
+                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
 
-                console.log(`Resolving wager PDA: ${wagerPda.toBase58()} → winner: ${winnerWallet}`);
+                console.log(`🎮 Resolving wager PDA: ${wagerPda.toBase58()} → winner: ${winnerWallet}`);
 
-                const ix = await buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
+                // Build + sign + send on-chain resolve_wager instruction
+                const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
                 let txSig: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
                     console.log(`resolve_wager tx success: ${txSig}`);
-                } catch (onChainErr: unknown) {
-                    const errorMsg = onChainErr instanceof Error ? onChainErr.message : String(onChainErr);
+                } catch (onChainErr: any) {
+                    // Log error with full context for debugging
+                    const errorMsg = onChainErr?.message || String(onChainErr);
                     console.error('On-chain resolve_wager failed:', errorMsg);
+
+                    // Log the failure to transactions table
                     if (wagerId) {
                         await logError(supabase, wagerId, 'on_chain_resolve', errorMsg, {
                             walletAddress: winnerWallet,
@@ -201,6 +222,7 @@ Deno.serve(async (req) => {
                     }
                 }
 
+                // Update DB
                 if (wagerId) {
                     const { data: wager } = await supabase.from('wagers')
                         .select('status,stake_lamports,player_a_wallet,player_b_wallet').eq('id', wagerId).single();
@@ -219,11 +241,12 @@ Deno.serve(async (req) => {
                         }).eq('id', wagerId);
                     }
 
+                    // Update player stats
                     await supabase.rpc('update_winner_stats', { p_wallet: winnerWallet, p_stake: stake, p_earnings: winnerPayout })
-                        .then(({ error }: { error: unknown }) => error && console.log('winner stats:', error));
+                        .then(({ error }) => error && console.log('⚠️ winner stats:', error.message));
                     if (loserWallet) {
                         await supabase.rpc('update_loser_stats', { p_wallet: loserWallet, p_stake: stake })
-                            .then(({ error }: { error: unknown }) => error && console.log('loser stats:', error));
+                            .then(({ error }) => error && console.log('⚠️ loser stats:', error.message));
                     }
 
                     await logTransaction(supabase, wagerId, 'winner_payout', winnerWallet, winnerPayout, txSig);
@@ -246,7 +269,7 @@ Deno.serve(async (req) => {
                 return respond({ success: true, txSignature: txSig });
             }
 
-            // ── refund_draw ───────────────────────────────────────────────────────
+            // ── refund_draw: close_wager returns funds to both players ────────────
             case 'refund_draw': {
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports } = body;
                 if (!matchId || !playerAWallet || !playerBWallet)
@@ -255,18 +278,19 @@ Deno.serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const playerBPubkey = new PublicKey(playerBWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
+                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
 
-                console.log(`Draw refund PDA: ${wagerPda.toBase58()}`);
+                console.log(`🤝 Draw refund PDA: ${wagerPda.toBase58()}`);
 
-                const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                 let txSig: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
                     console.log(`close_wager (draw) tx success: ${txSig}`);
-                } catch (onChainErr: unknown) {
-                    const errorMsg = onChainErr instanceof Error ? onChainErr.message : String(onChainErr);
+                } catch (onChainErr: any) {
+                    const errorMsg = onChainErr?.message || String(onChainErr);
                     console.error('On-chain close_wager (draw) failed:', errorMsg);
+
                     if (wagerId) {
                         await logError(supabase, wagerId, 'on_chain_draw_refund', errorMsg, {
                             walletAddress: playerAWallet,
@@ -295,7 +319,7 @@ Deno.serve(async (req) => {
                 });
             }
 
-            // ── get_balance ───────────────────────────────────────────────────────
+            // ── get_balance: check authority wallet balance ───────────────────────
             case 'get_balance': {
                 const lamports = await connection.getBalance(authority.publicKey);
                 return respond({
@@ -307,7 +331,7 @@ Deno.serve(async (req) => {
                 });
             }
 
-            // ── record_escrow ─────────────────────────────────────────────────────
+            // ── record_escrow: log deposit txs ────────────────────────────────────
             case 'record_escrow': {
                 const { wagerId, playerAWallet, playerBWallet, stakeLamports, txSignature } = body;
                 if (!wagerId || !stakeLamports) throw new Error('Missing wagerId or stakeLamports');
@@ -316,7 +340,7 @@ Deno.serve(async (req) => {
                 return respond({ success: true });
             }
 
-            // ── refund_cancelled ──────────────────────────────────────────────────
+            // ── refund_cancelled: refund both players when wager is cancelled ─────
             case 'refund_cancelled': {
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports, cancelledBy, reason } = body;
                 if (!matchId || !playerAWallet) throw new Error('Missing: matchId, playerAWallet');
@@ -324,22 +348,25 @@ Deno.serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const playerBPubkey = playerBWallet ? new PublicKey(playerBWallet) : null;
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
+                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
 
                 console.log(`Cancelled wager refund PDA: ${wagerPda.toBase58()} | Reason: ${reason}`);
 
+                // Check if PDA has funds (only if on-chain deposits were made)
                 const pdaBalance = await connection.getBalance(wagerPda);
                 let txSig: string | null = null;
 
                 if (pdaBalance > 0 && playerBPubkey) {
+                    // Funds exist on-chain, use close_wager to refund both players
                     console.log(`PDA has ${pdaBalance} lamports - initiating on-chain refund`);
-                    const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                    const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                     try {
                         txSig = await sendAndConfirm(connection, authority, ix);
                         console.log(`close_wager (cancelled) tx success: ${txSig}`);
-                    } catch (onChainErr: unknown) {
-                        const errorMsg = onChainErr instanceof Error ? onChainErr.message : String(onChainErr);
+                    } catch (onChainErr: any) {
+                        const errorMsg = onChainErr?.message || String(onChainErr);
                         console.error('On-chain close_wager (cancelled) failed:', errorMsg);
+
                         if (wagerId) {
                             await logError(supabase, wagerId, 'on_chain_cancel_refund', errorMsg, {
                                 walletAddress: cancelledBy,
@@ -353,6 +380,7 @@ Deno.serve(async (req) => {
                     console.log(`No on-chain funds to refund (PDA balance: ${pdaBalance})`);
                 }
 
+                // Update wager status in DB if not already done
                 if (wagerId) {
                     const { data: wager } = await supabase.from('wagers').select('status').eq('id', wagerId).single();
                     if (wager?.status !== 'cancelled') {
@@ -364,6 +392,7 @@ Deno.serve(async (req) => {
                         }).eq('id', wagerId);
                     }
 
+                    // Log refund transactions
                     const stake = stakeLamports || 0;
                     if (pdaBalance > 0) {
                         await logTransaction(supabase, wagerId, 'cancel_refund', playerAWallet, stake, txSig);
@@ -400,7 +429,7 @@ Deno.serve(async (req) => {
 
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error('resolve-wager error:', msg);
+        console.error('❌ resolve-wager error:', msg);
         return respond({ success: false, error: msg }, 500);
     }
 });

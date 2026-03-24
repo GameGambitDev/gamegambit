@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { GAMES, truncateAddress, formatSol } from '@/lib/constants'
-import { toast } from '@/hooks/use-toast'
+import { toast } from 'sonner'  // ✅ was: import { toast } from '@/hooks/use-toast'
 import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import {
@@ -65,14 +65,14 @@ function ProfilePageInner() {
     const lichessParam = searchParams?.get('lichess')
     const username = searchParams?.get('username')
     if (lichessParam === 'connected' && username) {
-      toast({ title: `Lichess connected as @${username}! ✓` })
+      toast.success(`Lichess connected as @${username}! ✓`)  // ✅ fixed
       window.history.replaceState({}, '', '/profile')
     } else if (lichessParam === 'denied') {
-      toast({ title: 'Lichess connection cancelled', variant: 'destructive' })
+      toast.error('Lichess connection cancelled')  // ✅ fixed
       window.history.replaceState({}, '', '/profile')
     } else if (lichessParam === 'error') {
       const reason = searchParams?.get('reason') || 'unknown'
-      toast({ title: `Lichess connection failed (${reason})`, variant: 'destructive' })
+      toast.error(`Lichess connection failed (${reason})`)  // ✅ fixed
       window.history.replaceState({}, '', '/profile')
     }
   }, [searchParams])
@@ -97,47 +97,47 @@ function ProfilePageInner() {
       navigator.clipboard.writeText(viewingWallet)
       setCopiedAddress(true)
       setTimeout(() => setCopiedAddress(false), 2000)
-      toast({ title: 'Address copied!' })
+      toast.success('Address copied!')  // ✅ fixed
     }
   }
 
   const handleUpdateUsername = async () => {
     if (!platformUsername.trim()) {
-      toast({ title: 'Username cannot be empty', variant: 'destructive' })
+      toast.error('Username cannot be empty')  // ✅ fixed
       return
     }
     if (platformUsername.length < 3 || platformUsername.length > 20) {
-      toast({ title: 'Username must be 3-20 characters', variant: 'destructive' })
+      toast.error('Username must be 3-20 characters')  // ✅ fixed
       return
     }
     if (!/^[a-zA-Z0-9_]+$/.test(platformUsername)) {
-      toast({ title: 'Only letters, numbers, and underscores allowed', variant: 'destructive' })
+      toast.error('Only letters, numbers, and underscores allowed')  // ✅ fixed
       return
     }
     try {
       await updatePlayer.mutateAsync({ username: platformUsername.trim() })
-      toast({ title: 'Username updated!' })
+      toast.success('Username updated!')  // ✅ fixed
       setIsEditingUsername(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update username'
-      toast({ title: message, variant: 'destructive' })
+      toast.error(message)  // ✅ fixed
     }
   }
 
   const handleLinkAccount = async (key: string, username: string) => {
     try {
       await updatePlayer.mutateAsync({ [key]: username })
-      toast({ title: 'Account linked successfully!' })
+      toast.success('Account linked successfully!')  // ✅ fixed
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to link account'
-      toast({ title: message, variant: 'destructive' })
+      toast.error(message)  // ✅ fixed
       throw error
     }
   }
 
   const handleConnectLichess = async () => {
     if (!publicKey) {
-      toast({ title: 'Connect your wallet first', variant: 'destructive' })
+      toast.error('Connect your wallet first')  // ✅ fixed
       return
     }
     setIsConnectingLichess(true)
@@ -145,16 +145,16 @@ function ProfilePageInner() {
       await startLichessOAuth(publicKey.toBase58())
     } catch {
       setIsConnectingLichess(false)
-      toast({ title: 'Failed to start Lichess authentication', variant: 'destructive' })
+      toast.error('Failed to start Lichess authentication')  // ✅ fixed
     }
   }
 
   const handleDisconnectLichess = async () => {
     try {
       await disconnectLichess.mutateAsync()
-      toast({ title: 'Lichess account disconnected' })
+      toast.success('Lichess account disconnected')  // ✅ fixed
     } catch {
-      toast({ title: 'Failed to disconnect', variant: 'destructive' })
+      toast.error('Failed to disconnect')  // ✅ fixed
     }
   }
 

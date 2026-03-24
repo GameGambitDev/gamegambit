@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { GAMES, truncateAddress, formatSol } from '@/lib/constants'
-import { toast } from '@/hooks/use-toast'
+import { toast } from 'sonner'  // ✅ was: import { toast } from '@/hooks/use-toast'
 import { usePlayerByWallet } from '@/hooks/usePlayer'
 import { useLichessUser } from '@/hooks/useLichess'
 import { GameAccountCard } from '@/components/GameAccountCard'
@@ -45,7 +45,7 @@ export default function ProfileByWalletPage({ params }: ProfilePageProps) {
     navigator.clipboard.writeText(walletAddress)
     setCopiedAddress(true)
     setTimeout(() => setCopiedAddress(false), 2000)
-    toast({ title: 'Address copied!' })
+    toast.success('Address copied!')  // ✅ fixed
   }
 
   const totalWins = player?.total_wins ?? 0

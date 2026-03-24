@@ -12,7 +12,7 @@ import { WalletConnectWalletAdapter } from '@solana/wallet-adapter-walletconnect
 import { clusterApiUrl } from '@solana/web3.js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { Toaster } from '@/components/ui/toaster'
+// import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { useAutoCreatePlayer } from '@/hooks/useAutoCreatePlayer'
 import { PWAInstallPrompt, ServiceWorkerUpdater } from '@/components/PWASetup'
@@ -136,7 +136,7 @@ export function Providers({ children }: { children: ReactNode }) {
                       <ServiceWorkerUpdater />
                       <AutoPlayerSetup />
                       {children}
-                      <Toaster />
+                      {/* <Toaster /> */}
                       <Sonner />
                     </TooltipProvider>
                   </GameEventProvider>
