@@ -86,7 +86,7 @@ function OpenWagerCard({
           </div>
         </div>
 
-        {/* Action buttons — always visible on mobile, hover on desktop */}
+        {/* Action buttons */}
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
           {isOwner ? (
             <>
@@ -219,8 +219,13 @@ function ArenaInner() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [deepLinkResultId, setDeepLinkResultId] = useState<string | null>(null)
 
+  // Holds a resolved wager that arrived while the tab was hidden.
+  // Shown the moment the player switches back to the tab.
+  const pendingModalRef = useRef<Wager | null>(null)
+
   const { sendProposal } = useWagerChat(editWager?.id ?? null)
 
+  // ── Deep-link from notification ──────────────────────────────────────────
   useEffect(() => {
     const wagerId = searchParams.get('wager')
     const modal = searchParams.get('modal')
@@ -234,11 +239,13 @@ function ArenaInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
+  // Stable refs so the resolved-wager callback never captures stale IDs
   const readyRoomWagerIdRef = useRef(readyRoomWagerId)
   const liveGameWagerIdRef = useRef(liveGameWagerId)
   useEffect(() => { readyRoomWagerIdRef.current = readyRoomWagerId }, [readyRoomWagerId])
   useEffect(() => { liveGameWagerIdRef.current = liveGameWagerId }, [liveGameWagerId])
 
+  // ── Listen for resolved wagers from GameEventContext ─────────────────────
   useEffect(() => {
     if (!walletAddress) return
     const unsub = onWagerResolved((wager) => {
@@ -247,12 +254,14 @@ function ArenaInner() {
         wager.player_b_wallet === walletAddress
       if (!isParticipant) return
 
+      // Close ready-room / live-game modals if they were for this wager
       if (readyRoomWagerIdRef.current === wager.id) setReadyRoomWagerId(null)
       if (liveGameWagerIdRef.current === wager.id) {
         setLiveGameModalOpen(false)
         setLiveGameWagerId(null)
       }
 
+      // Queue the balance animation regardless of tab visibility
       const won = wager.winner_wallet === walletAddress
       const isDraw = !wager.winner_wallet
       const payout = Math.floor(wager.stake_lamports * 2 * 0.9)
@@ -262,14 +271,37 @@ function ArenaInner() {
         type: isDraw ? 'draw' : won ? 'win' : 'lose',
       })
 
+      clearPendingResult(wager.id)
+
+      // If the tab is hidden, defer the result modal until the user returns
+      // so they get the full confetti + animation experience.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        pendingModalRef.current = wager
+        return
+      }
+
       setGameResultWager(wager)
       setGameResultOpen(true)
-      clearPendingResult(wager.id)
     })
     return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletAddress, onWagerResolved, queueAnimation, clearPendingResult])
 
+  // ── Show deferred result modal when the user returns to the tab ──────────
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && pendingModalRef.current) {
+        const w = pendingModalRef.current
+        pendingModalRef.current = null
+        setGameResultWager(w)
+        setGameResultOpen(true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, []) // refs are stable — no deps needed
+
+  // ── Data queries ─────────────────────────────────────────────────────────
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
 
@@ -292,9 +324,10 @@ function ArenaInner() {
 
   const { data: winnerPlayerA } = usePlayerByWallet(gameResultWager?.player_a_wallet || null)
   const { data: winnerPlayerB } = usePlayerByWallet(gameResultWager?.player_b_wallet || null)
-  const gameResultWinnerUsername = gameResultWager?.winner_wallet === gameResultWager?.player_a_wallet
-    ? winnerPlayerA?.username
-    : winnerPlayerB?.username
+  const gameResultWinnerUsername =
+    gameResultWager?.winner_wallet === gameResultWager?.player_a_wallet
+      ? winnerPlayerA?.username
+      : winnerPlayerB?.username
 
   const wagerWalletAddresses = useMemo(() => {
     const addresses = new Set<string>()
@@ -336,6 +369,7 @@ function ArenaInner() {
     )
   }, [liveWagers, searchQuery, searchedPlayers])
 
+  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleQuickMatch = () => {
     if (needsSetup) { toast.error('Please set up your username first'); return }
     setQuickMatchModalOpen(true)
@@ -418,6 +452,7 @@ function ArenaInner() {
     }
   }
 
+  // ── Derived result state ──────────────────────────────────────────────────
   const gameResultTotalPot = (gameResultWager?.stake_lamports ?? 0) * 2
   const gameResultPlatformFee = Math.floor(gameResultTotalPot * 0.1)
   const gameResultPayout = gameResultTotalPot - gameResultPlatformFee
@@ -426,6 +461,7 @@ function ArenaInner() {
     ? 'draw'
     : gameResultWager?.winner_wallet === walletAddress ? 'win' : 'lose'
 
+  // ── Loading / disconnected states ─────────────────────────────────────────
   if (!walletReady) {
     return (
       <div className="py-8 pb-16">
@@ -459,6 +495,7 @@ function ArenaInner() {
     )
   }
 
+  // ── Main UI ───────────────────────────────────────────────────────────────
   return (
     <div className="py-6 pb-16">
       <div className="container px-3 sm:px-4">
@@ -502,6 +539,7 @@ function ArenaInner() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
           <div className="lg:col-span-2 space-y-6">
+            {/* Live Matches */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
               <div className="flex items-center gap-2 mb-4">
                 <span className="relative flex h-2 w-2">
@@ -532,6 +570,7 @@ function ArenaInner() {
               )}
             </motion.div>
 
+            {/* Open Wagers */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="font-gaming text-lg">Open Wagers</h2>
@@ -562,6 +601,7 @@ function ArenaInner() {
             </motion.div>
           </div>
 
+          {/* Sidebar */}
           <div className="space-y-6">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
               <Card variant="gaming" className="p-4">
@@ -619,8 +659,18 @@ function ArenaInner() {
         </div>
       </div>
 
-      <CreateWagerModal open={createModalOpen} onOpenChange={setCreateModalOpen} onSuccess={() => { setCreateModalOpen(false); queryClient.invalidateQueries({ queryKey: ['wagers'] }) }} />
-      <QuickMatchModal open={quickMatchModalOpen} onOpenChange={setQuickMatchModalOpen} onMatch={handleQuickMatchSubmit} isPending={quickMatch.isPending} />
+      {/* ── Modals ──────────────────────────────────────────────────────────── */}
+      <CreateWagerModal
+        open={createModalOpen}
+        onOpenChange={setCreateModalOpen}
+        onSuccess={() => { setCreateModalOpen(false); queryClient.invalidateQueries({ queryKey: ['wagers'] }) }}
+      />
+      <QuickMatchModal
+        open={quickMatchModalOpen}
+        onOpenChange={setQuickMatchModalOpen}
+        onMatch={handleQuickMatchSubmit}
+        isPending={quickMatch.isPending}
+      />
       <WagerDetailsModal
         wager={selectedWager}
         open={detailsModalOpen}
@@ -659,6 +709,7 @@ function ArenaInner() {
         currentWallet={walletAddress}
       />
 
+      {/* Primary game result (from polling / realtime) */}
       <GameResultModal
         open={gameResultOpen}
         onOpenChange={(open) => {
@@ -678,6 +729,7 @@ function ArenaInner() {
         }}
       />
 
+      {/* Deep-link result: notification tapped while on arena page */}
       <GameResultModal
         open={!!deepLinkResultId && !!deepLinkResultWager}
         onOpenChange={(open) => !open && setDeepLinkResultId(null)}
