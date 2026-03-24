@@ -7,28 +7,22 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
  * Call edge function for admin actions
- * Used for: force resolve, force refund, mark disputed, ban player, flag player, etc.
  */
 export async function callAdminAction(
-    action: 'force_resolve' | 'force_refund' | 'mark_disputed' | 'ban_player' | 'flag_player' | 'unban_player',
+    action: 'force_resolve' | 'force_refund' | 'mark_disputed' | 'ban_player' | 'flag_player' | 'unban_player' | 'banPlayer' | 'unbanPlayer' | 'flagPlayer' | 'unflagPlayer',
     payload: Record<string, any>,
     adminWallet: string
 ) {
     try {
         const response = await fetch('/api/admin/action', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                action,
-                adminWallet,
-                ...payload,
-            }),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ action, adminWallet, ...payload }),
         });
 
         if (!response.ok) {
-            const error = await response.json();
+            const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
             throw new Error(error.error || 'Failed to execute admin action');
         }
 
@@ -39,88 +33,28 @@ export async function callAdminAction(
     }
 }
 
-/**
- * Force resolve a wager
- */
-export async function forceResolveWager(
-    wagerId: string,
-    winnerWallet: string,
-    adminWallet: string,
-    notes?: string
-) {
-    return callAdminAction('force_resolve', {
-        wagerId,
-        winnerWallet,
-        notes,
-    }, adminWallet);
+export async function forceResolveWager(wagerId: string, winnerWallet: string, adminWallet: string, notes?: string) {
+    return callAdminAction('force_resolve', { wagerId, winnerWallet, notes }, adminWallet);
 }
 
-/**
- * Force refund a wager
- */
-export async function forceRefundWager(
-    wagerId: string,
-    adminWallet: string,
-    notes?: string
-) {
-    return callAdminAction('force_refund', {
-        wagerId,
-        notes,
-    }, adminWallet);
+export async function forceRefundWager(wagerId: string, adminWallet: string, notes?: string) {
+    return callAdminAction('force_refund', { wagerId, notes }, adminWallet);
 }
 
-/**
- * Mark wager as disputed
- */
-export async function markWagerDisputed(
-    wagerId: string,
-    adminWallet: string,
-    reason?: string
-) {
-    return callAdminAction('mark_disputed', {
-        wagerId,
-        reason,
-    }, adminWallet);
+export async function markWagerDisputed(wagerId: string, adminWallet: string, reason?: string) {
+    return callAdminAction('mark_disputed', { wagerId, reason }, adminWallet);
 }
 
-/**
- * Ban a player
- */
-export async function banPlayer(
-    playerWallet: string,
-    adminWallet: string,
-    reason: string
-) {
-    return callAdminAction('ban_player', {
-        playerWallet,
-        reason,
-    }, adminWallet);
+export async function banPlayer(playerWallet: string, adminWallet: string, reason: string) {
+    return callAdminAction('ban_player', { playerWallet, reason }, adminWallet);
 }
 
-/**
- * Flag a player for review
- */
-export async function flagPlayer(
-    playerWallet: string,
-    adminWallet: string,
-    reason: string
-) {
-    return callAdminAction('flag_player', {
-        playerWallet,
-        reason,
-    }, adminWallet);
+export async function flagPlayer(playerWallet: string, adminWallet: string, reason: string) {
+    return callAdminAction('flag_player', { playerWallet, reason }, adminWallet);
 }
 
-/**
- * Unban a player
- */
-export async function unbanPlayer(
-    playerWallet: string,
-    adminWallet: string
-) {
-    return callAdminAction('unban_player', {
-        playerWallet,
-    }, adminWallet);
+export async function unbanPlayer(playerWallet: string, adminWallet: string) {
+    return callAdminAction('unban_player', { playerWallet }, adminWallet);
 }
 
 /**
@@ -145,26 +79,19 @@ export async function getWagerDetails(wagerId: string) {
 /**
  * Get all wagers
  */
-export async function getAllWagers(
-    status?: string,
-    limit = 50,
-    offset = 0
-) {
+export async function getAllWagers(status?: string, limit = 50, offset = 0) {
     try {
         let query = supabase
             .from('wagers')
-            .select('*, players:wager_players(*)', { count: 'exact' });
+            .select('*', { count: 'exact' });
 
-        if (status) {
-            query = query.eq('status', status);
-        }
+        if (status) query = query.eq('status', status);
 
         const { data, error, count } = await query
             .range(offset, offset + limit - 1)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
-
         return { data, total: count || 0 };
     } catch (error) {
         console.error('[Admin Queries] Error fetching wagers:', error);
@@ -173,22 +100,35 @@ export async function getAllWagers(
 }
 
 /**
- * Get all users
+ * Get all users — queries the `players` table which is your actual user store.
+ * Only selects columns that are confirmed to exist on the table.
+ * Stats columns (total_wins etc.) are fetched separately if needed.
  */
-export async function getAllUsers(
-    limit = 50,
-    offset = 0
-) {
+export async function getAllUsers(limit = 50, offset = 0) {
     try {
         const { data, error, count } = await supabase
-            .from('user_profiles')
-            .select('*', { count: 'exact' })
+            .from('players')
+            .select(
+                'wallet_address, username, is_banned, is_flagged, created_at',
+                { count: 'exact' }
+            )
             .range(offset, offset + limit - 1)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
 
-        return { data, total: count || 0 };
+        // Normalize shape to match AdminUser interface
+        const normalized = (data || []).map((row: any) => ({
+            id: row.wallet_address,           // players table uses wallet as PK
+            wallet_address: row.wallet_address,
+            username: row.username || '',
+            is_banned: row.is_banned ?? false,
+            is_flagged: row.is_flagged ?? false,
+            created_at: row.created_at,
+            updated_at: row.updated_at || row.created_at,
+        }));
+
+        return { data: normalized, total: count || 0 };
     } catch (error) {
         console.error('[Admin Queries] Error fetching users:', error);
         throw error;
@@ -201,8 +141,8 @@ export async function getAllUsers(
 export async function getUserDetails(walletAddress: string) {
     try {
         const { data, error } = await supabase
-            .from('user_profiles')
-            .select('*')
+            .from('players')
+            .select('wallet_address, username, is_banned, is_flagged, created_at')
             .eq('wallet_address', walletAddress)
             .single();
 
@@ -217,20 +157,16 @@ export async function getUserDetails(walletAddress: string) {
 /**
  * Get all disputed wagers
  */
-export async function getAllDisputedWagers(
-    limit = 50,
-    offset = 0
-) {
+export async function getAllDisputedWagers(limit = 50, offset = 0) {
     try {
         const { data, error, count } = await supabase
             .from('wagers')
-            .select('*')
+            .select('*', { count: 'exact' })
             .eq('status', 'disputed')
             .range(offset, offset + limit - 1)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
-
         return { data, total: count || 0 };
     } catch (error) {
         console.error('[Admin Queries] Error fetching disputed wagers:', error);
@@ -241,9 +177,7 @@ export async function getAllDisputedWagers(
 /**
  * Get admin audit logs
  */
-export async function getAdminLogs(
-    limit = 100
-) {
+export async function getAdminLogs(limit = 100) {
     try {
         const { data, error } = await supabase
             .from('admin_logs')
