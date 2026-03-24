@@ -1,16 +1,19 @@
+"use client";
 import { useState, useCallback, useEffect } from 'react';
 import { getAllWagers, getAllDisputedWagers, getWagerDetails } from '@/integrations/supabase/admin/actions';
 
 export interface AdminWager {
     id: string;
-    player1_wallet: string;
-    player2_wallet: string;
-    stake: number;
-    game_type: string;
+    match_id: number;
+    player_a_wallet: string;
+    player_b_wallet: string | null;
+    stake_lamports: number;
+    game: string;
     status: string;
     created_at: string;
     updated_at: string;
-    winner?: string;
+    winner_wallet: string | null;
+    resolved_at: string | null;
     transaction_hash?: string;
 }
 
