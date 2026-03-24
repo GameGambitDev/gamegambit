@@ -8,8 +8,6 @@ import {
 } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
-import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
 import { WalletConnectWalletAdapter } from '@solana/wallet-adapter-walletconnect'
 import { clusterApiUrl } from '@solana/web3.js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -25,16 +23,12 @@ import { BalanceAnimationProvider } from '@/contexts/BalanceAnimationContext'
 import '@solana/wallet-adapter-react-ui/styles.css'
 
 // ─── Resolve network from env ─────────────────────────────────────────────────
-// Set NEXT_PUBLIC_SOLANA_NETWORK=mainnet-beta in production .env.
-// Falls back to devnet so local development works with no extra config.
 const rawNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK
 const SOLANA_NETWORK: WalletAdapterNetwork =
   rawNetwork === 'mainnet-beta'
     ? WalletAdapterNetwork.Mainnet
     : WalletAdapterNetwork.Devnet
 
-// WalletConnectWalletAdapter only accepts Mainnet | Devnet (not Testnet).
-// Testnet is mapped to Devnet as the closest supported option.
 const WALLETCONNECT_NETWORK: WalletAdapterNetwork.Mainnet | WalletAdapterNetwork.Devnet =
   SOLANA_NETWORK === WalletAdapterNetwork.Mainnet
     ? WalletAdapterNetwork.Mainnet
@@ -95,17 +89,14 @@ export function Providers({ children }: { children: ReactNode }) {
   const wallets = useMemo(() => {
     const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 
-    // WalletConnect first — takes priority on mobile Chrome so the
-    // Chrome ↔ Phantom back-and-forth flow works without opening dApp browser.
-    // SolanaMobileWalletAdapter removed — it was hijacking mobile connections
-    // and forcing Phantom's built-in browser to open.
-    const list: any[] = [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-    ]
+    // Phantom and Solflare are intentionally NOT listed here —
+    // both wallets self-register via the Wallet Standard and will
+    // appear automatically in the modal. Explicitly adding their
+    // adapters causes duplicate registrations and a React render error.
+    const list: any[] = []
 
     if (projectId) {
-      list.unshift(
+      list.push(
         new WalletConnectWalletAdapter({
           network: WALLETCONNECT_NETWORK,
           options: {
@@ -131,8 +122,6 @@ export function Providers({ children }: { children: ReactNode }) {
           wallets={wallets}
           autoConnect
           onError={(error) => {
-            // Silence WalletNotReadyError on mobile Chrome — expected when
-            // wallet extension is not injected in external browsers
             if (error.name === 'WalletNotReadyError') return
             console.error('[WalletProvider]', error)
           }}
