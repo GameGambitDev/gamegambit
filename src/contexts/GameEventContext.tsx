@@ -8,6 +8,7 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getSupabaseClient } from '@/integrations/supabase/client'
 import type { Wager } from '@/hooks/useWagers'
+import { useCheckGameComplete } from '@/hooks/useWagers'  // ← ADDED
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,13 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
     const walletAddress = publicKey?.toBase58()
     const queryClient = useQueryClient()
     const listenersRef = useRef<Set<(wager: Wager) => void>>(new Set())
+
+    // ── ADDED: stable ref so the polling effect never needlessly restarts ─────
+    const checkGameComplete = useCheckGameComplete()
+    const checkRef = useRef(checkGameComplete)
+    useEffect(() => { checkRef.current = checkGameComplete }, [checkGameComplete])
+    const inFlightRef = useRef<Set<string>>(new Set())
+    // ─────────────────────────────────────────────────────────────────────────
 
     const [pendingResults, setPendingResults] = useState<PendingResult[]>(() => {
         if (typeof window === 'undefined') return []
@@ -70,6 +78,52 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
     const clearPendingResult = useCallback((wagerId: string) => {
         setPendingResults(prev => prev.filter(r => r.wager.id !== wagerId))
     }, [])
+
+    // ── ADDED: App-wide background polling ────────────────────────────────────
+    // Previously this only ran inside ArenaPage (broke when you navigated away).
+    // Now it lives here so it works on every page as long as wallet is connected.
+    useEffect(() => {
+        if (!walletAddress) return
+        const supabase = getSupabaseClient()
+
+        const poll = async () => {
+            const { data, error } = await supabase
+                .from('wagers')
+                .select('id')
+                .or(`player_a_wallet.eq.${walletAddress},player_b_wallet.eq.${walletAddress}`)
+                .eq('game', 'chess')
+                .in('status', ['voting', 'joined'])
+                .not('lichess_game_id', 'is', null)
+
+            if (error || !data || data.length === 0) return
+
+            data.forEach(({ id: wagerId }: { id: string }) => {
+                if (inFlightRef.current.has(wagerId)) return
+                inFlightRef.current.add(wagerId)
+
+                checkRef.current.mutate({ wagerId }, {
+                    onSuccess: (result: any) => {
+                        if (result?.gameComplete && result?.wager?.status === 'resolved') {
+                            fireResolved(result.wager)
+                        }
+                        queryClient.invalidateQueries({ queryKey: ['wagers'] })
+                    },
+                    onSettled: () => {
+                        inFlightRef.current.delete(wagerId)
+                    },
+                })
+            })
+        }
+
+        const timeout = setTimeout(poll, 3_000)      // first check 3 s after wallet connects
+        const interval = setInterval(poll, 10_000)   // then every 10 s
+
+        return () => {
+            clearTimeout(timeout)
+            clearInterval(interval)
+        }
+    }, [walletAddress, fireResolved, queryClient])
+    // ─────────────────────────────────────────────────────────────────────────
 
     useEffect(() => {
         if (!walletAddress) return
