@@ -6,6 +6,88 @@ import type { Tables } from '@/integrations/supabase/types';
 
 export type Player = Tables<'players'>;
 
+// ── Column lists ──────────────────────────────────────────────────────────────
+// Centralise select strings so adding a column is a one-line change.
+
+// Full own-profile row — everything the profile page, settings page, and
+// GameUsernameBindModal need.
+const OWN_PROFILE_COLS = [
+  'wallet_address',
+  'username',
+  'avatar_url',
+  'bio',
+  'total_wins',
+  'total_losses',
+  'total_earnings',
+  'total_wagered',
+  'current_streak',
+  'best_streak',
+  'created_at',
+  'updated_at',
+  // game accounts
+  'lichess_username',
+  'lichess_user_id',
+  'codm_username',
+  'codm_player_id',
+  'pubg_username',
+  'pubg_player_id',
+  'free_fire_username',
+  'free_fire_uid',
+  'game_username_bound_at',
+  // punishment
+  'is_banned',
+  'ban_reason',
+  'is_suspended',
+  'suspension_ends_at',
+  'false_vote_count',
+  // settings
+  'push_notifications_enabled',
+  'moderation_requests_enabled',
+].join(', ');
+
+// Public profile view — no sensitive or private-settings fields
+const PUBLIC_PROFILE_COLS = [
+  'wallet_address',
+  'username',
+  'avatar_url',
+  'bio',
+  'total_wins',
+  'total_losses',
+  'total_earnings',
+  'current_streak',
+  'best_streak',
+  'created_at',
+  'updated_at',
+  // game accounts — shown on public profiles
+  'codm_username',
+  'pubg_username',
+  'free_fire_username',
+].join(', ');
+
+// Leaderboard row — rank display only
+const LEADERBOARD_COLS = [
+  'wallet_address',
+  'username',
+  'avatar_url',
+  'total_wins',
+  'total_losses',
+  'total_earnings',
+  'current_streak',
+  'best_streak',
+].join(', ');
+
+// Wager-card player chips — avatar, name, basic stats
+const WAGER_CARD_COLS = [
+  'wallet_address',
+  'username',
+  'avatar_url',
+  'total_wins',
+  'total_losses',
+  'current_streak',
+].join(', ');
+
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+
 export function usePlayer() {
   const { publicKey } = useWallet();
   const walletAddress = publicKey?.toBase58();
@@ -17,19 +99,17 @@ export function usePlayer() {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        // Own profile: full row needed for edit form and stats display
-        .select('wallet_address, username, avatar_url, bio, total_wins, total_losses, total_earnings, current_streak, best_streak, created_at, updated_at')
+        .select(OWN_PROFILE_COLS)
         .eq('wallet_address', walletAddress)
         .maybeSingle();
 
       if (error) throw error;
-      return data as Player | null;
+      return data as unknown as Player | null;
     },
     enabled: !!walletAddress,
   });
 }
 
-// Secure player creation via edge function with wallet verification
 export function useCreatePlayer() {
   const queryClient = useQueryClient();
   const { publicKey } = useWallet();
@@ -59,7 +139,6 @@ export function useCreatePlayer() {
   });
 }
 
-// Secure player update via edge function with wallet verification
 export function useUpdatePlayer() {
   const queryClient = useQueryClient();
   const { publicKey } = useWallet();
@@ -93,18 +172,18 @@ export function useLeaderboard(sortBy: 'earnings' | 'wins' | 'streak' = 'earning
   return useQuery({
     queryKey: ['leaderboard', sortBy],
     queryFn: async () => {
-      const orderColumn = sortBy === 'earnings' ? 'total_earnings' :
-        sortBy === 'wins' ? 'total_wins' : 'current_streak';
+      const orderColumn =
+        sortBy === 'earnings' ? 'total_earnings' :
+          sortBy === 'wins' ? 'total_wins' : 'current_streak';
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        // Leaderboard rows: rank display fields only
-        .select('wallet_address, username, avatar_url, total_wins, total_losses, total_earnings, current_streak, best_streak')
+        .select(LEADERBOARD_COLS)
         .order(orderColumn, { ascending: false })
         .limit(50);
 
       if (error) throw error;
-      return data as Player[];
+      return data as unknown as Player[];
     },
   });
 }
@@ -117,13 +196,12 @@ export function useSearchPlayers(searchQuery: string) {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        // Search results: avatar + name + wallet for the result row
         .select('wallet_address, username, avatar_url, total_wins, total_losses')
         .or(`username.ilike.%${searchQuery}%,wallet_address.ilike.%${searchQuery}%`)
         .limit(20);
 
       if (error) throw error;
-      return data as Player[];
+      return data as unknown as Player[];
     },
     enabled: searchQuery.length >= 2,
   });
@@ -137,21 +215,18 @@ export function usePlayerByWallet(walletAddress: string | null) {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        // Public profile view: full display set
-        .select('wallet_address, username, avatar_url, bio, total_wins, total_losses, total_earnings, current_streak, best_streak, created_at, updated_at')
+        .select(PUBLIC_PROFILE_COLS)
         .eq('wallet_address', walletAddress)
         .maybeSingle();
 
       if (error) throw error;
-      return data as Player | null;
+      return data as unknown as Player | null;
     },
     enabled: !!walletAddress,
   });
 }
 
 export function usePlayersByWallets(walletAddresses: string[]) {
-  // Sort-join produces a stable string key — avoids a new cache entry (and a
-  // fresh fetch) on every render when the array is created inline by the caller.
   const stableKey = [...walletAddresses].sort().join(',');
 
   return useQuery({
@@ -161,12 +236,11 @@ export function usePlayersByWallets(walletAddresses: string[]) {
 
       const { data, error } = await getSupabaseClient()
         .from('players')
-        // Player card in wager rows: avatar, name, basic stats
-        .select('wallet_address, username, avatar_url, total_wins, total_losses, current_streak')
+        .select(WAGER_CARD_COLS)
         .in('wallet_address', walletAddresses);
 
       if (error) throw error;
-      return data as Player[];
+      return data as unknown as Player[];
     },
     enabled: walletAddresses.length > 0,
   });
