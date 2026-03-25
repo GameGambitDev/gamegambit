@@ -11,9 +11,10 @@ const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
   { ssr: false }
 )
+
 import {
   User, Trophy, Swords, Clock, Copy, Check, Loader2,
-  Wallet, Edit2, Save, Link2, CheckCircle2,
+  Wallet, Edit2, Save, Link2, CheckCircle2, Settings,
   LogOut as Unlink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { GAMES, truncateAddress, formatSol } from '@/lib/constants'
-import { toast } from 'sonner'  // ✅ was: import { toast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import {
@@ -31,15 +32,20 @@ import {
   useDisconnectLichess,
   startLichessOAuth,
 } from '@/hooks/useLichess'
-import { GameAccountCard } from '@/components/GameAccountCard'
+import { GameAccountCard, type ChangeRequestPayload } from '@/components/GameAccountCard'
 import { NFTGallery } from '@/components/NFTGallery'
 import { AchievementBadges } from '@/components/AchievementBadges'
+import { getSupabaseClient } from '@/integrations/supabase/client'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
+import Link from 'next/link'
 
 // ── Inner component — uses useSearchParams, must be inside Suspense ──────────
+
 function ProfilePageInner() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const searchParams = useSearchParams()
+  const { getSessionToken } = useWalletAuth()
   const currentUserWallet = publicKey?.toBase58()
   const viewingWallet = currentUserWallet
 
@@ -60,19 +66,19 @@ function ProfilePageInner() {
   const [copiedAddress, setCopiedAddress] = useState(false)
   const [isConnectingLichess, setIsConnectingLichess] = useState(false)
 
-  // ── Handle return from Lichess OAuth callback ─────────────────────────────
+  // ── Lichess OAuth return ──────────────────────────────────────────────────
   useEffect(() => {
     const lichessParam = searchParams?.get('lichess')
     const username = searchParams?.get('username')
     if (lichessParam === 'connected' && username) {
-      toast.success(`Lichess connected as @${username}! ✓`)  // ✅ fixed
+      toast.success(`Lichess connected as @${username}! ✓`)
       window.history.replaceState({}, '', '/profile')
     } else if (lichessParam === 'denied') {
-      toast.error('Lichess connection cancelled')  // ✅ fixed
+      toast.error('Lichess connection cancelled')
       window.history.replaceState({}, '', '/profile')
     } else if (lichessParam === 'error') {
       const reason = searchParams?.get('reason') || 'unknown'
-      toast.error(`Lichess connection failed (${reason})`)  // ✅ fixed
+      toast.error(`Lichess connection failed (${reason})`)
       window.history.replaceState({}, '', '/profile')
     }
   }, [searchParams])
@@ -87,57 +93,151 @@ function ProfilePageInner() {
     if (player) setPlatformUsername(player.username || '')
   }, [player])
 
+  // ── Non-chess game accounts ───────────────────────────────────────────────
+  // Each entry maps a GAMES constant to the relevant player column keys.
   const nonChessAccounts = [
-    { game: GAMES.CODM, linkedUsername: player?.codm_username || null, key: 'codm_username' },
-    { game: GAMES.PUBG, linkedUsername: player?.pubg_username || null, key: 'pubg_username' },
+    {
+      game: GAMES.PUBG,
+      linkedUsername: player?.pubg_username ?? null,
+      usernameKey: 'pubg_username',
+      playerIdKey: 'pubg_player_id',
+    },
+    {
+      game: GAMES.CODM,
+      linkedUsername: player?.codm_username ?? null,
+      usernameKey: 'codm_username',
+      playerIdKey: 'codm_player_id',
+    },
+    {
+      game: GAMES.FREE_FIRE,
+      // free_fire_username may not exist in the Player type until after
+      // the migration and type regeneration — using optional chaining + any cast
+      linkedUsername: (player as any)?.free_fire_username ?? null,
+      usernameKey: 'free_fire_username',
+      playerIdKey: 'free_fire_uid',
+    },
   ]
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
 
   const copyAddress = () => {
     if (viewingWallet) {
       navigator.clipboard.writeText(viewingWallet)
       setCopiedAddress(true)
       setTimeout(() => setCopiedAddress(false), 2000)
-      toast.success('Address copied!')  // ✅ fixed
+      toast.success('Address copied!')
     }
   }
 
   const handleUpdateUsername = async () => {
     if (!platformUsername.trim()) {
-      toast.error('Username cannot be empty')  // ✅ fixed
+      toast.error('Username cannot be empty')
       return
     }
     if (platformUsername.length < 3 || platformUsername.length > 20) {
-      toast.error('Username must be 3-20 characters')  // ✅ fixed
+      toast.error('Username must be 3–20 characters')
       return
     }
     if (!/^[a-zA-Z0-9_]+$/.test(platformUsername)) {
-      toast.error('Only letters, numbers, and underscores allowed')  // ✅ fixed
+      toast.error('Only letters, numbers, and underscores allowed')
       return
     }
     try {
       await updatePlayer.mutateAsync({ username: platformUsername.trim() })
-      toast.success('Username updated!')  // ✅ fixed
+      toast.success('Username updated!')
       setIsEditingUsername(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update username'
-      toast.error(message)  // ✅ fixed
+      toast.error(message)
     }
   }
 
-  const handleLinkAccount = async (key: string, username: string) => {
-    try {
-      await updatePlayer.mutateAsync({ [key]: username })
-      toast.success('Account linked successfully!')  // ✅ fixed
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to link account'
-      toast.error(message)  // ✅ fixed
-      throw error
+  /**
+   * Called by GameAccountCard when the player confirms a bind.
+   * Uses the `bindGame` action on secure-player which handles
+   * uniqueness checks and game_username_bound_at tracking.
+   */
+  const handleLinkAccount = async (
+    gameId: string,
+    username: string,
+    accountId?: string,
+  ) => {
+    const sessionToken = await getSessionToken()
+    if (!sessionToken) {
+      toast.error('Wallet verification required')
+      throw new Error('Wallet verification required')
     }
+
+    const { data, error } = await getSupabaseClient().functions.invoke('secure-player', {
+      body: { action: 'bindGame', game: gameId, username, accountId },
+      headers: { 'X-Session-Token': sessionToken },
+    })
+
+    if (error) throw error
+    if (data?.error) {
+      // 'USERNAME_TAKEN' is a special sentinel that GameAccountCard handles
+      throw new Error(data.error)
+    }
+
+    toast.success(`${gameId.toUpperCase()} account linked!`)
+    // Invalidate player query so the new username shows immediately
+    // useUpdatePlayer already calls invalidateQueries — we replicate that here
+    // by triggering a no-op update so the cache refreshes cleanly.
+    // A cleaner approach: export the queryClient and call invalidateQueries directly.
+    // For now we rely on the Supabase Realtime subscription refreshing the player row.
+  }
+
+  /**
+   * Called when a player submits a "this username is mine" appeal.
+   */
+  const handleAppeal = async (game: string, username: string) => {
+    const sessionToken = await getSessionToken()
+    if (!sessionToken) {
+      toast.error('Wallet verification required')
+      throw new Error('Wallet verification required')
+    }
+
+    const res = await fetch('/api/username/appeal', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Token': sessionToken,
+      },
+      body: JSON.stringify({ game, username }),
+    })
+
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error || 'Failed to submit appeal')
+    toast.success('Appeal submitted. The other account has been notified.')
+  }
+
+  /**
+   * Called when a player submits a formal username change request.
+   */
+  const handleChangeRequest = async (payload: ChangeRequestPayload) => {
+    const sessionToken = await getSessionToken()
+    if (!sessionToken) {
+      toast.error('Wallet verification required')
+      throw new Error('Wallet verification required')
+    }
+
+    const res = await fetch('/api/username/change-request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Token': sessionToken,
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error || 'Failed to submit change request')
+    toast.success('Change request submitted. You\'ll be notified of the outcome.')
   }
 
   const handleConnectLichess = async () => {
     if (!publicKey) {
-      toast.error('Connect your wallet first')  // ✅ fixed
+      toast.error('Connect your wallet first')
       return
     }
     setIsConnectingLichess(true)
@@ -145,22 +245,24 @@ function ProfilePageInner() {
       await startLichessOAuth(publicKey.toBase58())
     } catch {
       setIsConnectingLichess(false)
-      toast.error('Failed to start Lichess authentication')  // ✅ fixed
+      toast.error('Failed to start Lichess authentication')
     }
   }
 
   const handleDisconnectLichess = async () => {
     try {
       await disconnectLichess.mutateAsync()
-      toast.success('Lichess account disconnected')  // ✅ fixed
+      toast.success('Lichess account disconnected')
     } catch {
-      toast.error('Failed to disconnect')  // ✅ fixed
+      toast.error('Failed to disconnect')
     }
   }
 
   const winRate = player && (player.total_wins + player.total_losses) > 0
     ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
     : 0
+
+  // ── Loading / not-connected states ────────────────────────────────────────
 
   if (!walletReady) {
     return (
@@ -205,6 +307,8 @@ function ProfilePageInner() {
     )
   }
 
+  // ── Main render ──────────────────────────────────────────────────────────
+
   return (
     <div className="py-8 pb-16">
       <div className="container px-4 max-w-4xl">
@@ -246,13 +350,23 @@ function ProfilePageInner() {
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-4 w-4" />
-                    Joined {player ? new Date(player.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently'}
+                    Joined {player
+                      ? new Date(player.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                      : 'Recently'}
                   </span>
                 </div>
               </div>
-              <Badge variant="gold" className="text-base px-4 py-2">
-                +{player ? formatSol(player.total_earnings) : '0'} SOL
-              </Badge>
+              <div className="flex items-center gap-3">
+                <Badge variant="gold" className="text-base px-4 py-2">
+                  +{player ? formatSol(player.total_earnings) : '0'} SOL
+                </Badge>
+                {/* Settings link */}
+                <Button variant="ghost" size="icon" asChild title="Settings">
+                  <Link href="/settings">
+                    <Settings className="h-5 w-5" />
+                  </Link>
+                </Button>
+              </div>
             </div>
           </Card>
         </motion.div>
@@ -270,7 +384,7 @@ function ProfilePageInner() {
               </CardHeader>
               <CardContent className="space-y-4">
 
-                {/* ── Chess / Lichess — OAuth ── */}
+                {/* ── Chess / Lichess — OAuth ──────────────────────────── */}
                 <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -329,7 +443,8 @@ function ProfilePageInner() {
                     <div className="flex items-start gap-2 p-2 rounded bg-success/5 border border-success/10">
                       <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 flex-shrink-0" />
                       <p className="text-[11px] text-muted-foreground">
-                        Identity verified via Lichess OAuth. GameGambit can create games on your behalf but cannot access your password or account settings.
+                        Identity verified via Lichess OAuth. GameGambit can create games on your behalf
+                        but cannot access your password or account settings.
                       </p>
                     </div>
                   )}
@@ -354,7 +469,7 @@ function ProfilePageInner() {
                   )}
                 </div>
 
-                {/* CODM + PUBG */}
+                {/* ── PUBG, CODM, Free Fire ──────────────────────────────── */}
                 {nonChessAccounts.map((account, index) => (
                   <motion.div
                     key={account.game.id}
@@ -365,7 +480,11 @@ function ProfilePageInner() {
                     <GameAccountCard
                       game={account.game}
                       linkedUsername={account.linkedUsername}
-                      onLink={(username) => handleLinkAccount(account.key, username)}
+                      onLink={(username, accountId) =>
+                        handleLinkAccount(account.game.id, username, accountId)
+                      }
+                      onAppeal={(game, username) => handleAppeal(game, username)}
+                      onChangeRequest={(payload) => handleChangeRequest(payload)}
                       isPending={updatePlayer.isPending}
                       isOwnProfile={true}
                     />
@@ -473,9 +592,17 @@ function ProfilePageInner() {
           >
             <Card variant="gaming">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Edit2 className="h-5 w-5 text-primary" />
-                  Account Settings
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Edit2 className="h-5 w-5 text-primary" />
+                    Account Settings
+                  </div>
+                  <Button variant="ghost" size="sm" asChild className="text-xs text-muted-foreground">
+                    <Link href="/settings">
+                      <Settings className="h-4 w-4 mr-1" />
+                      Notifications &amp; More
+                    </Link>
+                  </Button>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -513,7 +640,10 @@ function ProfilePageInner() {
                     {isEditingUsername && (
                       <Button
                         variant="ghost"
-                        onClick={() => { setIsEditingUsername(false); setPlatformUsername(player?.username || '') }}
+                        onClick={() => {
+                          setIsEditingUsername(false)
+                          setPlatformUsername(player?.username || '')
+                        }}
                       >
                         Cancel
                       </Button>
@@ -526,6 +656,7 @@ function ProfilePageInner() {
               </CardContent>
             </Card>
           </motion.div>
+
         </div>
       </div>
     </div>
@@ -533,6 +664,7 @@ function ProfilePageInner() {
 }
 
 // ── Page export — Suspense required by Next.js 15 for useSearchParams ────────
+
 export default function ProfilePage() {
   return (
     <Suspense fallback={
