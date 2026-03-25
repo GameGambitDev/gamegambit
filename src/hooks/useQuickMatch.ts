@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
+import { invokeSecureWager, Wager, GameType } from './useWagers';
 import { toast } from 'sonner';
 
 export function useQuickMatch() {
@@ -10,11 +10,9 @@ export function useQuickMatch() {
   const { getSessionToken } = useWalletAuth();
 
   return useMutation({
-    mutationFn: async (game?: 'chess' | 'codm' | 'pubg' | undefined) => {
-      const supabase = getSupabaseClient();
+    mutationFn: async (game?: GameType): Promise<Wager> => {
       if (!publicKey) throw new Error('Wallet not connected');
 
-      // Get verified session token
       const sessionToken = await getSessionToken();
       if (!sessionToken) {
         throw new Error('Wallet verification required. Please sign the message to continue.');
@@ -22,45 +20,51 @@ export function useQuickMatch() {
 
       const walletAddress = publicKey.toBase58();
 
-      // Find a random open wager that the user can join (not their own)
+      // Read-only query to find eligible open wagers — safe to do directly
+      // via the anon Supabase client (no write, no auth bypass).
+      const { getSupabaseClient } = await import('@/integrations/supabase/client');
+      const supabase = getSupabaseClient();
+
       const { data: openWagers, error: fetchError } = await supabase
         .from('wagers')
-        .select('*')
+        .select('id, game, stake_lamports, player_a_wallet, player_b_wallet, status')
         .eq('status', 'created')
         .neq('player_a_wallet', walletAddress)
         .is('player_b_wallet', null);
 
       if (fetchError) throw fetchError;
 
-      // Filter by game type if specified
       let eligibleWagers = openWagers || [];
       if (game) {
         eligibleWagers = eligibleWagers.filter(w => w.game === game);
       }
 
       if (eligibleWagers.length === 0) {
-        throw new Error('No open wagers available. Create one to get started!');
+        throw new Error(
+          game
+            ? `No open ${game.toUpperCase()} wagers right now. Try a different game or create one!`
+            : 'No open wagers right now. Be the first to create one!'
+        );
       }
 
-      // Pick a random wager
-      const randomIndex = Math.floor(Math.random() * eligibleWagers.length);
-      const selectedWager = eligibleWagers[randomIndex];
+      // Join via secure-wager using the same invokeSecureWager helper that
+      // every other mutation in useWagers.ts uses — ensures X-Session-Token
+      // is set correctly on Vercel (the old supabase.functions.invoke call
+      // used Authorization: Bearer which the edge function rejected).
+      const selectedWager = eligibleWagers[Math.floor(Math.random() * eligibleWagers.length)];
 
-      // Join the wager via secure edge function
-      const { data, error: joinError } = await supabase.functions.invoke('secure-wager', {
-        body: { action: 'join', wagerId: selectedWager.id },
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      });
+      const result = await invokeSecureWager<{ wager: Wager }>(
+        { action: 'join', wagerId: selectedWager.id },
+        sessionToken,
+      );
 
-      if (joinError) throw joinError;
-      if (data?.error) throw new Error(data.error);
-
-      return data.wager;
+      return result.wager;
     },
-    onSuccess: (data) => {
+    onSuccess: (wager) => {
       queryClient.invalidateQueries({ queryKey: ['wagers'] });
-      queryClient.invalidateQueries({ queryKey: ['myWagers'] });
-      toast.success(`Matched! You joined a ${data.game} wager for ${(data.stake_lamports / 1_000_000_000).toFixed(4)} SOL`);
+      toast.success(
+        `Matched! Joined a ${wager.game.toUpperCase()} wager for ${(wager.stake_lamports / 1_000_000_000).toFixed(4)} SOL`
+      );
     },
     onError: (error: Error) => {
       toast.error(error.message);

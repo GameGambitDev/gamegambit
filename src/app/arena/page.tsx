@@ -1,7 +1,7 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletReady } from '@/app/providers'
@@ -12,14 +12,24 @@ const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
   { ssr: false }
 )
-import { Search, Zap, Filter, Plus, Swords, Clock, Trophy, Loader2, Wallet, Eye, Pencil, Trash2, Play } from 'lucide-react'
+
+import {
+  Search, Zap, Filter, Plus, Swords, Clock, Trophy,
+  Loader2, Wallet, Eye, Pencil, Trash2, Play, X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
-import { useOpenWagers, useLiveWagers, useRecentWinners, useJoinWager, useEditWager, useDeleteWager, useSetReady, useWagerById, Wager, GameType } from '@/hooks/useWagers'
-import { usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets } from '@/hooks/usePlayer'
+import {
+  useOpenWagers, useLiveWagers, useRecentWinners,
+  useJoinWager, useEditWager, useDeleteWager, useSetReady,
+  useWagerById, invokeSecureWager, Wager, GameType,
+} from '@/hooks/useWagers'
+import {
+  usePlayer, useSearchPlayers, usePlayerByWallet, usePlayersByWallets,
+} from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import { useQuickMatch } from '@/hooks/useQuickMatch'
 import { useIsProfileComplete } from '@/components/UsernameEnforcer'
@@ -35,7 +45,10 @@ import { staggerContainer, staggerItem } from '@/components/PageTransition'
 import { useGameEvents } from '@/contexts/GameEventContext'
 import { useWagerChat } from '@/hooks/useWagerChat'
 import { useBalanceAnimation } from '@/contexts/BalanceAnimationContext'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { toast } from 'sonner'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -46,8 +59,11 @@ const getGameData = (game: string) => {
   }
 }
 
+// ── Open Wager Card ───────────────────────────────────────────────────────────
+
 function OpenWagerCard({
-  wager, onJoin, onViewDetails, onEdit, onDelete, isJoining, isOwner, creatorUsername
+  wager, onJoin, onViewDetails, onEdit, onDelete,
+  isJoining, isOwner, creatorUsername,
 }: {
   wager: Wager
   onJoin: (id: string) => void
@@ -62,15 +78,22 @@ function OpenWagerCard({
   const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
 
   return (
-    <Card variant="wager" className="group cursor-pointer hover:border-primary/40 transition-all duration-300" onClick={() => onViewDetails(wager)}>
+    <Card
+      variant="wager"
+      className="group cursor-pointer hover:border-primary/40 transition-all duration-300"
+      onClick={() => onViewDetails(wager)}
+    >
       <CardContent className="p-3 sm:p-4">
-        {/* Top row: game icon + player info + stake */}
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <div className="text-2xl sm:text-3xl flex-shrink-0">{game.icon}</div>
             <div className="min-w-0">
               <div className="font-gaming text-sm truncate">
-                <PlayerLink walletAddress={wager.player_a_wallet} username={creatorUsername} className="font-gaming" />
+                <PlayerLink
+                  walletAddress={wager.player_a_wallet}
+                  username={creatorUsername}
+                  className="font-gaming"
+                />
                 {isOwner && <span className="ml-1 text-xs text-primary">(You)</span>}
               </div>
               <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
@@ -86,24 +109,42 @@ function OpenWagerCard({
           </div>
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
           {isOwner ? (
             <>
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => onEdit?.(wager)}>
-                <Pencil className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Edit</span>
+              <Button
+                variant="outline" size="sm" className="flex-1"
+                onClick={() => onEdit?.(wager)}
+              >
+                <Pencil className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">Edit</span>
               </Button>
-              <Button variant="destructive" size="sm" className="flex-1" onClick={() => onDelete?.(wager)}>
-                <Trash2 className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Delete</span>
+              <Button
+                variant="destructive" size="sm" className="flex-1"
+                onClick={() => onDelete?.(wager)}
+              >
+                <Trash2 className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">Delete</span>
               </Button>
             </>
           ) : (
             <>
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => onViewDetails(wager)}>
-                <Eye className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Details</span>
+              <Button
+                variant="outline" size="sm" className="flex-1"
+                onClick={() => onViewDetails(wager)}
+              >
+                <Eye className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">Details</span>
               </Button>
-              <Button variant="neon" size="sm" className="flex-1" onClick={() => onJoin(wager.id)} disabled={isJoining}>
-                {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept Challenge'}
+              <Button
+                variant="neon" size="sm" className="flex-1"
+                onClick={() => onJoin(wager.id)}
+                disabled={isJoining}
+              >
+                {isJoining
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : 'Accept Challenge'
+                }
               </Button>
             </>
           )}
@@ -113,8 +154,10 @@ function OpenWagerCard({
   )
 }
 
+// ── Live Match Card ───────────────────────────────────────────────────────────
+
 function LiveMatchCard({
-  wager, onEnterReadyRoom, onWatchGame, onViewDetails, currentWallet
+  wager, onEnterReadyRoom, onWatchGame, onViewDetails, currentWallet,
 }: {
   wager: Wager
   onEnterReadyRoom?: (wagerId: string) => void
@@ -136,7 +179,11 @@ function LiveMatchCard({
   }
 
   return (
-    <Card variant="wager" className="cursor-pointer border-primary/20 hover:border-primary/40 transition-all duration-300" onClick={handleClick}>
+    <Card
+      variant="wager"
+      className="cursor-pointer border-primary/20 hover:border-primary/40 transition-all duration-300"
+      onClick={handleClick}
+    >
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -151,9 +198,13 @@ function LiveMatchCard({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1 sm:gap-2 mb-1 flex-wrap">
-                <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">{truncateAddress(wager.player_a_wallet)}</span>
+                <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">
+                  {truncateAddress(wager.player_a_wallet)}
+                </span>
                 <Swords className="h-3 w-3 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
-                <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">{wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}</span>
+                <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">
+                  {wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}
+                </span>
               </div>
               <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
                 <span>{game.name}</span>
@@ -163,13 +214,19 @@ function LiveMatchCard({
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-3 flex-shrink-0">
-            <div className="font-gaming text-sm sm:text-base text-accent whitespace-nowrap">{formatSol(wager.stake_lamports * 2)} SOL</div>
+            <div className="font-gaming text-sm sm:text-base text-accent whitespace-nowrap">
+              {formatSol(wager.stake_lamports * 2)} SOL
+            </div>
             {isResolved ? (
-              <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap">{wager.winner_wallet ? '🏆 View' : '🤝 Draw'}</Badge>
+              <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap">
+                {wager.winner_wallet ? '🏆 View' : '🤝 Draw'}
+              </Badge>
             ) : canEnterReadyRoom ? (
               <Badge variant="joined" className="cursor-pointer text-xs whitespace-nowrap">Ready Room</Badge>
             ) : isInProgress && isParticipant ? (
-              <Badge variant="voting" className="cursor-pointer flex items-center gap-1 text-xs whitespace-nowrap"><Play className="h-3 w-3" /> Watch</Badge>
+              <Badge variant="voting" className="cursor-pointer flex items-center gap-1 text-xs whitespace-nowrap">
+                <Play className="h-3 w-3" /> Watch
+              </Badge>
             ) : (
               <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'} className="text-xs whitespace-nowrap">
                 {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
@@ -181,6 +238,8 @@ function LiveMatchCard({
     </Card>
   )
 }
+
+// ── Empty State ───────────────────────────────────────────────────────────────
 
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
@@ -194,20 +253,41 @@ function EmptyState({ title, description }: { title: string; description: string
   )
 }
 
+// ── Arena Inner ───────────────────────────────────────────────────────────────
+
 function ArenaInner() {
   const { connected, publicKey } = useWallet()
   const walletReady = useWalletReady()
   const walletAddress = publicKey?.toBase58()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
+  const { getSessionToken } = useWalletAuth()
 
   const { onWagerResolved, clearPendingResult } = useGameEvents()
   const { queueAnimation } = useBalanceAnimation()
   const { data: player } = usePlayer()
 
+  // ── Search state — debounced so we don't hammer the DB ──────────────────
+  const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchQuery(value.trim())
+    }, 300)
+  }
+
+  const clearSearch = () => {
+    setSearchInput('')
+    setSearchQuery('')
+  }
+
+  // ── Modal state ──────────────────────────────────────────────────────────
   const [createModalOpen, setCreateModalOpen] = useState(false)
-  const [quickMatchModalOpen, setQuickMatchModalOpen] = useState(false)
+  const [quickMatchOpen, setQuickMatchOpen] = useState(false)
   const [selectedWager, setSelectedWager] = useState<Wager | null>(null)
   const [detailsModalOpen, setDetailsModalOpen] = useState(false)
   const [readyRoomWagerId, setReadyRoomWagerId] = useState<string | null>(null)
@@ -218,9 +298,8 @@ function ArenaInner() {
   const [gameResultWager, setGameResultWager] = useState<Wager | null>(null)
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [deepLinkResultId, setDeepLinkResultId] = useState<string | null>(null)
+  const [rematchPending, setRematchPending] = useState(false)
 
-  // Holds a resolved wager that arrived while the tab was hidden.
-  // Shown the moment the player switches back to the tab.
   const pendingModalRef = useRef<Wager | null>(null)
 
   const { sendProposal } = useWagerChat(editWager?.id ?? null)
@@ -245,7 +324,7 @@ function ArenaInner() {
   useEffect(() => { readyRoomWagerIdRef.current = readyRoomWagerId }, [readyRoomWagerId])
   useEffect(() => { liveGameWagerIdRef.current = liveGameWagerId }, [liveGameWagerId])
 
-  // ── Listen for resolved wagers from GameEventContext ─────────────────────
+  // ── Listen for resolved wagers ───────────────────────────────────────────
   useEffect(() => {
     if (!walletAddress) return
     const unsub = onWagerResolved((wager) => {
@@ -254,14 +333,12 @@ function ArenaInner() {
         wager.player_b_wallet === walletAddress
       if (!isParticipant) return
 
-      // Close ready-room / live-game modals if they were for this wager
       if (readyRoomWagerIdRef.current === wager.id) setReadyRoomWagerId(null)
       if (liveGameWagerIdRef.current === wager.id) {
         setLiveGameModalOpen(false)
         setLiveGameWagerId(null)
       }
 
-      // Queue the balance animation regardless of tab visibility
       const won = wager.winner_wallet === walletAddress
       const isDraw = !wager.winner_wallet
       const payout = Math.floor(wager.stake_lamports * 2 * 0.9)
@@ -273,13 +350,10 @@ function ArenaInner() {
 
       clearPendingResult(wager.id)
 
-      // If the tab is hidden, defer the result modal until the user returns
-      // so they get the full confetti + animation experience.
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         pendingModalRef.current = wager
         return
       }
-
       setGameResultWager(wager)
       setGameResultOpen(true)
     })
@@ -287,7 +361,7 @@ function ArenaInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletAddress, onWagerResolved, queueAnimation, clearPendingResult])
 
-  // ── Show deferred result modal when the user returns to the tab ──────────
+  // Show deferred result modal when user returns to tab
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible' && pendingModalRef.current) {
@@ -299,28 +373,32 @@ function ArenaInner() {
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, []) // refs are stable — no deps needed
+  }, [])
 
   // ── Data queries ─────────────────────────────────────────────────────────
   const { data: openWagers, isLoading: openLoading } = useOpenWagers()
   const { data: liveWagers, isLoading: liveLoading } = useLiveWagers()
+  const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
+  const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
+  const { data: readyRoomWager } = useWagerById(readyRoomWagerId)
+  const { data: deepLinkResultWager } = useWagerById(deepLinkResultId)
+
+  // Only fire the search query when there's actual input
+  const { data: searchedPlayers, isLoading: searchLoading } = useSearchPlayers(
+    searchQuery.length >= 2 ? searchQuery : ''
+  )
 
   const liveGameWager = useMemo(() => {
     if (!liveGameWagerId) return null
     return liveWagers?.find(w => w.id === liveGameWagerId) ?? null
   }, [liveGameWagerId, liveWagers])
 
-  const { data: recentWinners, isLoading: winnersLoading } = useRecentWinners(5)
-  const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
-  const { data: readyRoomWager } = useWagerById(readyRoomWagerId)
-  const { data: deepLinkResultWager } = useWagerById(deepLinkResultId)
   const quickMatch = useQuickMatch()
   const joinWager = useJoinWager()
   const editWagerMutation = useEditWager()
   const deleteWagerMutation = useDeleteWager()
   const setReadyMutation = useSetReady()
   const { needsSetup } = useIsProfileComplete()
-  const { data: searchedPlayers } = useSearchPlayers(searchQuery)
 
   const { data: winnerPlayerA } = usePlayerByWallet(gameResultWager?.player_a_wallet || null)
   const { data: winnerPlayerB } = usePlayerByWallet(gameResultWager?.player_b_wallet || null)
@@ -329,10 +407,17 @@ function ArenaInner() {
       ? winnerPlayerA?.username
       : winnerPlayerB?.username
 
+  // Build the wallet → username map from all visible wagers + search results
   const wagerWalletAddresses = useMemo(() => {
     const addresses = new Set<string>()
-    openWagers?.forEach(w => { addresses.add(w.player_a_wallet); if (w.player_b_wallet) addresses.add(w.player_b_wallet) })
-    liveWagers?.forEach(w => { addresses.add(w.player_a_wallet); if (w.player_b_wallet) addresses.add(w.player_b_wallet) })
+    openWagers?.forEach(w => {
+      addresses.add(w.player_a_wallet)
+      if (w.player_b_wallet) addresses.add(w.player_b_wallet)
+    })
+    liveWagers?.forEach(w => {
+      addresses.add(w.player_a_wallet)
+      if (w.player_b_wallet) addresses.add(w.player_b_wallet)
+    })
     return Array.from(addresses)
   }, [openWagers, liveWagers])
 
@@ -345,38 +430,64 @@ function ArenaInner() {
     return map
   }, [wagerPlayers, searchedPlayers])
 
+  // ── Filtering ────────────────────────────────────────────────────────────
+  // Build the set of matched wallet addresses from username search results
+  const matchedWalletSet = useMemo(() => {
+    if (!searchQuery || !searchedPlayers) return new Set<string>()
+    return new Set(searchedPlayers.map(p => p.wallet_address.toLowerCase()))
+  }, [searchQuery, searchedPlayers])
+
   const filteredOpenWagers = useMemo(() => {
     if (!openWagers) return []
-    if (!searchQuery.trim()) return openWagers
-    const query = searchQuery.toLowerCase()
-    const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || []
-    return openWagers.filter(wager =>
-      wager.player_a_wallet.toLowerCase().includes(query) ||
-      matchedWallets.includes(wager.player_a_wallet.toLowerCase())
+    if (!searchQuery) return openWagers
+    const q = searchQuery.toLowerCase()
+    return openWagers.filter(w =>
+      // match on wallet address substring
+      w.player_a_wallet.toLowerCase().includes(q) ||
+      // match on resolved username from our map
+      (playerUsernameMap[w.player_a_wallet.toLowerCase()] ?? '')
+        .toLowerCase().includes(q) ||
+      // match via search API results
+      matchedWalletSet.has(w.player_a_wallet.toLowerCase())
     )
-  }, [openWagers, searchQuery, searchedPlayers])
+  }, [openWagers, searchQuery, playerUsernameMap, matchedWalletSet])
 
   const filteredLiveWagers = useMemo(() => {
     if (!liveWagers) return []
-    if (!searchQuery.trim()) return liveWagers
-    const query = searchQuery.toLowerCase()
-    const matchedWallets = searchedPlayers?.map(p => p.wallet_address.toLowerCase()) || []
-    return liveWagers.filter(wager =>
-      wager.player_a_wallet.toLowerCase().includes(query) ||
-      wager.player_b_wallet?.toLowerCase().includes(query) ||
-      matchedWallets.includes(wager.player_a_wallet.toLowerCase()) ||
-      (wager.player_b_wallet && matchedWallets.includes(wager.player_b_wallet.toLowerCase()))
-    )
-  }, [liveWagers, searchQuery, searchedPlayers])
+    if (!searchQuery) return liveWagers
+    const q = searchQuery.toLowerCase()
+    return liveWagers.filter(w => {
+      const aWallet = w.player_a_wallet.toLowerCase()
+      const bWallet = w.player_b_wallet?.toLowerCase() ?? ''
+      return (
+        aWallet.includes(q) || bWallet.includes(q) ||
+        (playerUsernameMap[aWallet] ?? '').toLowerCase().includes(q) ||
+        (playerUsernameMap[bWallet] ?? '').toLowerCase().includes(q) ||
+        matchedWalletSet.has(aWallet) || matchedWalletSet.has(bWallet)
+      )
+    })
+  }, [liveWagers, searchQuery, playerUsernameMap, matchedWalletSet])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
+
   const handleQuickMatch = () => {
     if (needsSetup) { toast.error('Please set up your username first'); return }
-    setQuickMatchModalOpen(true)
+    setQuickMatchOpen(true)
   }
 
-  const handleQuickMatchSubmit = (game?: GameType) => {
-    quickMatch.mutate(game, { onSuccess: () => setQuickMatchModalOpen(false) })
+  const handleQuickMatchSubmit = async (game?: GameType) => {
+    try {
+      const wager = await quickMatch.mutateAsync(game)
+      setQuickMatchOpen(false)
+      // mutateAsync now returns the full Wager object — open ready room immediately
+      if (wager?.id) {
+        setReadyRoomWagerId(wager.id)
+      }
+    } catch (err: any) {
+      // toast is already shown by useQuickMatch onError — only re-throw so
+      // QuickMatchModal can display inline error feedback
+      throw err
+    }
   }
 
   const handleViewDetails = (wager: Wager) => {
@@ -405,7 +516,7 @@ function ArenaInner() {
     try {
       if (editWager.status === 'joined' && Object.keys(updates).some(k => k !== 'stream_url')) {
         await sendProposal(editWager, updates)
-        toast.success('Proposals sent — waiting for opponent approval')
+        toast.success('Proposal sent — waiting for opponent approval')
       } else {
         await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
         toast.success('Wager updated successfully')
@@ -452,7 +563,65 @@ function ArenaInner() {
     }
   }
 
-  // ── Derived result state ──────────────────────────────────────────────────
+  // ── Rematch ───────────────────────────────────────────────────────────────
+  // Creates a new wager with the same game + stake, then sends a push
+  // notification + in-app notification to the opponent via secure-wager
+  // (which already has the full insertNotifications + sendWebPush pipeline).
+  const handleRematch = useCallback(async () => {
+    if (!gameResultWager || !walletAddress) return
+    if (needsSetup) { toast.error('Please set up your username first'); return }
+
+    const opponentWallet =
+      gameResultWager.player_a_wallet === walletAddress
+        ? gameResultWager.player_b_wallet
+        : gameResultWager.player_a_wallet
+
+    if (!opponentWallet) return
+
+    setRematchPending(true)
+    try {
+      const sessionToken = await getSessionToken()
+      if (!sessionToken) throw new Error('Wallet verification required')
+
+      // Step 1: Create the new open wager
+      const createResult = await invokeSecureWager<{ wager: Wager }>(
+        {
+          action: 'create',
+          game: gameResultWager.game,
+          stake_lamports: gameResultWager.stake_lamports,
+        },
+        sessionToken,
+      )
+
+      const newWagerId: string = createResult.wager.id
+
+      // Step 2: Send rematch notification to opponent via secure-wager
+      // (notifyRematch is a lightweight action that calls insertNotifications
+      //  which handles both in-app DB insert + web push in one call)
+      await invokeSecureWager<{ ok: boolean }>(
+        {
+          action: 'notifyRematch',
+          wagerId: newWagerId,
+          opponentWallet,
+          fromUsername: player?.username ?? truncateAddress(walletAddress),
+          game: gameResultWager.game,
+          stake: gameResultWager.stake_lamports,
+        },
+        sessionToken,
+      )
+
+      toast.success('Rematch challenge sent!')
+      setGameResultOpen(false)
+      setGameResultWager(null)
+      queryClient.invalidateQueries({ queryKey: ['wagers'] })
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send rematch challenge')
+    } finally {
+      setRematchPending(false)
+    }
+  }, [gameResultWager, walletAddress, player, needsSetup, getSessionToken, queryClient])
+
+  // ── Derived result state ─────────────────────────────────────────────────
   const gameResultTotalPot = (gameResultWager?.stake_lamports ?? 0) * 2
   const gameResultPlatformFee = Math.floor(gameResultTotalPot * 0.1)
   const gameResultPayout = gameResultTotalPot - gameResultPlatformFee
@@ -461,7 +630,7 @@ function ArenaInner() {
     ? 'draw'
     : gameResultWager?.winner_wallet === walletAddress ? 'win' : 'lose'
 
-  // ── Loading / disconnected states ─────────────────────────────────────────
+  // ── Loading / disconnected states ────────────────────────────────────────
   if (!walletReady) {
     return (
       <div className="py-8 pb-16">
@@ -499,13 +668,16 @@ function ArenaInner() {
   return (
     <div className="py-6 pb-16">
       <div className="container px-3 sm:px-4">
+
+        {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6"
         >
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold mb-1 font-gaming"><span className="text-primary">Arena</span></h1>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1 font-gaming">
+              <span className="text-primary">Arena</span>
+            </h1>
             <p className="text-muted-foreground text-sm">Find opponents and stake your claim</p>
           </div>
           <Button variant="neon" className="w-full sm:w-auto" onClick={handleCreateWager}>
@@ -513,32 +685,66 @@ function ArenaInner() {
           </Button>
         </motion.div>
 
+        {/* Search + actions */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           className="flex flex-col sm:flex-row gap-3 mb-6"
         >
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            {searchLoading && searchQuery.length >= 2
+              ? <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              : <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            }
             <Input
-              placeholder="Search by wallet or username..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-card border-border"
+              placeholder="Search by username or wallet..."
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-10 pr-8 bg-card border-border"
             />
+            {searchInput && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleQuickMatch} disabled={quickMatch.isPending} className="flex-1 sm:flex-none hover:border-primary/50 hover:shadow-neon transition-all">
-              {quickMatch.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
+            <Button
+              variant="outline"
+              onClick={handleQuickMatch}
+              disabled={quickMatch.isPending}
+              className="flex-1 sm:flex-none hover:border-primary/50 hover:shadow-neon transition-all"
+            >
+              {quickMatch.isPending
+                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                : <Zap className="h-4 w-4 mr-2" />
+              }
               Quick Match
             </Button>
             <Button variant="ghost" size="icon"><Filter className="h-4 w-4" /></Button>
           </div>
         </motion.div>
 
+        {/* Search results hint */}
+        {searchQuery && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="mb-4 text-xs text-muted-foreground"
+          >
+            {searchLoading
+              ? 'Searching...'
+              : `${filteredOpenWagers.length + filteredLiveWagers.length} result${filteredOpenWagers.length + filteredLiveWagers.length !== 1 ? 's' : ''} for "${searchQuery}"`
+            }
+          </motion.div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
           <div className="lg:col-span-2 space-y-6">
+
             {/* Live Matches */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
               <div className="flex items-center gap-2 mb-4">
@@ -550,7 +756,9 @@ function ArenaInner() {
                 <Badge variant="outline" className="ml-auto">{filteredLiveWagers.length}</Badge>
               </div>
               {liveLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
               ) : filteredLiveWagers.length > 0 ? (
                 <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                   {filteredLiveWagers.map((wager) => (
@@ -566,7 +774,9 @@ function ArenaInner() {
                   ))}
                 </motion.div>
               ) : (
-                <Card variant="gaming" className="p-6 text-center text-muted-foreground">No live matches right now</Card>
+                <Card variant="gaming" className="p-6 text-center text-muted-foreground">
+                  {searchQuery ? `No live matches found for "${searchQuery}"` : 'No live matches right now'}
+                </Card>
               )}
             </motion.div>
 
@@ -577,7 +787,9 @@ function ArenaInner() {
                 <Badge variant="outline" className="ml-auto">{filteredOpenWagers.length}</Badge>
               </div>
               {openLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
               ) : filteredOpenWagers.length > 0 ? (
                 <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
                   {filteredOpenWagers.map((wager) => (
@@ -596,7 +808,14 @@ function ArenaInner() {
                   ))}
                 </motion.div>
               ) : (
-                <EmptyState title="No Open Wagers" description="Be the first to create a wager and challenge others!" />
+                <EmptyState
+                  title={searchQuery ? 'No Results' : 'No Open Wagers'}
+                  description={
+                    searchQuery
+                      ? `No open wagers found for "${searchQuery}"`
+                      : 'Be the first to create a wager and challenge others!'
+                  }
+                />
               )}
             </motion.div>
           </div>
@@ -629,7 +848,9 @@ function ArenaInner() {
                 </div>
                 <div className="p-4">
                   {winnersLoading ? (
-                    <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
                   ) : recentWinners && recentWinners.length > 0 ? (
                     <div className="space-y-3">
                       {recentWinners.map((wager) => {
@@ -644,7 +865,9 @@ function ArenaInner() {
                                   : 'Unknown'}
                               </span>
                             </div>
-                            <span className="text-accent font-gaming flex-shrink-0">+{formatSol(wager.stake_lamports)}</span>
+                            <span className="text-accent font-gaming flex-shrink-0">
+                              +{formatSol(wager.stake_lamports)}
+                            </span>
                           </div>
                         )
                       })}
@@ -659,18 +882,23 @@ function ArenaInner() {
         </div>
       </div>
 
-      {/* ── Modals ──────────────────────────────────────────────────────────── */}
+      {/* ── Modals ────────────────────────────────────────────────────────── */}
       <CreateWagerModal
         open={createModalOpen}
         onOpenChange={setCreateModalOpen}
-        onSuccess={() => { setCreateModalOpen(false); queryClient.invalidateQueries({ queryKey: ['wagers'] }) }}
+        onSuccess={() => {
+          setCreateModalOpen(false)
+          queryClient.invalidateQueries({ queryKey: ['wagers'] })
+        }}
       />
+
       <QuickMatchModal
-        open={quickMatchModalOpen}
-        onOpenChange={setQuickMatchModalOpen}
+        open={quickMatchOpen}
+        onOpenChange={setQuickMatchOpen}
         onMatch={handleQuickMatchSubmit}
         isPending={quickMatch.isPending}
       />
+
       <WagerDetailsModal
         wager={selectedWager}
         open={detailsModalOpen}
@@ -680,6 +908,7 @@ function ArenaInner() {
         onDelete={handleDeleteWager}
         isJoining={joinWager.isPending}
       />
+
       <ReadyRoomModal
         wager={readyRoomWager || null}
         open={!!readyRoomWagerId}
@@ -691,6 +920,7 @@ function ArenaInner() {
         isSettingReady={setReadyMutation.isPending}
         currentWallet={walletAddress}
       />
+
       <EditWagerModal
         wager={editWager}
         open={editModalOpen}
@@ -699,6 +929,7 @@ function ArenaInner() {
         isSaving={editWagerMutation.isPending}
         canEditGameId={editWager?.status === 'created'}
       />
+
       <LiveGameModal
         wager={liveGameWager}
         open={liveGameModalOpen}
@@ -709,7 +940,7 @@ function ArenaInner() {
         currentWallet={walletAddress}
       />
 
-      {/* Primary game result (from polling / realtime) */}
+      {/* Primary game result (realtime / polling) */}
       <GameResultModal
         open={gameResultOpen}
         onOpenChange={(open) => {
@@ -723,13 +954,15 @@ function ArenaInner() {
         platformFee={gameResultPlatformFee}
         winnerPayout={gameResultPayout}
         refundAmount={gameResultWager?.stake_lamports}
+        onRematch={handleRematch}
+        isRematchPending={rematchPending}
         onViewDetails={() => {
           setGameResultOpen(false)
           if (gameResultWager) handleViewDetails(gameResultWager)
         }}
       />
 
-      {/* Deep-link result: notification tapped while on arena page */}
+      {/* Deep-link result: notification tapped while already on arena page */}
       <GameResultModal
         open={!!deepLinkResultId && !!deepLinkResultWager}
         onOpenChange={(open) => !open && setDeepLinkResultId(null)}
@@ -748,6 +981,8 @@ function ArenaInner() {
     </div>
   )
 }
+
+// ── Page export ───────────────────────────────────────────────────────────────
 
 import { Suspense } from 'react'
 import { Loader2 as _L2 } from 'lucide-react'
