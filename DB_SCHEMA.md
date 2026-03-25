@@ -1,6 +1,6 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 23, 2026  
+**Last Updated:** March 25, 2026  
 **Database:** PostgreSQL (Supabase)  
 **Environment:** Production
 
@@ -26,8 +26,9 @@ GameGambit uses a comprehensive relational PostgreSQL database to manage players
 10. [Indexes & Performance](#indexes--performance)
 11. [Data Consistency Rules](#data-consistency-rules)
 12. [Known Type Gaps](#known-type-gaps)
-13. [Useful Queries](#useful-queries)
-14. [Backup & Recovery](#backup--recovery)
+13. [Recent Migrations](#recent-migrations)
+14. [Useful Queries](#useful-queries)
+15. [Backup & Recovery](#backup--recovery)
 
 ---
 
@@ -70,6 +71,7 @@ Supported games:
 - `'chess'` — Chess (auto-resolved via Lichess)
 - `'codm'` — Call of Duty Mobile
 - `'pubg'` — PUBG
+- `'free_fire'` — Free Fire *(added migration 004, March 25 2026)*
 
 ### NFT Tiers
 > ⚠️ **Note:** The live DB enum is `bronze | silver | gold | diamond`. Earlier documentation incorrectly listed this as `bronze | silver | gold | platinum`. **Diamond is correct.**
@@ -119,6 +121,11 @@ Role-based access control:
 | `notifications` | In-app real-time notifications | player_wallet, type, read, wager_id |
 | `push_subscriptions` | Web Push notification subscriptions | player_wallet, endpoint (UNIQUE), p256dh, auth |
 | `rate_limit_logs` | Per-wallet endpoint rate limiting | wallet_address, endpoint, request_count, window_reset_at |
+| `moderation_requests` | Per-wager moderator assignment chain | wager_id, moderator_wallet, status, deadline *(added v1.5.0)* |
+| `username_appeals` | Disputed game username ownership | claimant_wallet, holder_wallet, game, username *(added v1.5.0)* |
+| `username_change_requests` | Formal requests to rebind a game account | player_wallet, game, old_username, new_username *(added v1.5.0)* |
+| `punishment_log` | Immutable punishment audit trail | player_wallet, offense_type, punishment *(added v1.5.0)* |
+| `player_behaviour_log` | Soft event log for admin pattern review | player_wallet, event_type *(added v1.5.0)* |
 
 ---
 
@@ -129,12 +136,20 @@ players (1) ──────────────────────�
 players (1) ──────────────────────────────────────────────── (N) wagers [player_b_wallet]
 players (1) ──────────────────────────────────────────────── (N) wagers [winner_wallet]
 players (1) ──────────────────────────────────────────────── (N) wagers [cancelled_by]
+players (1) ──────────────────────────────────────────────── (N) wagers [moderator_wallet]
+players (1) ──────────────────────────────────────────────── (N) wagers [grace_conceded_by]
 players (1) ──────────────────────────────────────────────── (N) wager_transactions
 players (1) ──────────────────────────────────────────────── (N) wager_messages [sender_wallet]
 players (1) ──────────────────────────────────────────────── (N) nfts
 players (1) ──────────────────────────────────────────────── (N) achievements
 players (1) ──────────────────────────────────────────────── (N) admin_notes
 players (1) ──────────────────────────────────────────────── (N) rate_limit_logs
+players (1) ──────────────────────────────────────────────── (N) moderation_requests [moderator_wallet]
+players (1) ──────────────────────────────────────────────── (N) username_appeals [claimant_wallet]
+players (1) ──────────────────────────────────────────────── (N) username_appeals [holder_wallet]
+players (1) ──────────────────────────────────────────────── (N) username_change_requests
+players (1) ──────────────────────────────────────────────── (N) punishment_log
+players (1) ──────────────────────────────────────────────── (N) player_behaviour_log
 
 wagers  (1) ──────────────────────────────────────────────── (N) wager_transactions
 wagers  (1) ──────────────────────────────────────────────── (N) wager_messages
@@ -142,6 +157,7 @@ wagers  (1) ──────────────────────�
 wagers  (1) ──────────────────────────────────────────────── (N) admin_logs
 wagers  (1) ──────────────────────────────────────────────── (N) admin_notes
 wagers  (1) ──────────────────────────────────────────────── (N) notifications
+wagers  (1) ──────────────────────────────────────────────── (N) moderation_requests
 
 admin_users (1) ──────────────────────────────────────────── (N) admin_sessions
 admin_users (1) ──────────────────────────────────────────── (N) admin_wallet_bindings
@@ -187,6 +203,15 @@ When both players are deposited and the wager enters voting, `secure-wager` call
 
 ### Rate Limiting
 `rate_limit_logs` provides a sliding-window rate limiter keyed on `(wallet_address, endpoint)`. Each row tracks the request count within the current window and the timestamp when the window resets. The edge function increments `request_count` on each call and rejects requests that exceed the configured limit before the window expires.
+
+### Game Username Binding
+Each player can bind one account per game (`codm`, `pubg`, `free_fire`). The bound timestamp for each game is stored in the `game_username_bound_at` JSONB column as `{ "pubg": "<ISO timestamp>", ... }`. Updating a single game's timestamp without overwriting others is done via the `merge_game_bound_at` RPC. Player IDs (`pubg_player_id`, `free_fire_uid`) are API-verified unique identifiers and carry partial UNIQUE indexes so two players cannot hold the same account.
+
+### Moderation Request Chain
+When a wager enters `disputed`, a moderation request row is created in `moderation_requests`. Candidate moderators have 20 seconds to accept — if they timeout or decline, another row is created (tracked via `moderation_skipped_count` on the wager). Once accepted the moderator has 10 minutes (`decision_deadline`) to submit a verdict. The full chain of attempts is preserved for audit.
+
+### Punishment Escalation
+Punishments are determined by cumulative offense counts: `false_vote_count`, `false_claim_count`, and `moderator_abuse_count` on the player row are incremented by edge functions. Each punishment event is written to `punishment_log` as an immutable record. Soft behavioral events (bindings, appeals, change requests) are written to `player_behaviour_log` for admin pattern review without triggering automatic penalties.
 
 ---
 
@@ -237,6 +262,24 @@ CREATE TABLE players (
   lichess_token_expires_at  TIMESTAMPTZ,            -- null = no expiry for personal tokens
   lichess_user_id           TEXT,                   -- Authoritative Lichess identity proof
 
+  -- Game Account Binding (v1.5.0)
+  codm_player_id            TEXT,                   -- Numeric in-game CODM ID
+  pubg_player_id            TEXT,                   -- API-verified PUBG account ID (persistent)
+  free_fire_username        TEXT,
+  free_fire_uid             TEXT,                   -- Unique Free Fire UID
+  game_username_bound_at    JSONB DEFAULT '{}',     -- { "pubg": "<ISO ts>", "codm": "...", ... }
+
+  -- Punishment Tracking (v1.5.0)
+  is_suspended              BOOLEAN NOT NULL DEFAULT false,
+  suspension_ends_at        TIMESTAMPTZ,
+  false_vote_count          INT NOT NULL DEFAULT 0,
+  false_claim_count         INT NOT NULL DEFAULT 0,
+  moderator_abuse_count     INT NOT NULL DEFAULT 0,
+
+  -- Settings (v1.5.0)
+  push_notifications_enabled    BOOLEAN NOT NULL DEFAULT true,
+  moderation_requests_enabled   BOOLEAN NOT NULL DEFAULT true,
+
   -- Timestamps
   last_active               TIMESTAMPTZ,
   created_at                TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -246,6 +289,16 @@ CREATE TABLE players (
 CREATE INDEX idx_players_wallet   ON players(wallet_address);
 CREATE INDEX idx_players_username ON players(username);
 CREATE INDEX idx_players_created  ON players(created_at DESC);
+
+-- v1.5.0 indexes
+CREATE UNIQUE INDEX players_pubg_player_id_unique
+  ON players (pubg_player_id) WHERE pubg_player_id IS NOT NULL;
+CREATE UNIQUE INDEX players_free_fire_uid_unique
+  ON players (free_fire_uid) WHERE free_fire_uid IS NOT NULL;
+CREATE INDEX players_is_suspended_idx
+  ON players (is_suspended) WHERE is_suspended = true;
+CREATE INDEX players_false_vote_count_idx
+  ON players (false_vote_count) WHERE false_vote_count > 0;
 ```
 
 **Key Fields:**
@@ -255,6 +308,10 @@ CREATE INDEX idx_players_created  ON players(created_at DESC);
 - `lichess_user_id`: Set by OAuth callback — authoritative proof of Lichess account ownership
 - `lichess_access_token`: Stored server-side with challenge:write scope, never exposed to clients
 - `flagged_for_review / flagged_by / flag_reason`: Set by admin actions for moderation queue
+- `pubg_player_id / free_fire_uid`: API-verified IDs with UNIQUE partial indexes — two players cannot hold the same game account
+- `game_username_bound_at`: JSONB keyed by game name; updated atomically via `merge_game_bound_at` RPC
+- `false_vote_count / false_claim_count / moderator_abuse_count`: Incremented by edge functions; drive punishment escalation logic
+- `moderation_requests_enabled`: Player opt-in to receive dispute moderation assignments and earn moderator fees
 
 ---
 
@@ -272,7 +329,7 @@ CREATE TABLE wagers (
   player_b_wallet       TEXT REFERENCES players(wallet_address),
 
   -- Game Details
-  game                  game_type NOT NULL,           -- chess, codm, pubg
+  game                  game_type NOT NULL,           -- chess, codm, pubg, free_fire
   stake_lamports        BIGINT NOT NULL,              -- Per player stake
   lichess_game_id       TEXT,                         -- Link to Lichess for chess
 
@@ -296,13 +353,10 @@ CREATE TABLE wagers (
   countdown_started_at  TIMESTAMPTZ,
 
   -- On-chain deposit tracking (v1.1.0)
-  -- Set to true by secure-wager edge function after on-chain tx is confirmed.
-  -- Game starts (status → voting) only when both are true — prevents race
-  -- conditions where one player appears ready before funds land on-chain.
   deposit_player_a      BOOLEAN NOT NULL DEFAULT false,
   deposit_player_b      BOOLEAN NOT NULL DEFAULT false,
-  tx_signature_a        TEXT,                         -- Player A deposit tx signature
-  tx_signature_b        TEXT,                         -- Player B deposit tx signature
+  tx_signature_a        TEXT,
+  tx_signature_b        TEXT,
 
   -- Voting / Dispute Resolution
   requires_moderator    BOOLEAN DEFAULT false,
@@ -311,14 +365,39 @@ CREATE TABLE wagers (
   vote_timestamp        TIMESTAMPTZ,
   retract_deadline      TIMESTAMPTZ,
 
+  -- Voting timestamps (v1.5.0)
+  vote_a_at             TIMESTAMPTZ,
+  vote_b_at             TIMESTAMPTZ,
+  vote_deadline         TIMESTAMPTZ,                 -- 5-min window from first vote
+
+  -- Game complete confirmation (v1.5.0)
+  game_complete_a         BOOLEAN NOT NULL DEFAULT false,
+  game_complete_b         BOOLEAN NOT NULL DEFAULT false,
+  game_complete_a_at      TIMESTAMPTZ,
+  game_complete_b_at      TIMESTAMPTZ,
+  game_complete_deadline  TIMESTAMPTZ,               -- 15 min from first confirmation
+
+  -- Dispute / Moderation (v1.5.0)
+  dispute_created_at       TIMESTAMPTZ,
+  moderator_wallet         TEXT REFERENCES players(wallet_address) ON DELETE SET NULL,
+  moderator_assigned_at    TIMESTAMPTZ,
+  moderator_deadline       TIMESTAMPTZ,              -- accepted_at + 10 minutes
+  moderator_decision       TEXT,                     -- wallet, 'draw', or 'cannot_determine'
+  moderator_decided_at     TIMESTAMPTZ,
+  moderation_skipped_count INT NOT NULL DEFAULT 0,   -- candidates declined/timed out
+
+  -- Grace period (v1.5.0)
+  grace_conceded_by        TEXT REFERENCES players(wallet_address) ON DELETE SET NULL,
+  grace_conceded_at        TIMESTAMPTZ,
+
   -- Results
   winner_wallet         TEXT REFERENCES players(wallet_address),
   resolved_at           TIMESTAMPTZ,
 
-  -- Cancellation (for refunds)
+  -- Cancellation
   cancelled_at          TIMESTAMPTZ,
   cancelled_by          TEXT REFERENCES players(wallet_address),
-  cancel_reason         TEXT,                         -- 'user_cancelled', 'transaction_failed', etc.
+  cancel_reason         TEXT,
 
   -- Public Access
   is_public             BOOLEAN DEFAULT true,
@@ -333,6 +412,14 @@ CREATE INDEX idx_wagers_status   ON wagers(status);
 CREATE INDEX idx_wagers_players  ON wagers(player_a_wallet, player_b_wallet);
 CREATE INDEX idx_wagers_created  ON wagers(created_at DESC);
 CREATE INDEX idx_wagers_resolved ON wagers(status) WHERE status = 'resolved';
+
+-- v1.5.0 indexes
+CREATE INDEX wagers_disputed_idx
+  ON wagers (status, dispute_created_at)
+  WHERE status = 'disputed';
+CREATE INDEX wagers_moderator_wallet_idx
+  ON wagers (moderator_wallet)
+  WHERE moderator_wallet IS NOT NULL;
 ```
 
 **Status Flow:**
@@ -344,6 +431,13 @@ CREATE INDEX idx_wagers_resolved ON wagers(status) WHERE status = 'resolved';
 6. `resolved` → Winner determined, payouts processed
 7. `cancelled` → Wager cancelled, refunds processed (can occur from joined/voting)
 
+**Dispute Flow (v1.5.0):**
+- On dispute: `dispute_created_at` stamped, `moderation_requests` row created for candidate moderator
+- Each declined/timed-out candidate increments `moderation_skipped_count`
+- Accepted moderator written to `moderator_wallet` + `moderator_assigned_at`; must decide before `moderator_deadline`
+- Decision written to `moderator_decision` + `moderator_decided_at`; triggers resolution
+- If a player concedes during the grace window: `grace_conceded_by` + `grace_conceded_at` set, dispute resolves cleanly without full moderator flow
+
 ---
 
 ### 3. **WAGER_TRANSACTIONS**
@@ -353,21 +447,13 @@ Immutable ledger of all Solana blockchain transactions.
 ```sql
 CREATE TABLE wager_transactions (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- References
   wager_id         UUID NOT NULL REFERENCES wagers(id),
   wallet_address   TEXT NOT NULL REFERENCES players(wallet_address),
-
-  -- Transaction Details
-  tx_type          transaction_type NOT NULL,    -- deposit, withdraw, payout
+  tx_type          transaction_type NOT NULL,
   amount_lamports  BIGINT NOT NULL,
-  tx_signature     TEXT UNIQUE,                  -- Solana tx hash
-
-  -- Status Tracking
+  tx_signature     TEXT UNIQUE,
   status           transaction_status DEFAULT 'pending'::transaction_status,
   error_message    TEXT,
-
-  -- Timestamps
   created_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -401,22 +487,14 @@ Included in `supabase_realtime` publication — both players receive new rows in
 ```sql
 CREATE TABLE wager_messages (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- References
   wager_id        UUID NOT NULL REFERENCES wagers(id),
   sender_wallet   TEXT NOT NULL,                 -- logical FK to players(wallet_address), no DB constraint
-
-  -- Content
   message         TEXT NOT NULL,
-  message_type    TEXT DEFAULT 'chat'            -- 'chat' | 'proposal'
+  message_type    TEXT DEFAULT 'chat'
     CHECK (message_type IN ('chat', 'proposal')),
-
-  -- Proposal fields (null when message_type = 'chat')
-  proposal_data   JSONB,                         -- { field, old_value, new_value, label }
-  proposal_status TEXT                           -- 'pending' | 'accepted' | 'rejected'
+  proposal_data   JSONB,
+  proposal_status TEXT
     CHECK (proposal_status IN ('pending', 'accepted', 'rejected')),
-
-  -- Timestamps
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 
@@ -450,25 +528,17 @@ Victory/achievement NFTs minted to Solana blockchain.
 ```sql
 CREATE TABLE nfts (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Blockchain Data
-  mint_address    TEXT NOT NULL UNIQUE,   -- Solana NFT mint address
+  mint_address    TEXT NOT NULL UNIQUE,
   owner_wallet    TEXT NOT NULL REFERENCES players(wallet_address),
-
-  -- NFT Details
   name            TEXT NOT NULL,
   tier            nft_tier NOT NULL,      -- bronze, silver, gold, diamond
-  metadata_uri    TEXT,                   -- Arweave/IPFS link
+  metadata_uri    TEXT,
   image_uri       TEXT,
   attributes      JSONB DEFAULT '{}'::jsonb,
-
-  -- Associated Data
   wager_id        UUID REFERENCES wagers(id),
   match_id        BIGINT,
   stake_amount    BIGINT,
   lichess_game_id TEXT,
-
-  -- Timestamps
   minted_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -493,18 +563,10 @@ User badges and milestones.
 ```sql
 CREATE TABLE achievements (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Reference
   player_wallet     TEXT NOT NULL REFERENCES players(wallet_address),
-
-  -- Achievement Data
-  achievement_type  TEXT NOT NULL,     -- "first_win", "streak_5", etc.
-  achievement_value INTEGER,           -- Optional value (streak length, etc.)
-
-  -- Optional NFT
+  achievement_type  TEXT NOT NULL,
+  achievement_value INTEGER,
   nft_mint_address  TEXT REFERENCES nfts(mint_address),
-
-  -- Timestamps
   unlocked_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   created_at        TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -524,26 +586,18 @@ Admin portal accounts. Separate from player accounts — uses its own email/pass
 ```sql
 CREATE TABLE admin_users (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Authentication
   email               TEXT NOT NULL UNIQUE,
-  password_hash       TEXT NOT NULL,          -- PBKDF2 hashed (100,000 iterations)
+  password_hash       TEXT NOT NULL,
   username            TEXT UNIQUE,
   full_name           TEXT,
   bio                 TEXT,
   avatar_url          TEXT,
   ban_reason          TEXT,
-
-  -- Authorization
-  role                admin_role NOT NULL,     -- moderator, admin, superadmin
-  permissions         JSONB NOT NULL,          -- Granular permission map
-
-  -- Account Status
+  role                admin_role NOT NULL,
+  permissions         JSONB NOT NULL,
   is_active           BOOLEAN NOT NULL DEFAULT true,
   is_banned           BOOLEAN NOT NULL DEFAULT false,
   two_factor_enabled  BOOLEAN NOT NULL DEFAULT false,
-
-  -- Timestamps
   last_login          TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -563,21 +617,13 @@ JWT session tracking for admin portal.
 ```sql
 CREATE TABLE admin_sessions (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Reference
   admin_id       UUID NOT NULL REFERENCES admin_users(id),
-
-  -- Session Data
-  token_hash     TEXT NOT NULL UNIQUE,     -- Hashed JWT
+  token_hash     TEXT NOT NULL UNIQUE,
   ip_address     TEXT,
   user_agent     TEXT,
-
-  -- Lifecycle
   expires_at     TIMESTAMPTZ NOT NULL,
   is_active      BOOLEAN NOT NULL DEFAULT true,
   last_activity  TIMESTAMPTZ,
-
-  -- Timestamps
   created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -594,21 +640,13 @@ Solana wallets bound to admin accounts for on-chain verification.
 ```sql
 CREATE TABLE admin_wallet_bindings (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Reference
   admin_id               UUID NOT NULL REFERENCES admin_users(id),
-
-  -- Wallet Data
   wallet_address         TEXT NOT NULL UNIQUE,
-  verification_signature TEXT,          -- Ed25519 signature proof
+  verification_signature TEXT,
   last_verified          TIMESTAMPTZ,
-
-  -- Status
   verified               BOOLEAN NOT NULL DEFAULT false,
   is_primary             BOOLEAN NOT NULL DEFAULT false,
   verified_at            TIMESTAMPTZ,
-
-  -- Timestamps
   created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -626,24 +664,14 @@ Full audit trail of all admin actions for compliance. Includes before/after stat
 ```sql
 CREATE TABLE admin_audit_logs (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Reference
-  admin_id       UUID REFERENCES admin_users(id),   -- nullable: system actions have no admin
-
-  -- Action Details
-  action_type    TEXT NOT NULL,          -- What was done
-  resource_type  TEXT NOT NULL,          -- What was affected (players, wagers, etc.)
-  resource_id    TEXT,                   -- ID of affected resource
-
-  -- State Changes
-  old_values     JSONB,                  -- Before state
-  new_values     JSONB,                  -- After state
-
-  -- Context
+  admin_id       UUID REFERENCES admin_users(id),
+  action_type    TEXT NOT NULL,
+  resource_type  TEXT NOT NULL,
+  resource_id    TEXT,
+  old_values     JSONB,
+  new_values     JSONB,
   ip_address     TEXT,
   user_agent     TEXT,
-
-  -- Timestamps
   created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -662,20 +690,12 @@ Wager-specific admin action log. Written by edge functions and API routes. Light
 ```sql
 CREATE TABLE admin_logs (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Action Details
   action         TEXT NOT NULL,
-  wager_id       UUID REFERENCES wagers(id),        -- FK confirmed in live DB
+  wager_id       UUID REFERENCES wagers(id),
   wallet_address TEXT,                               -- No FK constraint — informational only
-
-  -- Who acted
-  performed_by   TEXT NOT NULL,          -- Admin who acted
-
-  -- Context
+  performed_by   TEXT NOT NULL,
   notes          TEXT,
   metadata       JSONB,
-
-  -- Timestamps
   created_at     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -695,16 +715,10 @@ Admin notes attached to players or wagers.
 ```sql
 CREATE TABLE admin_notes (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- References
   player_wallet  TEXT REFERENCES players(wallet_address),
   wager_id       UUID REFERENCES wagers(id),
-
-  -- Note Content
   note           TEXT NOT NULL,
-  created_by     TEXT NOT NULL,          -- Admin who wrote it
-
-  -- Timestamps
+  created_by     TEXT NOT NULL,
   created_at     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -722,11 +736,7 @@ Real-time in-app notifications for wager events. Written by edge functions, read
 ```sql
 CREATE TABLE notifications (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Target player
   player_wallet  TEXT NOT NULL,
-
-  -- Notification content
   type           TEXT NOT NULL CHECK (type IN (
                    'wager_joined',
                    'wager_won',
@@ -737,21 +747,14 @@ CREATE TABLE notifications (
                  )),
   title          TEXT NOT NULL,
   message        TEXT NOT NULL,
-
-  -- Optional wager reference
   wager_id       UUID REFERENCES wagers(id) ON DELETE CASCADE,
-
-  -- Read state
   read           BOOLEAN DEFAULT FALSE,
-
-  -- Timestamps
   created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_notifications_player_wallet ON notifications(player_wallet);
 CREATE INDEX idx_notifications_read ON notifications(player_wallet, read);
 
--- Row Level Security
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Players can read own notifications"
@@ -786,12 +789,10 @@ Web Push API subscriptions for background notifications (RFC 8291 / VAPID).
 ```sql
 CREATE TABLE push_subscriptions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-
   player_wallet TEXT NOT NULL,         -- No FK constraint — RLS only
-  endpoint      TEXT NOT NULL UNIQUE,  -- Push service URL
-  p256dh        TEXT NOT NULL,         -- Client public key (base64url)
-  auth          TEXT NOT NULL,         -- Client auth secret (base64url)
-
+  endpoint      TEXT NOT NULL UNIQUE,
+  p256dh        TEXT NOT NULL,
+  auth          TEXT NOT NULL,
   created_at    TIMESTAMPTZ DEFAULT NOW(),
   updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
@@ -807,7 +808,6 @@ CREATE POLICY "Players can manage own subscriptions"
 **Notes:**
 - `player_wallet` has **no FK constraint** — confirmed in live DB. Access is enforced by RLS only.
 - `endpoint` is unique — if a push service returns 404 or 410, the row should be deleted
-- `p256dh` and `auth` are base64url-encoded values from the browser's `PushSubscription` object
 - VAPID signing is handled server-side using `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` edge function secrets
 - The `upsert(..., { onConflict: 'endpoint' })` pattern in `useNotifications.ts` means re-subscribing a device updates the row rather than duplicating it
 
@@ -815,17 +815,15 @@ CREATE POLICY "Players can manage own subscriptions"
 
 ### 15. **RATE_LIMIT_LOGS**
 
-Sliding-window rate limiter keyed on wallet + endpoint. Used by edge functions to reject excessive requests before they hit business logic.
+Sliding-window rate limiter keyed on wallet + endpoint.
 
 ```sql
 CREATE TABLE rate_limit_logs (
   id              BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-
   wallet_address  TEXT NOT NULL,
   endpoint        TEXT NOT NULL,
   request_count   INTEGER DEFAULT 1,
   window_reset_at TIMESTAMPTZ NOT NULL,
-
   created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -838,6 +836,166 @@ CREATE TABLE rate_limit_logs (
 
 ---
 
+### 16. **MODERATION_REQUESTS** *(v1.5.0)*
+
+Every attempt to assign a moderator to a disputed wager is a separate row. Multiple rows can exist per wager (chain of rejections/timeouts).
+
+```sql
+CREATE TABLE IF NOT EXISTS moderation_requests (
+  id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  wager_id          UUID        NOT NULL REFERENCES wagers(id) ON DELETE CASCADE,
+  moderator_wallet  TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
+  request_type      TEXT        NOT NULL DEFAULT 'match_dispute',
+  -- 'match_dispute' | 'username_ownership'
+  status            TEXT        NOT NULL DEFAULT 'pending',
+  -- 'pending' | 'accepted' | 'rejected' | 'timed_out' | 'completed' | 'cancelled'
+  assigned_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  responded_at      TIMESTAMPTZ,
+  deadline          TIMESTAMPTZ NOT NULL,        -- 20 seconds to accept/reject
+  decision_deadline TIMESTAMPTZ,                 -- once accepted, 10 minutes to decide
+  decision          TEXT,                        -- 'player_a_wallet' | 'player_b_wallet' | 'draw' | 'cannot_determine'
+  decision_notes    TEXT,
+  decided_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mod_requests_wager
+  ON moderation_requests (wager_id);
+CREATE INDEX IF NOT EXISTS idx_mod_requests_moderator
+  ON moderation_requests (moderator_wallet);
+CREATE INDEX IF NOT EXISTS idx_mod_requests_pending
+  ON moderation_requests (deadline)
+  WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_mod_requests_accepted
+  ON moderation_requests (decision_deadline)
+  WHERE status = 'accepted';
+```
+
+---
+
+### 17. **USERNAME_APPEALS** *(v1.5.0)*
+
+Created when a player tries to bind a game username already held by another player.
+
+```sql
+CREATE TABLE IF NOT EXISTS username_appeals (
+  id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  claimant_wallet         TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
+  holder_wallet           TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
+  game                    TEXT        NOT NULL,   -- 'pubg' | 'codm' | 'free_fire'
+  username                TEXT        NOT NULL,
+  status                  TEXT        NOT NULL DEFAULT 'pending_response',
+  -- 'pending_response' | 'released' | 'contested' | 'moderating'
+  -- | 'resolved_claimant' | 'resolved_holder' | 'escalated' | 'closed'
+  holder_response         TEXT,                   -- 'release' | 'contest'
+  holder_responded_at     TIMESTAMPTZ,
+  moderator_wallet        TEXT        REFERENCES players(wallet_address) ON DELETE SET NULL,
+  moderator_verdict       TEXT,                   -- 'claimant' | 'holder' | 'cannot_determine'
+  claimant_evidence_url   TEXT,
+  holder_evidence_url     TEXT,
+  response_deadline       TIMESTAMPTZ NOT NULL,   -- holder has 48 hours to respond
+  admin_notes             TEXT,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at             TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_username_appeals_claimant
+  ON username_appeals (claimant_wallet);
+CREATE INDEX IF NOT EXISTS idx_username_appeals_holder
+  ON username_appeals (holder_wallet);
+CREATE INDEX IF NOT EXISTS idx_username_appeals_status
+  ON username_appeals (status)
+  WHERE status NOT IN ('resolved_claimant', 'resolved_holder', 'closed');
+```
+
+---
+
+### 18. **USERNAME_CHANGE_REQUESTS** *(v1.5.0)*
+
+Formal request to change a bound game username. Reviewed manually by admin.
+
+```sql
+CREATE TABLE IF NOT EXISTS username_change_requests (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  player_wallet    TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
+  game             TEXT        NOT NULL,   -- 'pubg' | 'codm' | 'free_fire'
+  old_username     TEXT        NOT NULL,
+  new_username     TEXT        NOT NULL,
+  reason           TEXT        NOT NULL,
+  reason_category  TEXT        NOT NULL,
+  -- 'name_changed' | 'account_banned_in_game' | 'entry_error' | 'other'
+  status           TEXT        NOT NULL DEFAULT 'pending_review',
+  -- 'pending_review' | 'approved' | 'rejected' | 'flagged'
+  admin_notes      TEXT,
+  reviewed_by      TEXT,                   -- admin email
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewed_at      TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_change_requests_player
+  ON username_change_requests (player_wallet);
+CREATE INDEX IF NOT EXISTS idx_change_requests_status
+  ON username_change_requests (status)
+  WHERE status = 'pending_review';
+```
+
+---
+
+### 19. **PUNISHMENT_LOG** *(v1.5.0)*
+
+Immutable audit trail — one row per punishment event.
+
+```sql
+CREATE TABLE IF NOT EXISTS punishment_log (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  player_wallet       TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
+  wager_id            UUID        REFERENCES wagers(id) ON DELETE SET NULL,
+  offense_type        TEXT        NOT NULL,
+  -- 'false_vote' | 'username_theft' | 'moderator_abuse' | 'false_username_claim'
+  offense_count       INT         NOT NULL,   -- cumulative count AT TIME of this event
+  punishment          TEXT        NOT NULL,
+  -- 'warning' | 'suspension_1d' | 'suspension_3d' | 'suspension_7d' | 'indefinite_ban'
+  punishment_ends_at  TIMESTAMPTZ,            -- NULL for warnings and indefinite bans
+  issued_by           TEXT        NOT NULL DEFAULT 'system',
+  -- 'system' | admin email | moderator wallet
+  notes               TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_punishment_log_player
+  ON punishment_log (player_wallet, created_at DESC);
+```
+
+---
+
+### 20. **PLAYER_BEHAVIOUR_LOG** *(v1.5.0)*
+
+Soft event log — no automatic punishments, surfaces patterns for admin review.
+
+```sql
+CREATE TABLE IF NOT EXISTS player_behaviour_log (
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  player_wallet  TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
+  event_type     TEXT        NOT NULL,
+  -- 'username_bound' | 'username_dispute_filed' | 'username_released_voluntarily'
+  -- | 'appeal_filed' | 'appeal_dismissed' | 'appeal_upheld'
+  -- | 'dispute_conceded' | 'false_vote'
+  -- | 'change_request_submitted' | 'change_request_approved' | 'change_request_rejected'
+  -- | 'moderator_reported' | 'moderator_report_upheld' | 'moderator_report_dismissed'
+  -- | 'suspension_applied' | 'ban_applied'
+  related_id     TEXT,       -- wager_id, appeal_id, or request_id (TEXT for flexibility)
+  notes          TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_behaviour_log_player
+  ON player_behaviour_log (player_wallet, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_behaviour_log_event_type
+  ON player_behaviour_log (event_type, created_at DESC);
+```
+
+---
+
 ## DB Functions (RPC)
 
 These are callable via `.rpc()` on the Supabase client. Confirmed live in `information_schema.routines`.
@@ -847,9 +1005,9 @@ Atomically toggles a player's ready state and handles countdown logic.
 
 ```sql
 -- Args
-p_wager_id   uuid
+p_wager_id    uuid
 p_is_player_a boolean
-p_ready      boolean
+p_ready       boolean
 
 -- Returns: updated wagers row (SETOF wagers, isSetofReturn: false)
 ```
@@ -886,6 +1044,33 @@ p_stake  numeric
 ```
 
 Called alongside `update_winner_stats`. Increments `total_losses`, `total_spent`, `total_wagered`, resets `current_streak` to 0, and recalculates `win_rate`.
+
+---
+
+### `merge_game_bound_at` *(v1.5.0)*
+Merges a single game key into the `game_username_bound_at` JSONB column without overwriting other keys. Only callable by the service role.
+
+```sql
+-- Args
+p_wallet text   -- player's wallet_address
+p_game   text   -- 'pubg' | 'codm' | 'free_fire'
+p_ts     text   -- ISO 8601 timestamp string
+
+-- Returns: void
+```
+
+Called by `secure-player` after a game username is successfully bound. Uses the `||` JSONB merge operator so binding `pubg` does not erase an existing `codm` key.
+
+```sql
+-- Usage from edge function
+supabase.rpc('merge_game_bound_at', {
+  p_wallet: 'So1ana...',
+  p_game:   'pubg',
+  p_ts:     '2026-03-25T12:00:00Z'
+})
+```
+
+> **Permissions:** `REVOKE ALL ... FROM PUBLIC; GRANT EXECUTE ... TO service_role` — anon key cannot call this function directly.
 
 ---
 
@@ -950,7 +1135,7 @@ The following tables are enabled in the `supabase_realtime` publication and emit
 | `notifications` | INSERT | Bell icon dropdown, filtered by `player_wallet` |
 | `wager_messages` | INSERT, UPDATE | Ready room chat and proposals, filtered by `wager_id` — **one subscription per wager per client** |
 
-Tables **not** in realtime (not needed or not safe to subscribe to directly): `players`, `admin_*`, `push_subscriptions`, `rate_limit_logs`, `nfts`, `achievements`.
+Tables **not** in realtime (not needed or not safe to subscribe to directly): `players`, `admin_*`, `push_subscriptions`, `rate_limit_logs`, `nfts`, `achievements`, `moderation_requests`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log`.
 
 ---
 
@@ -988,6 +1173,11 @@ Tables **not** in realtime (not needed or not safe to subscribe to directly): `p
 | `admin_wallet_bindings` | `admin_wallet_bindings_wallet_address_key` | UNIQUE btree (wallet_address) |
 | `admin_wallet_bindings` | `idx_wallet_admin` | btree (admin_id) |
 | `admin_wallet_bindings` | `idx_wallet_verified` | btree (verified) |
+| `moderation_requests` | `moderation_requests_pkey` | UNIQUE btree (id) |
+| `moderation_requests` | `idx_mod_requests_wager` | btree (wager_id) |
+| `moderation_requests` | `idx_mod_requests_moderator` | btree (moderator_wallet) |
+| `moderation_requests` | `idx_mod_requests_pending` | btree (deadline) WHERE status = 'pending' |
+| `moderation_requests` | `idx_mod_requests_accepted` | btree (decision_deadline) WHERE status = 'accepted' |
 | `nfts` | `nfts_pkey` | UNIQUE btree (id) |
 | `nfts` | `nfts_mint_address_key` | UNIQUE btree (mint_address) |
 | `nfts` | `idx_nft_owner` | btree (owner_wallet) |
@@ -996,16 +1186,32 @@ Tables **not** in realtime (not needed or not safe to subscribe to directly): `p
 | `notifications` | `notifications_pkey` | UNIQUE btree (id) |
 | `notifications` | `idx_notifications_player_wallet` | btree (player_wallet) |
 | `notifications` | `idx_notifications_read` | btree (player_wallet, read) |
+| `player_behaviour_log` | `player_behaviour_log_pkey` | UNIQUE btree (id) |
+| `player_behaviour_log` | `idx_behaviour_log_player` | btree (player_wallet, created_at DESC) |
+| `player_behaviour_log` | `idx_behaviour_log_event_type` | btree (event_type, created_at DESC) |
 | `players` | `players_pkey` | UNIQUE btree (id) |
 | `players` | `players_wallet_address_key` | UNIQUE btree (wallet_address) |
 | `players` | `players_username_key` | UNIQUE btree (username) |
+| `players` | `players_pubg_player_id_unique` | UNIQUE btree (pubg_player_id) WHERE pubg_player_id IS NOT NULL |
+| `players` | `players_free_fire_uid_unique` | UNIQUE btree (free_fire_uid) WHERE free_fire_uid IS NOT NULL |
 | `players` | `idx_players_wallet` | btree (wallet_address) |
 | `players` | `idx_players_username` | btree (username) |
 | `players` | `idx_players_created` | btree (created_at DESC) |
+| `players` | `players_is_suspended_idx` | btree (is_suspended) WHERE is_suspended = true |
+| `players` | `players_false_vote_count_idx` | btree (false_vote_count) WHERE false_vote_count > 0 |
+| `punishment_log` | `punishment_log_pkey` | UNIQUE btree (id) |
+| `punishment_log` | `idx_punishment_log_player` | btree (player_wallet, created_at DESC) |
 | `push_subscriptions` | `push_subscriptions_pkey` | UNIQUE btree (id) |
 | `push_subscriptions` | `push_subscriptions_endpoint_key` | UNIQUE btree (endpoint) |
 | `push_subscriptions` | `idx_push_subscriptions_wallet` | btree (player_wallet) |
 | `rate_limit_logs` | `rate_limit_logs_pkey` | UNIQUE btree (id) |
+| `username_appeals` | `username_appeals_pkey` | UNIQUE btree (id) |
+| `username_appeals` | `idx_username_appeals_claimant` | btree (claimant_wallet) |
+| `username_appeals` | `idx_username_appeals_holder` | btree (holder_wallet) |
+| `username_appeals` | `idx_username_appeals_status` | btree (status) WHERE status NOT IN ('resolved_claimant', 'resolved_holder', 'closed') |
+| `username_change_requests` | `username_change_requests_pkey` | UNIQUE btree (id) |
+| `username_change_requests` | `idx_change_requests_player` | btree (player_wallet) |
+| `username_change_requests` | `idx_change_requests_status` | btree (status) WHERE status = 'pending_review' |
 | `wager_messages` | `wager_messages_pkey` | UNIQUE btree (id) |
 | `wager_messages` | `idx_wager_messages_wager_id` | btree (wager_id) |
 | `wager_messages` | `idx_wager_messages_created` | btree (wager_id, created_at ASC) |
@@ -1021,6 +1227,8 @@ Tables **not** in realtime (not needed or not safe to subscribe to directly): `p
 | `wagers` | `idx_wagers_players` | btree (player_a_wallet, player_b_wallet) |
 | `wagers` | `idx_wagers_created` | btree (created_at DESC) |
 | `wagers` | `idx_wagers_resolved` | btree (status) WHERE status = 'resolved' |
+| `wagers` | `wagers_disputed_idx` | btree (status, dispute_created_at) WHERE status = 'disputed' |
+| `wagers` | `wagers_moderator_wallet_idx` | btree (moderator_wallet) WHERE moderator_wallet IS NOT NULL |
 
 ### Query Performance Targets
 
@@ -1045,6 +1253,8 @@ Tables **not** in realtime (not needed or not safe to subscribe to directly): `p
 7. **TX Signature Uniqueness**: Prevents duplicate transactions from concurrent calls
 8. **Dual Deposit Gate**: `status` cannot transition to `voting` unless both `deposit_player_a` and `deposit_player_b` are true
 9. **Proposal Integrity**: `wager_messages` rows with `message_type = 'proposal'` must have non-null `proposal_data` and `proposal_status`
+10. **Game Account Uniqueness**: `pubg_player_id` and `free_fire_uid` have partial UNIQUE indexes — two players cannot hold the same verified game account
+11. **Moderator Decision Window**: `moderator_deadline` is set to accepted_at + 10 minutes; cron job times out accepted requests that miss this deadline
 
 ### Database Constraints
 
@@ -1073,8 +1283,13 @@ ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_sig
 | Table | Status | Workaround |
 |-------|--------|------------|
 | `wager_messages` | ❌ Not in `types.ts` | `as any` cast in `useWagerChat.ts`; `WagerMessage` interface defined there |
+| `moderation_requests` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `username_appeals` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `username_change_requests` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `punishment_log` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `player_behaviour_log` | ❌ Not in `types.ts` | Define local interface in consuming hook |
 
-To fix, run after any schema change:
+To fix all gaps, run after any schema change:
 ```bash
 supabase gen types typescript --project-id your_project_ref > src/integrations/supabase/types.ts
 ```
@@ -1083,36 +1298,77 @@ supabase gen types typescript --project-id your_project_ref > src/integrations/s
 
 ## Recent Migrations
 
+### v1.5.0 — March 25, 2026
+
+**001 — Player columns**
+```sql
+-- Game account binding
+ALTER TABLE players ADD COLUMN IF NOT EXISTS pubg_player_id TEXT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS free_fire_username TEXT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS free_fire_uid TEXT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS codm_player_id TEXT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS game_username_bound_at JSONB DEFAULT '{}';
+-- Punishment tracking
+ALTER TABLE players ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS suspension_ends_at TIMESTAMPTZ;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS false_vote_count INT NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS false_claim_count INT NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS moderator_abuse_count INT NOT NULL DEFAULT 0;
+-- Settings
+ALTER TABLE players ADD COLUMN IF NOT EXISTS push_notifications_enabled BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS moderation_requests_enabled BOOLEAN NOT NULL DEFAULT true;
+
+CREATE UNIQUE INDEX IF NOT EXISTS players_pubg_player_id_unique ON players (pubg_player_id) WHERE pubg_player_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS players_free_fire_uid_unique ON players (free_fire_uid) WHERE free_fire_uid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS players_is_suspended_idx ON players (is_suspended) WHERE is_suspended = true;
+CREATE INDEX IF NOT EXISTS players_false_vote_count_idx ON players (false_vote_count) WHERE false_vote_count > 0;
+```
+
+**002 — Wager columns**
+```sql
+-- Game complete confirmation
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS game_complete_a BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS game_complete_b BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS game_complete_a_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS game_complete_b_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS game_complete_deadline TIMESTAMPTZ;
+-- Voting timestamps
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS vote_a_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS vote_b_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS vote_deadline TIMESTAMPTZ;
+-- Dispute / moderation
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS dispute_created_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS moderator_wallet TEXT REFERENCES players(wallet_address) ON DELETE SET NULL;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS moderator_assigned_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS moderator_deadline TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS moderator_decision TEXT;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS moderator_decided_at TIMESTAMPTZ;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS moderation_skipped_count INT NOT NULL DEFAULT 0;
+-- Grace period
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS grace_conceded_by TEXT REFERENCES players(wallet_address) ON DELETE SET NULL;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS grace_conceded_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS wagers_disputed_idx ON wagers (status, dispute_created_at) WHERE status = 'disputed';
+CREATE INDEX IF NOT EXISTS wagers_moderator_wallet_idx ON wagers (moderator_wallet) WHERE moderator_wallet IS NOT NULL;
+```
+
+**003 — New tables**: `moderation_requests`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log` — see full DDL in table specifications above.
+
+**004 — Enum**: `ALTER TYPE game_type ADD VALUE 'free_fire'` (guarded by `IF NOT EXISTS` check).
+
+**005 — RPC**: `merge_game_bound_at(p_wallet, p_game, p_ts)` — service role only.
+
+---
+
 ### v1.4.0 — March 22, 2026
 
 ```sql
 -- Wager chat and edit proposals
-CREATE TABLE IF NOT EXISTS wager_messages (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  wager_id        UUID NOT NULL REFERENCES wagers(id),
-  sender_wallet   TEXT NOT NULL,
-  message         TEXT NOT NULL,
-  message_type    TEXT DEFAULT 'chat' CHECK (message_type IN ('chat', 'proposal')),
-  proposal_data   JSONB,
-  proposal_status TEXT CHECK (proposal_status IN ('pending', 'accepted', 'rejected')),
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_wager_messages_wager_id ON wager_messages(wager_id);
-CREATE INDEX idx_wager_messages_created  ON wager_messages(wager_id, created_at ASC);
-
--- Enable realtime for chat
+CREATE TABLE IF NOT EXISTS wager_messages ( ... );
 ALTER PUBLICATION supabase_realtime ADD TABLE wager_messages;
 
 -- Rate limiting
-CREATE TABLE IF NOT EXISTS rate_limit_logs (
-  id              BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-  wallet_address  TEXT NOT NULL,
-  endpoint        TEXT NOT NULL,
-  request_count   INTEGER DEFAULT 1,
-  window_reset_at TIMESTAMPTZ NOT NULL,
-  created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
+CREATE TABLE IF NOT EXISTS rate_limit_logs ( ... );
 ```
 
 ---
@@ -1121,21 +1377,7 @@ CREATE TABLE IF NOT EXISTS rate_limit_logs (
 
 ```sql
 -- Push subscriptions for Web Push notifications
-CREATE TABLE IF NOT EXISTS push_subscriptions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  player_wallet TEXT NOT NULL,
-  endpoint TEXT NOT NULL UNIQUE,
-  p256dh TEXT NOT NULL,
-  auth TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_push_subscriptions_wallet ON push_subscriptions(player_wallet);
-ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Players can manage own subscriptions"
-  ON push_subscriptions FOR ALL
-  USING (true) WITH CHECK (true);
+CREATE TABLE IF NOT EXISTS push_subscriptions ( ... );
 ```
 
 ---
@@ -1144,21 +1386,7 @@ CREATE POLICY "Players can manage own subscriptions"
 
 ```sql
 -- Notifications table for real-time in-app alerts
-CREATE TABLE IF NOT EXISTS notifications (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  player_wallet TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('wager_joined','wager_won','wager_lost','wager_draw','wager_cancelled','game_started')),
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  wager_id UUID REFERENCES wagers(id) ON DELETE CASCADE,
-  read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_notifications_player_wallet ON notifications(player_wallet);
-CREATE INDEX idx_notifications_read ON notifications(player_wallet, read);
-
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS notifications ( ... );
 
 -- Chess side preference on wagers
 ALTER TABLE wagers
@@ -1305,11 +1533,40 @@ SELECT
   vote_player_a,
   vote_player_b,
   vote_timestamp,
+  dispute_created_at,
+  moderator_wallet,
+  moderator_deadline,
+  moderation_skipped_count,
   created_at
 FROM wagers
 WHERE status = 'disputed'
-   OR (status = 'voting' AND requires_moderator = true)
-ORDER BY vote_timestamp ASC;
+ORDER BY dispute_created_at ASC;
+```
+
+### Active Moderation Requests (cron timeout checker)
+
+```sql
+SELECT id, wager_id, moderator_wallet, deadline, status
+FROM moderation_requests
+WHERE status = 'pending'
+  AND deadline < NOW()
+ORDER BY deadline ASC;
+```
+
+### Punishment History for a Player
+
+```sql
+SELECT
+  offense_type,
+  offense_count,
+  punishment,
+  punishment_ends_at,
+  issued_by,
+  notes,
+  created_at
+FROM punishment_log
+WHERE player_wallet = $1
+ORDER BY created_at DESC;
 ```
 
 ### Admin Actions on a Player (Audit Trail)
@@ -1413,4 +1670,4 @@ Contact Supabase support with:
 **Version Control**  
 This schema is version controlled in GitHub. Update this document whenever database changes are made.
 
-Last updated: March 23, 2026
+Last updated: March 25, 2026
