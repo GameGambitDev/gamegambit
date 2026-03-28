@@ -39,6 +39,8 @@ import { QuickMatchModal } from '@/components/QuickMatchModal'
 import { ReadyRoomModal } from '@/components/ReadyRoomModal'
 import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal'
 import { LiveGameModal } from '@/components/LiveGameModal'
+import { GameCompleteModal } from '@/components/Gamecompletemodal'
+import { VotingModal } from '@/components/Votingmodal'
 import { GameResultModal } from '@/components/GameResultModal'
 import { PlayerLink } from '@/components/PlayerLink'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
@@ -55,6 +57,7 @@ const getGameData = (game: string) => {
     case 'chess': return GAMES.CHESS
     case 'codm': return GAMES.CODM
     case 'pubg': return GAMES.PUBG
+    case 'free_fire': return GAMES.FREE_FIRE
     default: return GAMES.CHESS
   }
 }
@@ -299,6 +302,12 @@ function ArenaInner() {
   const [gameResultOpen, setGameResultOpen] = useState(false)
   const [deepLinkResultId, setDeepLinkResultId] = useState<string | null>(null)
   const [rematchPending, setRematchPending] = useState(false)
+
+  // ── Step 3: Game Complete + Voting for non-chess wagers ─────────────────
+  const [gameCompleteWager, setGameCompleteWager] = useState<Wager | null>(null)
+  const [gameCompleteOpen, setGameCompleteOpen] = useState(false)
+  const [votingWager, setVotingWager] = useState<Wager | null>(null)
+  const [votingOpen, setVotingOpen] = useState(false)
 
   const pendingModalRef = useRef<Wager | null>(null)
 
@@ -557,9 +566,31 @@ function ArenaInner() {
   const handleWatchGame = (wager: Wager) => {
     if (wager.status === 'resolved' || (wager.status as string) === 'closed') {
       handleViewDetails(wager)
-    } else {
-      setLiveGameWagerId(wager.id)
-      setLiveGameModalOpen(true)
+      return
+    }
+    // Non-chess wagers in voting state: show game complete / voting flow
+    if (wager.game !== 'chess' && wager.status === 'voting') {
+      const bothConfirmed = !!(wager as any).game_complete_a && !!(wager as any).game_complete_b
+      if (bothConfirmed) {
+        setVotingWager(wager)
+        setVotingOpen(true)
+      } else {
+        setGameCompleteWager(wager)
+        setGameCompleteOpen(true)
+      }
+      return
+    }
+    setLiveGameWagerId(wager.id)
+    setLiveGameModalOpen(true)
+  }
+
+  // ── GameCompleteModal → both confirmed → open VotingModal ────────────────
+  const handleBothConfirmedArena = () => {
+    const w = gameCompleteWager
+    setGameCompleteOpen(false)
+    if (w) {
+      setVotingWager(w)
+      setVotingOpen(true)
     }
   }
 
@@ -938,6 +969,23 @@ function ArenaInner() {
           if (!open) setLiveGameWagerId(null)
         }}
         currentWallet={walletAddress}
+      />
+
+      {/* Game Complete — non-chess wagers */}
+      <GameCompleteModal
+        wager={gameCompleteWager}
+        open={gameCompleteOpen}
+        onOpenChange={(open) => { setGameCompleteOpen(open); if (!open) setGameCompleteWager(null) }}
+        currentWallet={walletAddress || ''}
+        onBothConfirmed={handleBothConfirmedArena}
+      />
+
+      {/* Voting — opens after both confirm */}
+      <VotingModal
+        wager={votingWager}
+        open={votingOpen}
+        onOpenChange={(open) => { setVotingOpen(open); if (!open) setVotingWager(null) }}
+        currentWallet={walletAddress || ''}
       />
 
       {/* Primary game result (realtime / polling) */}
