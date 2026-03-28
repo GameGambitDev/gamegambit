@@ -1,7 +1,7 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 25, 2026
-**Version:** v1.5.0
+**Last Updated:** March 28, 2026
+**Version:** v1.6.0
 **Database:** PostgreSQL (Supabase)
 **Environment:** Production
 
@@ -1801,7 +1801,4 @@ Contact Supabase support with:
 
 ---
 
-**Version Control**
-This schema is version controlled in GitHub. Update this document whenever database changes are made.
-
-Last updated: March 25, 2026 — v1.5.0
+Last updated: March 28, 2026 — v1.6.0

@@ -28,6 +28,8 @@ pnpm dev
 
 Visit `http://localhost:3000` to see the app with hot reload enabled via Turbopack.
 
+> **Note on package managers:** The repo includes a `bunfig.toml` but `pnpm` is the primary package manager used for development and CI. If you use `bun install`, the lockfile will regenerate — this is intentional per the bun config, but stick to `pnpm` for consistency.
+
 ### Environment Variables
 
 Required variables for local development:
@@ -41,16 +43,26 @@ NEXT_PUBLIC_PROGRAM_ID=E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR
 # Supabase (local or staging)
 NEXT_PUBLIC_SUPABASE_URL=<your_supabase_url>
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<your_supabase_anon_key>
+SUPABASE_SERVICE_ROLE_KEY=<your_service_role_key>
 
-# Required for admin panel
+# Required for admin panel and Next.js API routes
 ADMIN_JWT_SECRET=<min_32_char_secret>
+AUTHORITY_WALLET_SECRET=<json_byte_array_keypair>
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
 # Required for push notifications
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=<your_vapid_public_key>
+
+# Optional — enables live PUBG username verification
+# Without this, PUBG binding falls back to manual confirmation
+PUBG_API_KEY=<your_pubg_api_key>
 ```
 
 > Edge function secrets (`AUTHORITY_WALLET_SECRET`, `LICHESS_PLATFORM_TOKEN`, `VAPID_PRIVATE_KEY`, etc.) are set in Supabase Dashboard → Edge Functions → Secrets — not in `.env.local`. See [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) for the full list.
+
+> `AUTHORITY_WALLET_SECRET` is also required in `.env.local` (as a Next.js server-side variable) because `/api/settings`, `/api/username/appeal`, `/api/username/appeal/respond`, and `/api/username/change-request` use it to validate session tokens — the same HMAC-SHA256 scheme as the edge functions.
+
+---
 
 ## Project Architecture
 
@@ -70,7 +82,14 @@ gamegambit/
 │   │   │   │   ├── action/            # Proxies to admin-action edge function
 │   │   │   │   ├── audit-logs/
 │   │   │   │   └── wallet/            # bind, list, unbind, verify
-│   │   │   └── lichess/webhook/       # Lichess game result webhook
+│   │   │   ├── lichess/webhook/       # Lichess game result webhook
+│   │   │   ├── pubg/
+│   │   │   │   └── verify-username/   # PUBG API username lookup (optional key)
+│   │   │   ├── settings/              # GET/PATCH player notification settings
+│   │   │   └── username/
+│   │   │       ├── appeal/            # POST — file username ownership appeal
+│   │   │       │   └── respond/       # POST — holder releases or contests
+│   │   │       └── change-request/    # POST — formal username rebind request
 │   │   ├── itszaadminlogin/           # Full admin panel (separate auth system)
 │   │   │   ├── login/
 │   │   │   ├── signup/
@@ -84,9 +103,14 @@ gamegambit/
 │   │   │   └── unauthorized/
 │   │   ├── arena/                     # Wager creation & lobby
 │   │   ├── dashboard/
+│   │   ├── faq/
 │   │   ├── leaderboard/
 │   │   ├── my-wagers/
-│   │   ├── profile/[walletAddress]/
+│   │   ├── privacy/
+│   │   ├── profile/
+│   │   │   └── [walletAddress]/
+│   │   ├── settings/                  # Player settings page (notifications, moderation)
+│   │   ├── terms/
 │   │   └── page.tsx                   # Landing page
 │   │
 │   ├── components/
@@ -98,10 +122,16 @@ gamegambit/
 │   │   ├── EditWagerModal.tsx
 │   │   ├── LiveGameModal.tsx          # Lichess iframe embed
 │   │   ├── GameResultModal.tsx
+│   │   ├── GameAccountCard.tsx        # PUBG/CODM/Free Fire bind, appeal, change-request
+│   │   ├── Gamecompletemodal.tsx      # Non-chess: both players confirm game done
+│   │   ├── Votingmodal.tsx            # Non-chess: peer vote with 5-min countdown
 │   │   ├── WagerChat.tsx
+│   │   ├── WagerDetailsModal.tsx
 │   │   ├── NotificationsDropdown.tsx
 │   │   ├── NFTGallery.tsx
 │   │   ├── TransactionHistory.tsx
+│   │   ├── UsernameEnforcer.tsx
+│   │   ├── UsernameSetupModal.tsx
 │   │   └── ui/                        # shadcn/ui primitives
 │   │
 │   ├── hooks/
@@ -114,13 +144,16 @@ gamegambit/
 │   │   │   ├── useAdminWagers.ts
 │   │   │   └── useAdminWallet.ts
 │   │   ├── useAutoCreatePlayer.ts     # Auto-registers player on first wallet connect
+│   │   ├── useGameComplete.ts         # markGameComplete mutation (non-chess flow)
 │   │   ├── useLichess.ts              # OAuth PKCE flow
 │   │   ├── useNFTs.ts
 │   │   ├── useNotifications.ts        # Bell dropdown + Web Push subscription
 │   │   ├── usePlayer.ts
+│   │   ├── usePlayerSettings.ts       # GET/PATCH push + moderation toggles
 │   │   ├── useQuickMatch.ts
 │   │   ├── useSolanaProgram.ts        # Anchor program interaction
 │   │   ├── useTransactions.ts         # wager_transactions queries
+│   │   ├── useVoting.ts               # submitVote, retractVote, deriveVoteOutcome
 │   │   ├── useWagerChat.ts            # Ready room chat + proposals
 │   │   ├── useWagers.ts               # Wager queries + invokeSecureWager helper
 │   │   ├── useWalletAuth.ts           # Ed25519 session token management
@@ -152,10 +185,11 @@ gamegambit/
 │       └── admin/                     # Admin DB operations (actions, audit, auth, sessions, wallets)
 │
 ├── supabase/functions/
-│   ├── secure-wager/    # All wager lifecycle actions (14 actions)
-│   ├── secure-player/   # Player create/update
-│   ├── admin-action/    # Admin dispute resolution (forceResolve, forceDraw, forceCancel, ban)
+│   ├── secure-wager/    # All wager lifecycle actions (17 actions — see table below)
+│   ├── secure-player/   # Player create/update/bindGame
+│   ├── admin-action/    # Admin dispute resolution (forceResolve, forceRefund, markDisputed, banPlayer, etc.)
 │   ├── resolve-wager/   # Low-level on-chain settlement (called by admin-action + Lichess webhook)
+│   ├── check-chess-games/ # Cron-driven: polls active chess wagers every 60s, auto-resolves finished games
 │   └── verify-wallet/   # Ed25519 wallet signature → JWT session token
 │
 ├── public/
@@ -165,49 +199,109 @@ gamegambit/
 ├── scripts/migrations/
 │   └── 001_create_admin_tables.sql
 │
+├── bunfig.toml
 ├── gamegambit-setup.sql   # Single-shot full DB setup
 ├── next.config.ts
 └── package.json
 ```
 
-### Critical Architecture Pattern: Edge Functions for All Write Operations
+### `secure-wager` Actions Reference
+
+All 17 actions handled by the `secure-wager` edge function:
+
+| Action | Auth Required | Description |
+|--------|:---:|-------------|
+| `create` | ✓ | Create a new wager row |
+| `join` | ✓ | Player B joins an open wager |
+| `vote` | ✓ | Legacy vote (kept for compatibility) |
+| `edit` | ✓ | Edit wager fields directly (pre-join) |
+| `applyProposal` | ✓ | Accept a chat proposal and apply the field change |
+| `notifyChat` | ✓ | Send push notification for a new chat message |
+| `notifyProposal` | ✓ | Send push notification for a new proposal |
+| `notifyRematch` | ✓ | Send push notification for a rematch request |
+| `delete` | ✓ | Soft-delete an unjoined wager |
+| `setReady` | ✓ | Toggle player ready state in the ready room |
+| `startGame` | ✓ | Trigger Lichess game creation (chess only) |
+| `recordOnChainCreate` | ✓ | Record on-chain create TX in `wager_transactions` |
+| `recordOnChainJoin` | ✓ | Record on-chain join TX in `wager_transactions` |
+| `checkGameComplete` | ✗ | Poll Lichess API for chess game result; called by `check-chess-games` cron function |
+| `cancelWager` | ✓ | Cancel wager and trigger on-chain refund |
+| `markGameComplete` | ✓ | Non-chess: player signals game is done; triggers shared countdown when both confirm |
+| `submitVote` | ✓ | Non-chess: submit winner vote; resolves or disputes based on both votes |
+| `retractVote` | ✓ | Non-chess: retract own vote (only before opponent has voted) |
+
+### `secure-player` Actions Reference
+
+| Action | Description |
+|--------|-------------|
+| `create` | Register new player row on first wallet connect |
+| `update` | Update profile fields (username, bio, avatar, game usernames via direct update) |
+| `bindGame` | Dedicated game account binding for PUBG/CODM/Free Fire — checks uniqueness, calls `merge_game_bound_at` RPC, returns `USERNAME_TAKEN` if conflict |
+
+### `admin-action` Actions Reference
+
+| Action | Description |
+|--------|-------------|
+| `forceResolve` | Force-resolve a disputed wager with a given winner wallet; calls on-chain `resolve_wager` |
+| `forceRefund` | Force-refund both players; calls on-chain `close_wager` |
+| `markDisputed` | Manually set wager status to `disputed` |
+| `banPlayer` | Set `is_banned = true` on a player row |
+| `unbanPlayer` | Clear ban on a player row |
+| `flagPlayer` | Set `flagged_for_review = true` with a reason |
+| `checkPdaBalance` | Inspect the on-chain WagerAccount PDA balance for a wager |
+| `addNote` | Insert a row into `admin_notes` for a player or wager |
+
+> The admin panel's `/api/admin/action` route proxies these to the `admin-action` edge function. It accepts both snake_case (`force_resolve`) and camelCase (`forceResolve`) action names and normalises them before forwarding.
+
+---
+
+## Critical Architecture Pattern: Edge Functions + Next.js API Routes
 
 > ⚠️ **This is the most important pattern to understand before writing any new feature.**
 
-**All player-facing write operations go through Supabase edge functions — NOT Next.js API routes.**
+**Player-facing write operations go through Supabase edge functions — NOT Next.js API routes.**
 
-Next.js API routes in this project handle only three things:
+Next.js API routes in this project handle the following things:
+
 1. Lichess OAuth PKCE callback (`/api/auth/lichess/callback`)
 2. Admin panel auth and actions (`/api/admin/*`)
 3. Wallet signature → session token (`/api/auth/verify-wallet`)
+4. PUBG username verification (`/api/pubg/verify-username`) — calls PUBG API server-side so the API key is never exposed to the client
+5. Player notification settings (`/api/settings`) — GET/PATCH for `push_notifications_enabled` and `moderation_requests_enabled`
+6. Username ownership appeals (`/api/username/appeal`) — file an appeal against another player's held username
+7. Appeal response (`/api/username/appeal/respond`) — holder releases or contests a filed appeal
+8. Username change requests (`/api/username/change-request`) — formal request to rebind a game account
 
-Everything else — creating wagers, joining, voting, cancelling, chat, proposals, recording on-chain transactions — goes through the Supabase edge functions via `invokeSecureWager()` in `src/hooks/useWagers.ts`.
+Everything else — creating wagers, joining, voting, cancelling, chat, proposals, recording on-chain transactions, game account binding — goes through Supabase edge functions.
 
 This is enforced by DB triggers that block direct client writes. See [DB Triggers — Developer Gotchas](#db-triggers--developer-gotchas) below.
 
-### Key Design Patterns
+---
 
-#### 1. Session Token Authentication
+## Key Design Patterns
+
+### 1. Session Token Authentication
 
 `useWalletAuth` manages an Ed25519-signed JWT stored in `localStorage` under `gg_wallet_session`. It checks expiry on load and fires a `gg:session-expired` DOM event when stale.
 
 All edge function calls require the token in the `X-Session-Token` header:
 
 ```typescript
-// Always pass the session token from useWalletAuth
 const { sessionToken, verifyWallet } = useWalletAuth()
 
-const result = await supabase.functions.invoke('secure-wager', {
-  body: { action: 'create', ...payload },
-  headers: { 'X-Session-Token': sessionToken }
-})
+const result = await invokeSecureWager(
+  { action: 'create', ...payload },
+  sessionToken
+)
 ```
 
-If a feature needs a new edge function call, use this pattern — never call Supabase directly for writes.
+The Next.js API routes for settings and username operations use the same token format and validate it using `AUTHORITY_WALLET_SECRET` server-side — the same HMAC-SHA256 scheme as the edge functions.
 
-#### 2. React Query + GameEventContext for Wager State
+### 2. React Query + GameEventContext for Wager State
 
 The project uses `@tanstack/react-query` (not SWR) for data fetching. `GameEventContext` runs a global Supabase Realtime subscription on `wagers` and calls `queryClient.invalidateQueries(['wagers'])` on any change. This keeps all wager data fresh across the app without per-component polling.
+
+`GameEventContext` also holds a stable ref to `useCheckGameComplete` (from `useWagers`) and uses it to forward chess game checks triggered by Realtime updates — avoiding duplicate polling from individual components.
 
 ```typescript
 // Don't set up your own wager subscription in a component
@@ -216,7 +310,52 @@ const { data: wagers } = useQuery(['wagers', 'open'], fetchOpenWagers)
 // This auto-refreshes when any wager changes — no extra setup needed
 ```
 
-#### 3. Supabase Realtime — Avoid Duplicate Channels
+### 3. Non-Chess Peer Voting Flow
+
+CODM, PUBG, and Free Fire wagers use a two-phase flow after the external game ends.
+
+**Phase 1 — Game Complete Confirmation:**
+Each player calls `markGameComplete` via `useMarkGameComplete()`. When both players confirm, `secure-wager` stamps `game_complete_deadline` (NOW + 10s) and `vote_deadline` (NOW + 5m 10s). The `GameCompleteModal` component drives this phase and shows the shared countdown.
+
+**Phase 2 — Voting:**
+`VotingModal` opens automatically once the countdown fires. Each player calls `submitVote` via `useSubmitVote()`. `deriveVoteOutcome()` in `useVoting.ts` derives the UI state from the wager's vote fields without an extra query.
+
+```typescript
+// Derive vote state from wager data you already have
+const outcome = deriveVoteOutcome(wager, myWallet)
+// Returns: 'waiting' | 'pending' | 'agree' | 'disagree'
+```
+
+Players can retract a vote with `useRetractVote()` only while the opponent hasn't voted yet. Do not allow retraction once both votes are in — the outcome is final at that point.
+
+### 4. Game Account Binding
+
+PUBG, CODM, and Free Fire accounts are bound via `GameAccountCard`. The flow differs by game:
+
+- **PUBG**: Calls `/api/pubg/verify-username` first (server-side PUBG API lookup). If `PUBG_API_KEY` is not configured, returns `valid: null` and the UI falls back to a manual confirmation flow identical to CODM.
+- **CODM / Free Fire**: Manual bind only — player confirms the username is theirs via four consent checkboxes.
+
+After user confirmation, `secure-player` `bindGame` action is called. If the username is already taken by another wallet, the edge function returns `USERNAME_TAKEN` and the UI enters the **appeal flow**:
+
+1. Player clicks "File Appeal" → `/api/username/appeal` creates a `username_appeals` row and notifies the holder
+2. Holder sees a notification and responds at `/api/username/appeal/respond` with `release` or `contest`
+3. If contested, it enters moderator review in the admin panel
+
+Players can also submit a formal change request (to rebind an already-linked account) via the "Request Change" flow in `GameAccountCard`, which calls `/api/username/change-request`. A max of 2 approved/pending requests per game per rolling 12-month window is enforced server-side.
+
+### 5. Player Settings
+
+`usePlayerSettings` manages the two notification toggles (`push_notifications_enabled`, `moderation_requests_enabled`) via `/api/settings`. The hook uses optimistic updates and is gated on `!!sessionToken` to avoid a flood of 401s before the user has signed the verification message.
+
+```typescript
+const { settings, updateSettings, isUpdating } = usePlayerSettings()
+
+await updateSettings({ pushNotificationsEnabled: false })
+```
+
+The hook translates between camelCase (TypeScript) and snake_case (API/DB) automatically.
+
+### 6. Supabase Realtime — Avoid Duplicate Channels
 
 Four tables have Realtime enabled: `wagers`, `wager_transactions`, `notifications`, `wager_messages`.
 
@@ -232,13 +371,26 @@ Four tables have Realtime enabled: `wagers`, `wager_transactions`, `notification
   <WagerChat messages={messages} onSend={sendMessage} />  // receives props
 ```
 
-#### 4. Type Safety
+### 7. Type Safety
 
 Types have two sources:
-- `src/integrations/supabase/types.ts` — auto-generated from the live DB schema
-- `src/hooks/useWagerChat.ts` — manually defined `WagerMessage` and `ProposalData` interfaces (because `wager_messages` is not yet in the generated types)
 
-After any DB migration, regenerate:
+- `src/integrations/supabase/types.ts` — auto-generated from the live DB schema
+- Manual interfaces in individual hooks — because v1.5.0 tables (`wager_messages`, `moderation_requests`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log`) and new columns on `players`/`wagers` are not yet in the generated types
+
+**Tables/columns with `as any` workarounds (until types are regenerated):**
+
+| Location | Reason |
+|----------|--------|
+| `useWagerChat.ts` — `WagerMessage` interface | `wager_messages` not in generated types |
+| `src/app/api/settings/route.ts` | `push_notifications_enabled`, `moderation_requests_enabled` new columns |
+| `usePlayerSettings.ts` | Same new columns |
+| `useWagers.ts` — `Wager` interface | New v1.5.0 wager columns (game_complete_*, vote_deadline, dispute_created_at) |
+| `src/app/api/username/appeal/route.ts` | `username_appeals`, `player_behaviour_log` new tables |
+| `src/app/api/username/change-request/route.ts` | `username_change_requests`, `player_behaviour_log`, `is_suspended` column |
+
+After any DB migration, regenerate to clear all gaps:
+
 ```bash
 supabase gen types typescript --project-id your_project_ref > src/integrations/supabase/types.ts
 ```
@@ -291,33 +443,32 @@ Auto-refresh `updated_at` on any UPDATE. Two variants exist from migration histo
    ```
 
 3. **Add the edge function action** (for any write operation)
-   
-   Add a new `case` to `secure-wager/index.ts` or create a new function in `supabase/functions/`:
+
+   Add a new `if (action === 'myNewAction')` block to `secure-wager/index.ts` or create a new function in `supabase/functions/`:
    ```typescript
-   case 'myNewAction': {
+   if (action === 'myNewAction') {
      // Validate session token (already done by the function wrapper)
      // Perform DB operation with service role client
      // Return result
+     return respond({ ok: true })
    }
    ```
 
 4. **Call from the frontend via `invokeSecureWager`**
    ```typescript
-   const result = await invokeSecureWager('myNewAction', { ...payload }, sessionToken)
+   const result = await invokeSecureWager<{ ok: boolean }>(
+     { action: 'myNewAction', ...payload },
+     sessionToken
+   )
    ```
 
-5. **Build React components**
-   ```typescript
-   import { useWagers } from '@/hooks/useWagers'
-   ```
+5. **For new Next.js API routes** (settings, username ops, PUBG-style server-side calls): validate the session token using the HMAC-SHA256 pattern from `src/app/api/settings/route.ts`. The `validateSessionToken` function is copy-pasted across these routes — if you need to change the token scheme, update all of them.
 
 6. **Update documentation**
-   - Add to `README_DEV.md` edge function actions table
+   - Update this guide's structure tree and action tables
    - Update `API_REFERENCE.md` if adding endpoints
 
 ### `next.config.ts` — Things to Know
-
-The config has a few non-obvious settings:
 
 - **Webpack fallbacks** — `fs: false, net: false, tls: false` are required for Solana Web3.js in the Next.js browser bundle. Don't remove them.
 - **Image domains** — `lichess.org`, `*.lichess.org`, `*.supabase.co` (for avatars), and `gateway.pinata.cloud` (for NFT images via IPFS/Pinata) are whitelisted. Add new domains here when needed.
@@ -328,12 +479,13 @@ The config has a few non-obvious settings:
 This file is the single source of truth for all on-chain constants:
 
 ```typescript
-// These must match lib.rs exactly — do NOT hardcode them elsewhere
 PROGRAM_ID         // E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR
 AUTHORITY_PUBKEY   // Ec7XfHbeDw1YmHzcGo3WrK73QnqQ3GL9VBczYGPCQJha
 PLATFORM_WALLET_PUBKEY  // 3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY
 PLATFORM_FEE_BPS   // 1000 (10%)
 RETRACT_WINDOW_SECONDS  // 15 (matches lib.rs)
+MODERATOR_POPUP_SECONDS // 30 (auto-reject window for moderation requests)
+MODERATOR_FEE_SHARE_PERCENT // 40 (moderator gets 40% of platform fee = 4% of pot)
 ```
 
 The instruction discriminators are also here — if you ever redeploy the Anchor program, update these from the new IDL. Using a stale discriminator will cause silent transaction failures.
@@ -341,19 +493,25 @@ The instruction discriminators are also here — if you ever redeploy the Anchor
 ### Code Standards
 
 #### TypeScript
+
 - Use strict mode: `"strict": true`
-- Avoid `any` — the one intentional exception is `useWagerChat.ts` which casts to `any` at the Supabase client boundary because `wager_messages` isn't yet in generated types
+- Avoid `any` — the intentional exceptions are documented in the type safety table above. Don't add new `as any` casts without a comment explaining why and a note that types need regenerating.
 - Export types from a single location
+- The `Wager` interface in `useWagers.ts` and `WagerMessage` in `useWagerChat.ts` are the authoritative TypeScript shapes for those tables until generated types catch up
 
 #### React
+
 - Functional components only
-- Use React Query for data fetching, not SWR (the codebase uses `@tanstack/react-query`)
+- Use React Query for data fetching, not SWR (`@tanstack/react-query` v5)
 - Avoid prop drilling — use context for shared state
 - Don't create Supabase Realtime channels in components — use the existing hooks
+- `GameCompleteModal` and `VotingModal` receive the wager as a prop and rely on `GameEventContext` for live updates — they do not create their own subscriptions
 
 #### Edge Functions
+
 - All player write operations must go through edge functions (see architecture pattern above)
 - Always validate the `X-Session-Token` header — the function wrapper handles this, don't skip it
+- `checkGameComplete` is the only unauthenticated action — it's called by the `check-chess-games` cron function which doesn't have a user session token
 - Use the service role client for DB writes, not the anon client
 
 ---
@@ -389,7 +547,7 @@ supabase.from('players').select('*').ilike('username', `%${q}%`)
 
 ### Realtime — Use GameEventContext
 
-Don't subscribe to `wagers` Realtime in individual components. `GameEventContext` already handles this globally and invalidates the React Query cache for all wager queries.
+Don't subscribe to `wagers` Realtime in individual components. `GameEventContext` already handles this globally and invalidates the React Query cache for all wager queries. `GameCompleteModal` and `VotingModal` both rely on the parent passing a live wager object rather than subscribing themselves.
 
 ### Caching Strategy
 
@@ -402,6 +560,9 @@ useQuery(['leaderboard'], fetchLeaderboard, { staleTime: 60_000 })
 
 // Player profile — changes infrequently
 useQuery(['player', wallet], fetchPlayer, { staleTime: 120_000 })
+
+// Player settings — stable, poll rarely
+useQuery(['playerSettings', wallet], fetchSettings, { staleTime: 300_000 })
 ```
 
 ---
@@ -409,16 +570,19 @@ useQuery(['player', wallet], fetchPlayer, { staleTime: 120_000 })
 ## Git Workflow
 
 ### Branch Naming
+
 - Feature: `feature/short-description`
 - Bug fix: `fix/short-description`
 - Documentation: `docs/short-description`
 
 ### Commit Messages
+
 ```
-feat: add wager voting system
-fix: prevent duplicate wager joins
-docs: update API reference for new endpoints
-refactor: extract WagerCard component
+feat: add peer voting flow for non-chess wagers
+feat: add PUBG username verification via API
+fix: prevent duplicate wager chat channel subscriptions
+docs: update API reference for username appeal routes
+refactor: extract GameAccountCard from profile page
 ```
 
 ---
@@ -428,9 +592,11 @@ refactor: extract WagerCard component
 ### Console Logging
 
 Structured logging pattern used throughout:
+
 ```typescript
-console.log('[secure-wager] Creating wager:', { wagerId, stake, game })
-console.error('[useWagers] Edge function error:', error.message)
+console.log('[secure-wager] Action: markGameComplete', { wagerId })
+console.error('[usePlayerSettings] PATCH error:', error.message)
+console.log('[check-chess-games] wager {id}: gameComplete=true resultType=mate')
 ```
 
 ### Solana Transactions
@@ -448,16 +614,20 @@ Or use the Solana Explorer: `https://explorer.solana.com/tx/<sig>?cluster=devnet
 ```bash
 supabase functions logs secure-wager --tail
 supabase functions logs resolve-wager --tail
+supabase functions logs check-chess-games --tail
 ```
 
 ### Session Token Issues
 
 If edge function calls return 401 unexpectedly, the session token may be expired. Listen for the `gg:session-expired` DOM event:
+
 ```typescript
 window.addEventListener('gg:session-expired', () => {
   // Re-trigger verifyWallet()
 })
 ```
+
+The same 401 → `gg:session-expired` dispatch is in `invokeSecureWager`. The Next.js API routes (`/api/settings`, `/api/username/*`) return a 401 JSON response but do not dispatch the event — handle them separately in the calling hook.
 
 ### DB Write Not Sticking
 
@@ -477,14 +647,29 @@ Check `NEXT_PUBLIC_SOLANA_RPC_URL` is accessible and `NEXT_PUBLIC_SOLANA_NETWORK
 ### Edge function returns 401
 Session token is missing or expired. Call `verifyWallet()` from `useWalletAuth` to re-authenticate, or check that `X-Session-Token` is being passed in the request header.
 
+### Next.js API route returns 401 (settings / username routes)
+`AUTHORITY_WALLET_SECRET` is missing from `.env.local`. These routes use the same HMAC-SHA256 validation as edge functions but run in the Next.js server process, not Supabase — so the secret must be in both places.
+
 ### Wager status update silently fails
 You're writing directly to a protected field. Route through `secure-wager` edge function. See [DB Triggers — Developer Gotchas](#db-triggers--developer-gotchas).
+
+### VotingModal never opens
+Check `game_complete_a` and `game_complete_b` on the wager. Both must be true and `game_complete_deadline` must be stamped before the countdown and voting flow begin. If one player's confirmation didn't register, check edge function logs for a `markGameComplete` error.
+
+### `usePlayerSettings` always returns defaults, never loads real data
+The query is gated on `!!sessionToken`. If the user hasn't signed the verification message yet, it will use placeholder data. The query fires automatically once a session token exists in cache.
+
+### PUBG username verification always returns `valid: null`
+`PUBG_API_KEY` is not set in the environment. This is intentional — the UI falls back to a manual confirmation flow. Set the key if you want live API verification.
+
+### Username bind returns `USERNAME_TAKEN`
+The username is already linked to another wallet. The client should enter the appeal flow — call `/api/username/appeal`. Do not allow the bind to proceed silently.
 
 ### Push notifications not working
 Check that `NEXT_PUBLIC_VAPID_PUBLIC_KEY` has no leading/trailing whitespace (Vercel's env UI can inject it silently). `useNotifications` logs a format warning if it detects this.
 
 ### `wager_messages` missing from types
-This table isn't in the generated types yet. Use the manually typed interfaces in `useWagerChat.ts` until the types are regenerated.
+This table (and all v1.5.0 tables) isn't in the generated types yet. Use the manually typed interfaces until `supabase gen types` is re-run. See the type safety table above.
 
 ### Realtime channel not firing
 You likely have a duplicate channel name. Check that no two mounted components subscribe to the same `wager-chat:{wagerId}` or `notifications:{wallet}` channel simultaneously.
@@ -502,8 +687,9 @@ Application-level rate limits are enforced in edge functions. `notifyChat` is ca
 - [Anchor Docs](https://www.anchor-lang.com)
 - [Solana Web3.js](https://solana-labs.github.io/solana-web3.js/)
 - [Tailwind CSS](https://tailwindcss.com/docs)
-- [TanStack Query](https://tanstack.com/query/latest)
+- [TanStack Query v5](https://tanstack.com/query/latest)
+- [PUBG API Docs](https://documentation.pubg.com/en/introduction.html)
 
 ---
 
-**Last Updated**: March 2026
+**Last Updated**: March 28, 2026 — v1.6.0
