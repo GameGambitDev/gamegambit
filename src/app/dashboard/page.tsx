@@ -23,10 +23,13 @@ import { truncateAddress, formatSol, GAMES } from '@/lib/constants'
 import Link from 'next/link'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useQueryClient } from '@tanstack/react-query'
-import { useMyWagers } from '@/hooks/useWagers'
+import { useMyWagers, useWagerById, type Wager } from '@/hooks/useWagers'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useBalanceAnimation } from '@/contexts/BalanceAnimationContext'
+import { useGameEvents } from '@/contexts/GameEventContext'
+import { GameCompleteModal } from '@/components/Gamecompletemodal'
+import { VotingModal } from '@/components/Votingmodal'
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -199,12 +202,52 @@ export default function DashboardPage() {
   const { data: player, isLoading: playerLoading } = usePlayer()
   const { data: wagers, isLoading: wagersLoading } = useMyWagers()
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
+  const { onWagerResolved, clearPendingResult } = useGameEvents()
+  const walletAddress = publicKey?.toBase58() || ''
+
+  // ── Step 3: Game Complete + Voting modal state ───────────────────────────
+  const [gameCompleteWager, setGameCompleteWager] = useState<Wager | null>(null)
+  const [gameCompleteOpen, setGameCompleteOpen] = useState(false)
+  const [votingWager, setVotingWager] = useState<Wager | null>(null)
+  const [votingOpen, setVotingOpen] = useState(false)
+
+  const { data: gameCompleteWagerLive } = useWagerById(gameCompleteOpen ? gameCompleteWager?.id ?? null : null)
+  const { data: votingWagerLive } = useWagerById(votingOpen ? votingWager?.id ?? null : null)
+
+  // Close modals when wager resolves
+  useEffect(() => {
+    if (!walletAddress) return
+    const unsub = onWagerResolved((wager) => {
+      const isParticipant = wager.player_a_wallet === walletAddress || wager.player_b_wallet === walletAddress
+      if (!isParticipant) return
+      if (gameCompleteWager?.id === wager.id) { setGameCompleteOpen(false); setGameCompleteWager(null) }
+      if (votingWager?.id === wager.id) { setVotingOpen(false); setVotingWager(null) }
+      clearPendingResult(wager.id)
+    })
+    return unsub
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletAddress, onWagerResolved, clearPendingResult])
+
+  const handleOpenGameComplete = (wager: Wager) => {
+    setGameCompleteWager(wager)
+    setGameCompleteOpen(true)
+  }
+
+  const handleOpenVoting = (wager: Wager) => {
+    setVotingWager(wager)
+    setVotingOpen(true)
+  }
+
+  const handleBothConfirmed = () => {
+    const w = gameCompleteWagerLive ?? gameCompleteWager
+    setGameCompleteOpen(false)
+    if (w) { setVotingWager(w); setVotingOpen(true) }
+  }
 
   const activeWagers = wagers?.filter(w => ['created', 'joined', 'voting', 'disputed'].includes(w.status)) || []
   const completedWagers = wagers?.filter(w => w.status === 'resolved') || []
   const recentMatches = completedWagers.slice(0, 5)
 
-  const walletAddress = publicKey?.toBase58() || ''
   const totalGames = (player?.total_wins ?? 0) + (player?.total_losses ?? 0)
   const winRate = totalGames > 0
     ? Math.round((player!.total_wins / totalGames) * 100)
@@ -584,6 +627,9 @@ export default function DashboardPage() {
                           ? wager.player_b_wallet
                           : wager.player_a_wallet
                         const isLive = wager.status === 'joined' || wager.status === 'voting'
+                        const isNonChessVoting = wager.status === 'voting' && wager.game !== 'chess'
+                        const needsGameComplete = wager.status === 'voting' && wager.game !== 'chess' &&
+                          !(wager.player_a_wallet === walletAddress ? wager.game_complete_a : wager.game_complete_b)
 
                         return (
                           <motion.div
@@ -602,7 +648,19 @@ export default function DashboardPage() {
                                 <div className="text-[10px] text-muted-foreground">{formatSol(wager.stake_lamports)} SOL</div>
                               </div>
                             </div>
-                            {isLive && (
+                            {needsGameComplete && (
+                              <Button size="sm" variant="neon" className="text-[10px] h-6 px-2 flex-shrink-0"
+                                onClick={() => handleOpenGameComplete(wager)}>
+                                Done
+                              </Button>
+                            )}
+                            {isNonChessVoting && !needsGameComplete && (
+                              <Button size="sm" variant="outline" className="text-[10px] h-6 px-2 flex-shrink-0"
+                                onClick={() => handleOpenVoting(wager)}>
+                                Vote
+                              </Button>
+                            )}
+                            {isLive && !isNonChessVoting && (
                               <span className="flex h-2 w-2 flex-shrink-0">
                                 <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-green-400 opacity-75" />
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
@@ -666,6 +724,23 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Game Complete — non-chess wagers in voting state */}
+      <GameCompleteModal
+        wager={gameCompleteWagerLive ?? gameCompleteWager}
+        open={gameCompleteOpen}
+        onOpenChange={(open) => { setGameCompleteOpen(open); if (!open) setGameCompleteWager(null) }}
+        currentWallet={walletAddress}
+        onBothConfirmed={handleBothConfirmed}
+      />
+
+      {/* Voting — opens after both confirm, or directly if already confirmed */}
+      <VotingModal
+        wager={votingWagerLive ?? votingWager}
+        open={votingOpen}
+        onOpenChange={(open) => { setVotingOpen(open); if (!open) setVotingWager(null) }}
+        currentWallet={walletAddress}
+      />
     </div>
   )
 }

@@ -24,8 +24,8 @@ interface CreateWagerModalProps {
 
 const GAME_OPTIONS: { value: GameType; label: string; icon: string; live: boolean }[] = [
   { value: 'chess', label: GAMES.CHESS.name, icon: GAMES.CHESS.icon, live: GAMES.CHESS.live },
-  { value: 'pubg', label: GAMES.PUBG.name, icon: GAMES.PUBG.icon, live: GAMES.PUBG.live },
   { value: 'codm', label: GAMES.CODM.name, icon: GAMES.CODM.icon, live: GAMES.CODM.live },
+  { value: 'pubg', label: GAMES.PUBG.name, icon: GAMES.PUBG.icon, live: GAMES.PUBG.live },
   { value: 'free_fire', label: GAMES.FREE_FIRE.name, icon: GAMES.FREE_FIRE.icon, live: GAMES.FREE_FIRE.live },
 ];
 
