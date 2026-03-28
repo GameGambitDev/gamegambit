@@ -5,7 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletAuth } from './useWalletAuth';
 
 export type WagerStatus = 'created' | 'joined' | 'voting' | 'retractable' | 'disputed' | 'resolved' | 'cancelled';
-export type GameType = 'chess' | 'codm' | 'pubg';
+export type GameType = 'chess' | 'pubg' | 'codm' | 'free_fire';
 
 export interface Wager {
   id: string;
