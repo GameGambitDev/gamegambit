@@ -24,7 +24,7 @@ export const GAMES = {
     platform: 'Activision',
     icon: '🎯',
     color: 'destructive',
-    live: true,
+    live: false,
     apiVerify: false,   // No public API
     usernameKey: 'codm_username' as const,
     playerIdKey: 'codm_player_id' as const,
@@ -35,7 +35,7 @@ export const GAMES = {
     platform: 'PUBG',
     icon: '🔫',
     color: 'accent',
-    live: true,
+    live: false,
     apiVerify: true,    // PUBG API — verify username exists + get accountId
     usernameKey: 'pubg_username' as const,
     playerIdKey: 'pubg_player_id' as const,
@@ -46,7 +46,7 @@ export const GAMES = {
     platform: 'Garena',
     icon: '🔥',
     color: 'secondary',
-    live: true,
+    live: false,
     apiVerify: false,   // No public API
     usernameKey: 'free_fire_username' as const,
     playerIdKey: 'free_fire_uid' as const,
