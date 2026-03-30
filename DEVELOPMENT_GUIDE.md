@@ -355,7 +355,19 @@ await updateSettings({ pushNotificationsEnabled: false })
 
 The hook translates between camelCase (TypeScript) and snake_case (API/DB) automatically.
 
-### 6. Supabase Realtime — Avoid Duplicate Channels
+### 6. Player B Deposit Ordering — `runDepositFlow` in `ReadyRoomModal`
+
+> ⚠️ **Player B must never call `join_wager` before Player A's `create_wager` has confirmed on-chain.**
+
+The `join_wager` instruction reads `stake_lamports` directly from the `WagerAccount` PDA that `create_wager` initialises. If that PDA doesn't exist yet, the Solana program falls back to the minimum rent value (~0.00008 SOL) — Player B deposits the wrong amount regardless of what the frontend passes.
+
+**How it's handled:** Inside `runDepositFlow`, Player B polls `wagerRef.current.deposit_player_a` every 2 seconds before calling `joinWagerOnChain`. `wagerRef` stays in sync with the live Supabase Realtime wager object, so the poll resolves as soon as `recordOnChainCreate` writes `deposit_player_a = true`. The countdown and Ready button are unaffected — Player B still marks ready and the countdown fires normally; the wait happens silently inside the deposit flow.
+
+**If you move deposit logic:** Any future refactor that calls `join_wager` must preserve this ordering guarantee.
+
+---
+
+### 7. Supabase Realtime — Avoid Duplicate Channels
 
 Four tables have Realtime enabled: `wagers`, `wager_transactions`, `notifications`, `wager_messages`.
 
@@ -371,7 +383,7 @@ Four tables have Realtime enabled: `wagers`, `wager_transactions`, `notification
   <WagerChat messages={messages} onSend={sendMessage} />  // receives props
 ```
 
-### 7. Type Safety
+### 8. Type Safety
 
 Types have two sources:
 

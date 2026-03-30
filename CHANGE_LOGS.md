@@ -11,6 +11,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased] — In Progress (March 30, 2026)
+
+### Bug Fix — Player B Deposit Ordering (`ReadyRoomModal`)
+
+**Problem:** When both players marked ready and the countdown reached zero, Player A's `create_wager` and Player B's `join_wager` transactions fired simultaneously. The `join_wager` on-chain instruction reads the stake amount directly from the PDA that `create_wager` initialises. If Player A's transaction had not confirmed yet, the PDA did not exist and the program fell back to minimum rent (~0.00008 SOL) — so Player B always deposited the wrong amount regardless of the agreed stake.
+
+**Fix:** Inside `runDepositFlow`, Player B now polls `wagerRef.current.deposit_player_a` every 2 seconds (up to 2 minutes) before calling `joinWagerOnChain`. Since `wagerRef` stays in sync with the live Supabase Realtime wager object, the poll resolves as soon as Player A's deposit is confirmed in the DB. The countdown, Ready button, and all other UX are unchanged. Player B sees a spinner with the message "Waiting for [challenger name] to deposit their stake first..." during the wait.
+
+---
+
 ## [Unreleased] — In Progress (March 28, 2026)
 
 ### Step 4 — Dispute Grace Period

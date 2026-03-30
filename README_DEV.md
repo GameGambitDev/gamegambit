@@ -529,6 +529,12 @@ startGame → GameCompleteModal (both confirm) → 10s sync → VotingModal (5 m
           → disagree = status: disputed → moderator
 ```
 
+### Deposit Ordering — Player B waits for Player A
+
+> ⚠️ `join_wager` reads `stake_lamports` from the on-chain PDA created by `create_wager`. If Player A's transaction hasn't confirmed when Player B's fires, the PDA doesn't exist and the program uses minimum rent (~0.00008 SOL) instead of the agreed stake.
+
+**Fix (in `ReadyRoomModal.runDepositFlow`):** Player B polls `deposit_player_a` on the live wager object every 2s before calling `joinWagerOnChain`. The countdown and Ready button are unchanged.
+
 ### Error Recovery & Refunds
 - **Cancel Wager**: Either player can cancel from ready room
 - **Automatic Refunds**: Both players refunded on cancellation via `close_wager` on-chain
