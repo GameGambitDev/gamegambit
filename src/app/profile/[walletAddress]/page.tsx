@@ -155,6 +155,7 @@ export default function ProfileByWalletPage({ params }: ProfilePageProps) {
                     <GameAccountCard
                       game={account.game}
                       linkedUsername={account.linkedUsername}
+                      isOwnProfile={false}
                       onLink={async (_username: string) => { }}
                       onAppeal={async (_game: string, _username: string) => { }}
                       onChangeRequest={async (_payload) => { }}

@@ -21,10 +21,10 @@ export const GAMES = {
   CODM: {
     id: 'codm' as const,
     name: 'Call of Duty Mobile',
-    platform: 'Activision',
+    platform: 'Call of Duty Mobile',
     icon: '🎯',
     color: 'destructive',
-    live: false,
+    live: true,
     apiVerify: false,   // No public API
     usernameKey: 'codm_username' as const,
     playerIdKey: 'codm_player_id' as const,
@@ -35,7 +35,7 @@ export const GAMES = {
     platform: 'PUBG',
     icon: '🔫',
     color: 'accent',
-    live: false,
+    live: true,
     apiVerify: true,    // PUBG API — verify username exists + get accountId
     usernameKey: 'pubg_username' as const,
     playerIdKey: 'pubg_player_id' as const,
@@ -46,7 +46,7 @@ export const GAMES = {
     platform: 'Garena',
     icon: '🔥',
     color: 'secondary',
-    live: false,
+    live: true,
     apiVerify: false,   // No public API
     usernameKey: 'free_fire_username' as const,
     playerIdKey: 'free_fire_uid' as const,

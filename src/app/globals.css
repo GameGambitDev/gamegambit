@@ -931,3 +931,36 @@ p, li {
   @apply font-inter text-foreground;
 }
 
+/* Fixed Three.js canvas sits at z-index: 0 (set inline on the div).
+   Every landing section needs position: relative + z-index: 1
+   so content renders on top of the particles. */
+.landing-above-canvas {
+  position: relative;
+  z-index: 1;
+}
+ 
+/* Scroll reveal base state — used by useScrollAnimation inline styles.
+   Adding will-change here globally keeps repaints on the GPU. */
+[data-scroll-reveal] {
+  will-change: opacity, transform;
+}
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

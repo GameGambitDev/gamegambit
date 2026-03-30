@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, CSSProperties } from 'react'
 import { ExternalLink, Trophy, Clock, Swords, Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
 import { useRecentWagers, Wager } from '@/hooks/useWagers'
 import Link from 'next/link'
+import { useScrollAnimation, useParallax, use3DTilt } from '@/hooks/useScrollAnimation'
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -21,40 +22,49 @@ const getGameData = (game: string) => {
 
 const getStatusBadge = (status: string) => {
   switch (status) {
-    case 'created':
-      return <Badge variant="created">Open</Badge>
-    case 'joined':
-      return <Badge variant="joined">Live</Badge>
-    case 'voting':
-      return <Badge variant="voting">Voting</Badge>
-    case 'disputed':
-      return <Badge variant="disputed">Disputed</Badge>
-    case 'resolved':
-      return <Badge variant="resolved">Resolved</Badge>
-    default:
-      return <Badge variant="glass">{status}</Badge>
+    case 'created': return <Badge variant="created">Open</Badge>
+    case 'joined': return <Badge variant="joined">Live</Badge>
+    case 'voting': return <Badge variant="voting">Voting</Badge>
+    case 'disputed': return <Badge variant="disputed">Disputed</Badge>
+    case 'resolved': return <Badge variant="resolved">Resolved</Badge>
+    default: return <Badge variant="glass">{status}</Badge>
   }
+}
+
+function formatTimeAgo(createdAt: string): string {
+  const diffMs = Date.now() - new Date(createdAt).getTime()
+  const mins = Math.floor(diffMs / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  const wks = Math.floor(days / 7)
+  return `${wks}w ago`
 }
 
 function WagerCard({ wager, index, isNew = false }: { wager: Wager; index: number; isNew?: boolean }) {
   const game = getGameData(wager.game)
   const isLive = wager.status === 'joined'
-  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
+  const timeAgo = formatTimeAgo(wager.created_at)
+  const { ref: tiltRef, style: tiltStyle } = use3DTilt<HTMLDivElement>(6)
 
   return (
     <motion.div
+      ref={tiltRef}
+      style={tiltStyle}
       initial={{ opacity: 0, y: isNew ? -24 : -10, x: isNew ? 0 : -20 }}
       animate={{ opacity: 1, y: 0, x: 0 }}
       exit={{ opacity: 0, x: 20, height: 0 }}
-      transition={{ delay: isNew ? 0 : index * 0.08, duration: 0.35, ease: 'easeOut' }}
+      transition={{ delay: isNew ? 0 : index * 0.06, duration: 0.35, ease: 'easeOut' }}
       className={isNew ? 'ring-1 ring-primary/40 rounded-lg shadow-neon-sm' : ''}
     >
-      <Card variant="wager" className="cursor-pointer group">
+      <Card variant="wager" className="cursor-pointer group hover:-translate-y-0.5 transition-transform duration-200">
         <CardContent className="p-4">
           <div className="flex items-center justify-between gap-2">
             {/* Left: Game & Players */}
             <div className="flex items-center gap-3 min-w-0">
-              {/* Game Icon */}
               <div className="relative flex-shrink-0">
                 <div className={`text-2xl sm:text-3xl ${isLive ? 'animate-pulse' : ''}`}>
                   {game.icon}
@@ -67,7 +77,6 @@ function WagerCard({ wager, index, isNew = false }: { wager: Wager; index: numbe
                 )}
               </div>
 
-              {/* Match Info */}
               <div className="min-w-0">
                 <div className="flex items-center gap-1 sm:gap-2 mb-1 flex-wrap">
                   <span className="font-gaming text-xs sm:text-sm text-foreground truncate max-w-[70px] sm:max-w-none">
@@ -82,14 +91,13 @@ function WagerCard({ wager, index, isNew = false }: { wager: Wager; index: numbe
                   <span>{game.name}</span>
                   <span>•</span>
                   <Clock className="h-3 w-3" />
-                  <span>{timeDiff}m ago</span>
+                  <span>{timeAgo}</span>
                 </div>
               </div>
             </div>
 
             {/* Right: Stake & Status */}
             <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-4 flex-shrink-0">
-              {/* Stake */}
               <div className="text-right">
                 <div className="font-gaming text-sm sm:text-lg font-bold text-accent whitespace-nowrap">
                   {formatSol(wager.stake_lamports)} SOL
@@ -99,7 +107,6 @@ function WagerCard({ wager, index, isNew = false }: { wager: Wager; index: numbe
                 </div>
               </div>
 
-              {/* Status */}
               <div className="flex flex-col items-end gap-1 sm:gap-2">
                 {getStatusBadge(wager.status)}
                 {wager.status === 'created' && (
@@ -141,7 +148,6 @@ export function LiveFeed() {
   const { data: wagers, isLoading } = useRecentWagers(10)
   const activeCount = wagers?.filter(w => ['created', 'joined', 'voting'].includes(w.status)).length || 0
 
-  // Track which wager IDs we've already seen so we can highlight new arrivals
   const seenIdsRef = useRef<Set<string>>(new Set())
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
@@ -156,26 +162,47 @@ export function LiveFeed() {
     wagers.forEach(w => seenIdsRef.current.add(w.id))
   }, [wagers])
 
+  // Section-level scroll entrance
+  const { ref: sectionRef, isVisible: sectionVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.05 })
+  const { ref: countRef, isVisible: countVisible } = useScrollAnimation<HTMLDivElement>()
+  const orbY = useParallax(-0.10)
+
+  const sectionStyle: CSSProperties = {
+    opacity: sectionVisible ? 1 : 0,
+    transform: sectionVisible ? 'none' : 'translateY(32px)',
+    transition: 'opacity 0.65s cubic-bezier(.22,1,.36,1), transform 0.65s cubic-bezier(.22,1,.36,1)',
+  }
+
   return (
-    <section className="py-20 relative">
-      <div className="container px-4">
+    <section className="py-20 relative overflow-hidden" style={{ zIndex: 1 }}>
+      {/* Parallax glow orb */}
+      <div
+        className="absolute left-1/2 -translate-x-1/2 top-0 w-[600px] h-[300px] rounded-full pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse, hsl(270 100% 60% / 0.06), transparent)',
+          filter: 'blur(60px)',
+          transform: `translateX(-50%) translateY(${orbY}px)`,
+        }}
+      />
+
+      <div className="container px-4 relative z-10">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-          <div>
-            <h2 className="text-3xl font-bold mb-2 font-gaming">
-              <span className="text-foreground">Live</span>{' '}
-              <span className="gradient-text">Arena</span>
-            </h2>
-            <p className="text-muted-foreground">
-              Watch matches unfold in real-time
-            </p>
+        <div ref={sectionRef} style={sectionStyle}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div>
+              <h2 className="text-3xl font-bold mb-2 font-gaming">
+                <span className="text-foreground">Live</span>{' '}
+                <span className="gradient-text">Arena</span>
+              </h2>
+              <p className="text-muted-foreground">Watch matches unfold in real-time</p>
+            </div>
+            <Link href="/arena">
+              <Button variant="outline" className="group hover:border-primary/50 hover:shadow-neon transition-all">
+                View All
+                <ExternalLink className="h-4 w-4 ml-2 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              </Button>
+            </Link>
           </div>
-          <Link href="/arena">
-            <Button variant="outline" className="group hover:border-primary/50 hover:shadow-neon transition-all">
-              View All
-              <ExternalLink className="h-4 w-4 ml-2 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </Button>
-          </Link>
         </div>
 
         {/* Feed */}
@@ -200,8 +227,16 @@ export function LiveFeed() {
           <EmptyFeed />
         )}
 
-        {/* Live Count */}
-        <div className="mt-8 text-center">
+        {/* Live count — scroll-triggered fade-in */}
+        <div
+          ref={countRef}
+          className="mt-8 text-center"
+          style={{
+            opacity: countVisible ? 1 : 0,
+            transform: countVisible ? 'none' : 'translateY(16px)',
+            transition: 'opacity 0.5s cubic-bezier(.22,1,.36,1) 0.2s, transform 0.5s cubic-bezier(.22,1,.36,1) 0.2s',
+          }}
+        >
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-card/50 border border-border/50 backdrop-blur-sm">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />

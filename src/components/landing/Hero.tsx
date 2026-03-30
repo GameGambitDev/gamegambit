@@ -6,13 +6,74 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowRight, Zap, Shield, Users, Sparkles, Download } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { useEffect, useState } from 'react'
+import { use3DTilt } from '@/hooks/useScrollAnimation'
 import { usePWA } from '@/contexts/PWAContext'
+import { useEffect, useState } from 'react'
+import React from 'react'
+
+// Shake keyframes — injected once via a style tag
+const SHAKE_CSS = `
+@keyframes gg-shake {
+  0%,100% { transform: perspective(800px) translateX(0) rotateZ(0deg); }
+  15%      { transform: perspective(800px) translateX(-4px) rotateZ(-1.5deg); }
+  30%      { transform: perspective(800px) translateX(4px) rotateZ(1.5deg); }
+  45%      { transform: perspective(800px) translateX(-3px) rotateZ(-1deg); }
+  60%      { transform: perspective(800px) translateX(3px) rotateZ(0.8deg); }
+  75%      { transform: perspective(800px) translateX(-1px) rotateZ(-0.4deg); }
+}
+@keyframes gg-border-pulse {
+  0%,100% { box-shadow: 0 0 0px 0px hsl(var(--primary)/0); }
+  50%      { box-shadow: 0 0 16px 2px hsl(var(--primary)/0.35); }
+}
+.gg-shake {
+  animation: gg-shake 0.55s cubic-bezier(.36,.07,.19,.97) both,
+             gg-border-pulse 0.55s ease both;
+}
+`
+
+function FeatureCard({ icon: Icon, label, desc, delay, shakeDelay }: {
+  icon: React.ElementType; label: string; desc: string; delay: number; shakeDelay: number
+}) {
+  const { ref: tiltRef, style: tiltStyle } = use3DTilt<HTMLDivElement>(10)
+  const [shaking, setShaking] = useState(false)
+
+  // One-shot sequential shake after mount
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setShaking(true)
+      setTimeout(() => setShaking(false), 600)
+    }, shakeDelay)
+    return () => clearTimeout(t)
+  }, [shakeDelay])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay }}
+    >
+      <div
+        ref={tiltRef}
+        style={tiltStyle}
+        className={`flex flex-col items-center p-6 rounded-xl bg-card/50 border border-border/50 transition-colors duration-300 backdrop-blur-sm group hover:border-primary/50 ${shaking ? 'gg-shake' : ''}`}
+      >
+        <div className="p-3 rounded-lg bg-primary/10 mb-4 group-hover:bg-primary/20 group-hover:shadow-neon transition-all">
+          <Icon className={`h-6 w-6 text-primary ${shaking ? 'text-accent' : ''} transition-colors duration-200`} />
+        </div>
+        <h3 className="font-gaming text-lg font-semibold mb-1">{label}</h3>
+        <p className="text-sm text-muted-foreground">{desc}</p>
+      </div>
+    </motion.div>
+  )
+}
 
 const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => ({ default: m.WalletMultiButton })),
   { ssr: false }
 )
+
+// NOTE: HeroCanvas is no longer mounted here — it lives in page.tsx at the
+// page level so it stays fixed behind ALL sections, not just the hero.
 
 export function Hero() {
   const { connected } = useWallet()
@@ -26,26 +87,12 @@ export function Hero() {
   const showBanner = mounted && canInstall
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      <div className="absolute inset-0 cyber-grid opacity-30" />
+    // position: relative + z-index: 1 puts this above the fixed canvas (z: 0)
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden" style={{ zIndex: 1 }}>
+      {/* Static background layers */}
+      <div className="absolute inset-0 cyber-grid opacity-20" />
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-background" />
-      <div className="absolute inset-0 scanline opacity-20" />
-
-      <motion.div
-        animate={{ y: [0, -30, 0], opacity: [0.2, 0.5, 0.2], scale: [1, 1.1, 1] }}
-        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-        className="absolute top-1/4 left-1/4 w-72 h-72 rounded-full bg-gradient-radial from-primary/30 to-transparent blur-3xl"
-      />
-      <motion.div
-        animate={{ y: [0, 30, 0], opacity: [0.15, 0.4, 0.15], scale: [1, 1.15, 1] }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-        className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-gradient-radial from-secondary/25 to-transparent blur-3xl"
-      />
-      <motion.div
-        animate={{ x: [0, 20, 0], opacity: [0.1, 0.3, 0.1] }}
-        transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
-        className="absolute top-1/2 right-1/3 w-64 h-64 rounded-full bg-gradient-radial from-accent/20 to-transparent blur-3xl"
-      />
+      <div className="absolute inset-0 scanline opacity-10" />
 
       <div className="container relative z-10 px-4 py-16 sm:py-32">
         <div className="max-w-4xl mx-auto text-center">
@@ -117,7 +164,7 @@ export function Hero() {
             </Link>
           </motion.div>
 
-          {/* PWA Install Banner — always visible when installable, no dismiss button */}
+          {/* PWA Install Banner */}
           <AnimatePresence>
             {showBanner && (
               <motion.div
@@ -148,33 +195,12 @@ export function Hero() {
             )}
           </AnimatePresence>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            className="grid grid-cols-1 sm:grid-cols-3 gap-6"
-          >
-            {[
-              { icon: Zap, label: 'Instant Payouts', desc: 'Winner gets 90% of the pot' },
-              { icon: Shield, label: 'Trustless', desc: 'Smart contract secured' },
-              { icon: Users, label: 'P2P Moderation', desc: 'Community-driven disputes' },
-            ].map((feature, i) => (
-              <motion.div
-                key={feature.label}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 + i * 0.1 }}
-                whileHover={{ y: -5, borderColor: 'hsl(var(--primary) / 0.5)' }}
-                className="flex flex-col items-center p-6 rounded-xl bg-card/50 border border-border/50 transition-all duration-300 backdrop-blur-sm group"
-              >
-                <div className="p-3 rounded-lg bg-primary/10 mb-4 group-hover:bg-primary/20 group-hover:shadow-neon transition-all">
-                  <feature.icon className="h-6 w-6 text-primary" />
-                </div>
-                <h3 className="font-gaming text-lg font-semibold mb-1">{feature.label}</h3>
-                <p className="text-sm text-muted-foreground">{feature.desc}</p>
-              </motion.div>
-            ))}
-          </motion.div>
+          <style>{SHAKE_CSS}</style>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <FeatureCard icon={Zap} label="Instant Payouts" desc="Winner gets 90% of the pot" delay={0.6} shakeDelay={1200} />
+            <FeatureCard icon={Shield} label="Trustless" desc="Smart contract secured" delay={0.7} shakeDelay={1550} />
+            <FeatureCard icon={Users} label="P2P Moderation" desc="Community-driven disputes" delay={0.8} shakeDelay={1900} />
+          </div>
         </div>
       </div>
 

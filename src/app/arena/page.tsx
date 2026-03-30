@@ -63,6 +63,18 @@ const getGameData = (game: string) => {
   }
 }
 
+function formatTimeAgo(createdAt: string): string {
+  const diffMs = Date.now() - new Date(createdAt).getTime()
+  const mins = Math.floor(diffMs / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return `${Math.floor(days / 7)}w ago`
+}
+
 // ── Open Wager Card ───────────────────────────────────────────────────────────
 
 function OpenWagerCard({
@@ -79,82 +91,86 @@ function OpenWagerCard({
   creatorUsername?: string | null
 }) {
   const game = getGameData(wager.game)
-  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
 
   return (
-    <Card
-      variant="wager"
-      className="group cursor-pointer hover:border-primary/40 transition-all duration-300"
-      onClick={() => onViewDetails(wager)}
+    <motion.div
+      whileHover={{ y: -2, scale: 1.01 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
     >
-      <CardContent className="p-3 sm:p-4">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            <div className="text-2xl sm:text-3xl flex-shrink-0">{game.icon}</div>
-            <div className="min-w-0">
-              <div className="font-gaming text-sm truncate">
-                <PlayerLink
-                  walletAddress={wager.player_a_wallet}
-                  username={creatorUsername}
-                  className="font-gaming"
-                />
-                {isOwner && <span className="ml-1 text-xs text-primary">(You)</span>}
-              </div>
-              <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
-                <span>{game.name}</span>
-                <span>•</span>
-                <Clock className="h-3 w-3 flex-shrink-0" />
-                <span>{timeDiff}m ago</span>
+      <Card
+        variant="wager"
+        className="group cursor-pointer hover:border-primary/40 hover:shadow-[0_0_18px_0px_hsl(var(--primary)/0.18)] transition-all duration-300"
+        onClick={() => onViewDetails(wager)}
+      >
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+              <div className="text-2xl sm:text-3xl flex-shrink-0 group-hover:scale-110 transition-transform duration-300">{game.icon}</div>
+              <div className="min-w-0">
+                <div className="font-gaming text-sm truncate">
+                  <PlayerLink
+                    walletAddress={wager.player_a_wallet}
+                    username={creatorUsername}
+                    className="font-gaming"
+                  />
+                  {isOwner && <span className="ml-1 text-xs text-primary">(You)</span>}
+                </div>
+                <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
+                  <span>{game.name}</span>
+                  <span>•</span>
+                  <Clock className="h-3 w-3 flex-shrink-0" />
+                  <span>{formatTimeAgo(wager.created_at)}</span>
+                </div>
               </div>
             </div>
+            <div className="font-gaming text-sm sm:text-lg font-bold text-accent whitespace-nowrap flex-shrink-0 group-hover:text-primary transition-colors duration-200">
+              {formatSol(wager.stake_lamports)} SOL
+            </div>
           </div>
-          <div className="font-gaming text-sm sm:text-lg font-bold text-accent whitespace-nowrap flex-shrink-0">
-            {formatSol(wager.stake_lamports)} SOL
-          </div>
-        </div>
 
-        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-          {isOwner ? (
-            <>
-              <Button
-                variant="outline" size="sm" className="flex-1"
-                onClick={() => onEdit?.(wager)}
-              >
-                <Pencil className="h-4 w-4 sm:mr-1" />
-                <span className="hidden sm:inline">Edit</span>
-              </Button>
-              <Button
-                variant="destructive" size="sm" className="flex-1"
-                onClick={() => onDelete?.(wager)}
-              >
-                <Trash2 className="h-4 w-4 sm:mr-1" />
-                <span className="hidden sm:inline">Delete</span>
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="outline" size="sm" className="flex-1"
-                onClick={() => onViewDetails(wager)}
-              >
-                <Eye className="h-4 w-4 sm:mr-1" />
-                <span className="hidden sm:inline">Details</span>
-              </Button>
-              <Button
-                variant="neon" size="sm" className="flex-1"
-                onClick={() => onJoin(wager.id)}
-                disabled={isJoining}
-              >
-                {isJoining
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : 'Accept Challenge'
-                }
-              </Button>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+            {isOwner ? (
+              <>
+                <Button
+                  variant="outline" size="sm" className="flex-1"
+                  onClick={() => onEdit?.(wager)}
+                >
+                  <Pencil className="h-4 w-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Edit</span>
+                </Button>
+                <Button
+                  variant="destructive" size="sm" className="flex-1"
+                  onClick={() => onDelete?.(wager)}
+                >
+                  <Trash2 className="h-4 w-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Delete</span>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline" size="sm" className="flex-1"
+                  onClick={() => onViewDetails(wager)}
+                >
+                  <Eye className="h-4 w-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Details</span>
+                </Button>
+                <Button
+                  variant="neon" size="sm" className="flex-1"
+                  onClick={() => onJoin(wager.id)}
+                  disabled={isJoining}
+                >
+                  {isJoining
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : 'Accept Challenge'
+                  }
+                </Button>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
   )
 }
 
@@ -171,7 +187,6 @@ function LiveMatchCard({
   currentWallet?: string
 }) {
   const game = getGameData(wager.game)
-  const timeDiff = Math.floor((Date.now() - new Date(wager.created_at).getTime()) / 60000)
   const isParticipant = currentWallet === wager.player_a_wallet || currentWallet === wager.player_b_wallet
   const isResolved = wager.status === 'resolved' || (wager.status as string) === 'closed'
   const canEnterReadyRoom = wager.status === 'joined' && isParticipant
@@ -186,67 +201,72 @@ function LiveMatchCard({
   }
 
   return (
-    <Card
-      variant="wager"
-      className="cursor-pointer border-primary/20 hover:border-primary/40 transition-all duration-300"
-      onClick={handleClick}
+    <motion.div
+      whileHover={{ y: -2, scale: 1.01 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
     >
-      <CardContent className="p-3 sm:p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="relative flex-shrink-0">
-              <div className="text-2xl sm:text-3xl">{game.icon}</div>
-              {!isResolved && (
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive" />
-                </span>
+      <Card
+        variant="wager"
+        className="cursor-pointer border-primary/20 hover:border-primary/40 hover:shadow-[0_0_18px_0px_hsl(var(--primary)/0.18)] transition-all duration-300"
+        onClick={handleClick}
+      >
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="relative flex-shrink-0">
+                <div className="text-2xl sm:text-3xl group-hover:scale-110 transition-transform duration-300">{game.icon}</div>
+                {!isResolved && (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive" />
+                  </span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 sm:gap-2 mb-1 flex-wrap">
+                  <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">
+                    {truncateAddress(wager.player_a_wallet)}
+                  </span>
+                  <Swords className="h-3 w-3 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
+                  <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">
+                    {wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
+                  <span>{game.name}</span>
+                  <span>•</span>
+                  <span>{formatTimeAgo(wager.created_at)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-3 flex-shrink-0">
+              <div className="font-gaming text-sm sm:text-base text-accent whitespace-nowrap">
+                {formatSol(wager.stake_lamports * 2)} SOL
+              </div>
+              {isResolved ? (
+                <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap">
+                  {wager.winner_wallet ? '🏆 View' : '🤝 Draw'}
+                </Badge>
+              ) : canEnterReadyRoom ? (
+                <Badge variant="joined" className="cursor-pointer text-xs whitespace-nowrap">Ready Room</Badge>
+              ) : isDisputed ? (
+                <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap border-yellow-500/50 text-yellow-400">
+                  ⚠️ Disputed
+                </Badge>
+              ) : isInProgress && isParticipant ? (
+                <Badge variant="voting" className="cursor-pointer flex items-center gap-1 text-xs whitespace-nowrap">
+                  <Play className="h-3 w-3" /> Watch
+                </Badge>
+              ) : (
+                <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'} className="text-xs whitespace-nowrap">
+                  {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
+                </Badge>
               )}
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 sm:gap-2 mb-1 flex-wrap">
-                <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">
-                  {truncateAddress(wager.player_a_wallet)}
-                </span>
-                <Swords className="h-3 w-3 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
-                <span className="font-gaming text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none">
-                  {wager.player_b_wallet ? truncateAddress(wager.player_b_wallet) : '???'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
-                <span>{game.name}</span>
-                <span>•</span>
-                <span>{timeDiff}m</span>
-              </div>
-            </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-3 flex-shrink-0">
-            <div className="font-gaming text-sm sm:text-base text-accent whitespace-nowrap">
-              {formatSol(wager.stake_lamports * 2)} SOL
-            </div>
-            {isResolved ? (
-              <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap">
-                {wager.winner_wallet ? '🏆 View' : '🤝 Draw'}
-              </Badge>
-            ) : canEnterReadyRoom ? (
-              <Badge variant="joined" className="cursor-pointer text-xs whitespace-nowrap">Ready Room</Badge>
-            ) : isDisputed ? (
-              <Badge variant="outline" className="cursor-pointer text-xs whitespace-nowrap border-yellow-500/50 text-yellow-400">
-                ⚠️ Disputed
-              </Badge>
-            ) : isInProgress && isParticipant ? (
-              <Badge variant="voting" className="cursor-pointer flex items-center gap-1 text-xs whitespace-nowrap">
-                <Play className="h-3 w-3" /> Watch
-              </Badge>
-            ) : (
-              <Badge variant={wager.status === 'voting' ? 'voting' : 'joined'} className="text-xs whitespace-nowrap">
-                {wager.status === 'voting' ? 'In Progress' : 'Ready Room'}
-              </Badge>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </motion.div>
   )
 }
 
