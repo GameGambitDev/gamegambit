@@ -17,23 +17,30 @@ const CORS = {
 const PROGRAM_ID = new PublicKey("E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR");
 const PLATFORM_WALLET = new PublicKey("3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY");
 const RPC_URL = "https://api.devnet.solana.com";
-const ADMIN_WALLET = Deno.env.get("ADMIN_WALLET") ?? "";
 
 const DISCRIMINATORS = {
     resolve_wager: new Uint8Array([31, 179, 1, 228, 83, 224, 1, 123]),
     close_wager: new Uint8Array([167, 240, 85, 147, 127, 50, 69, 203]),
 };
 
+// ── FIX: Lazy Supabase client (avoids boot crash if env vars missing) ────────
 function getSupabase() {
-    return createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) throw new Error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set in edge function secrets");
+    return createClient(url, key);
 }
 
+// ── FIX: Better error message when AUTHORITY_WALLET_SECRET is missing ────────
 function getAuthority(): Keypair {
-    const raw = Deno.env.get("AUTHORITY_WALLET_SECRET")!;
-    const bytes = JSON.parse(raw);
+    const raw = Deno.env.get("AUTHORITY_WALLET_SECRET");
+    if (!raw) throw new Error("AUTHORITY_WALLET_SECRET is not set in edge function secrets — go to Supabase Dashboard → Project Settings → Edge Functions → Secrets and add it");
+    let bytes: number[];
+    try {
+        bytes = JSON.parse(raw);
+    } catch {
+        throw new Error("AUTHORITY_WALLET_SECRET is not valid JSON — it should be a JSON array of numbers, e.g. [1,2,3,...]");
+    }
     return Keypair.fromSecretKey(new Uint8Array(bytes));
 }
 
@@ -91,7 +98,6 @@ async function forceResolve(
         throw new Error(`Cannot resolve wager with status: ${wager.status}`);
     }
 
-    // ── ATOMIC GUARD — prevent double-resolve if admin clicks twice ──────────
     const { data: updatedWager, error: updateError } = await supabase
         .from("wagers")
         .update({
@@ -100,7 +106,7 @@ async function forceResolve(
             resolved_at: new Date().toISOString(),
         })
         .eq("id", wagerId)
-        .in("status", ["voting", "joined", "disputed", "retractable"]) // only succeeds once
+        .in("status", ["voting", "joined", "disputed", "retractable"])
         .select()
         .single();
 
@@ -138,15 +144,10 @@ async function forceResolve(
     const platformFee = Math.floor(totalPot * 0.1);
     const winnerPayout = totalPot - platformFee;
 
-    // upsert with ignoreDuplicates — safe if admin retries after a partial failure
-    const { error: txInsertError } = await supabase.from("wager_transactions").upsert([
+    await supabase.from("wager_transactions").upsert([
         { wager_id: wagerId, wallet_address: winnerWallet, tx_type: "winner_payout", amount_lamports: winnerPayout, tx_signature: sig, status: "confirmed" },
         { wager_id: wagerId, wallet_address: PLATFORM_WALLET.toBase58(), tx_type: "platform_fee", amount_lamports: platformFee, tx_signature: sig, status: "confirmed" },
     ], { onConflict: "tx_signature", ignoreDuplicates: true });
-
-    if (txInsertError) {
-        console.error("[admin-action] forceResolve wager_transactions upsert failed:", JSON.stringify(txInsertError));
-    }
 
     await logAdminAction(supabase, "force_resolve", wagerId, winnerWallet, adminWallet, notes, {
         tx_signature: sig,
@@ -181,9 +182,8 @@ async function forceRefund(
         throw new Error(`Cannot refund wager with status: ${wager.status}`);
     }
 
-    if (!wager.player_b_wallet) throw new Error("Cannot refund single-player wager");
+    if (!wager.player_b_wallet) throw new Error("Cannot refund single-player wager — player B hasn't joined yet");
 
-    // ── ATOMIC GUARD — prevent double-refund if admin clicks twice ───────────
     const { data: updatedWager, error: updateError } = await supabase
         .from("wagers")
         .update({
@@ -192,7 +192,7 @@ async function forceRefund(
             cancel_reason: "admin_force_refund",
         })
         .eq("id", wagerId)
-        .in("status", ["voting", "joined", "disputed", "retractable"]) // only succeeds once
+        .in("status", ["voting", "joined", "disputed", "retractable"])
         .select()
         .single();
 
@@ -225,15 +225,10 @@ async function forceRefund(
     const tx = new Transaction().add(ix);
     const sig = await sendAndConfirmTransaction(connection, tx, [authority], { commitment: "confirmed" });
 
-    // upsert with ignoreDuplicates — safe if admin retries after a partial failure
-    const { error: txInsertError } = await supabase.from("wager_transactions").upsert([
+    await supabase.from("wager_transactions").upsert([
         { wager_id: wagerId, wallet_address: wager.player_a_wallet, tx_type: "cancel_refund", amount_lamports: wager.stake_lamports, tx_signature: sig, status: "confirmed" },
         { wager_id: wagerId, wallet_address: wager.player_b_wallet, tx_type: "cancel_refund", amount_lamports: wager.stake_lamports, tx_signature: sig, status: "confirmed" },
     ], { onConflict: "tx_signature", ignoreDuplicates: true });
-
-    if (txInsertError) {
-        console.error("[admin-action] forceRefund wager_transactions upsert failed:", JSON.stringify(txInsertError));
-    }
 
     await logAdminAction(supabase, "force_refund", wagerId, null, adminWallet, notes, {
         tx_signature: sig,
@@ -320,6 +315,28 @@ async function flagPlayer(
     return { success: true };
 }
 
+// ── FIX: unflagPlayer was missing from the switch — added here ───────────────
+async function unflagPlayer(
+    supabase: ReturnType<typeof getSupabase>,
+    walletAddress: string,
+    adminWallet: string
+) {
+    const { error } = await supabase
+        .from("players")
+        .update({
+            flagged_for_review: false,
+            flag_reason: null,
+            flagged_at: null,
+            flagged_by: null,
+        })
+        .eq("wallet_address", walletAddress);
+
+    if (error) throw new Error("Failed to unflag player");
+
+    await logAdminAction(supabase, "unflag_player", null, walletAddress, adminWallet, null);
+    return { success: true };
+}
+
 async function checkPdaBalance(
     supabase: ReturnType<typeof getSupabase>,
     wagerId: string,
@@ -381,8 +398,17 @@ Deno.serve(async (req) => {
         const body = await req.json();
         const { action, adminWallet, notes } = body;
 
-        if (!ADMIN_WALLET || adminWallet !== ADMIN_WALLET) {
-            return new Response(JSON.stringify({ error: "Forbidden: invalid admin wallet" }), {
+        // ── FIX: Validate ADMIN_WALLET secret is actually set before comparing ──
+        const configuredAdminWallet = Deno.env.get("ADMIN_WALLET");
+        if (!configuredAdminWallet) {
+            return new Response(JSON.stringify({ error: "ADMIN_WALLET is not set in edge function secrets — go to Supabase Dashboard → Project Settings → Edge Functions → Secrets" }), {
+                status: 500,
+                headers: { ...CORS, "Content-Type": "application/json" },
+            });
+        }
+
+        if (!adminWallet || adminWallet !== configuredAdminWallet) {
+            return new Response(JSON.stringify({ error: "Forbidden: your connected wallet does not match the configured ADMIN_WALLET secret" }), {
                 status: 403,
                 headers: { ...CORS, "Content-Type": "application/json" },
             });
@@ -409,6 +435,10 @@ Deno.serve(async (req) => {
                 break;
             case "flagPlayer":
                 result = await flagPlayer(supabase, body.playerWallet, body.reason, adminWallet);
+                break;
+            // ── FIX: unflagPlayer case was missing ──────────────────────────────
+            case "unflagPlayer":
+                result = await unflagPlayer(supabase, body.playerWallet, adminWallet);
                 break;
             case "checkPdaBalance":
                 result = await checkPdaBalance(supabase, body.wagerId, adminWallet);

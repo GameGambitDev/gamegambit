@@ -5,11 +5,16 @@ export interface AdminUser {
     id: string;
     wallet_address: string;
     username: string;
-    email?: string;
+    is_banned: boolean;
+    ban_reason: string;
+    is_flagged: boolean;
+    flag_reason: string;
+    total_wins: number;
+    total_losses: number;
+    total_earnings: number;
+    total_wagered: number;
     created_at: string;
     updated_at: string;
-    is_banned: boolean;
-    is_flagged: boolean;
 }
 
 export function useAdminUsers() {
@@ -21,11 +26,11 @@ export function useAdminUsers() {
 
     const limit = 50;
 
-    const fetchUsers = useCallback(async (pageOffset = 0) => {
+    const fetchUsers = useCallback(async (pageOffset = 0, search?: string) => {
         setLoading(true);
         setError(null);
         try {
-            const result = await getAllUsers(limit, pageOffset);
+            const result = await getAllUsers(limit, pageOffset, search);
             setUsers(result.data || []);
             setTotal(result.total);
             setOffset(pageOffset);

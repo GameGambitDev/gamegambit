@@ -85,7 +85,7 @@ export async function getAllWagers(status?: string, limit = 50, offset = 0) {
             .from('wagers')
             .select('*', { count: 'exact' });
 
-        if (status) query = query.eq('status', status);
+        if (status && status !== 'all') query = query.eq('status', status);
 
         const { data, error, count } = await query
             .range(offset, offset + limit - 1)
@@ -100,32 +100,43 @@ export async function getAllWagers(status?: string, limit = 50, offset = 0) {
 }
 
 /**
- * Get all users — queries the `players` table which is your actual user store.
- * Only selects columns that are confirmed to exist on the table.
- * Stats columns (total_wins etc.) are fetched separately if needed.
+ * Get all users — queries the `players` table.
+ * Uses correct column names from the generated types.
  */
-export async function getAllUsers(limit = 50, offset = 0) {
+export async function getAllUsers(limit = 50, offset = 0, search?: string) {
     try {
-        const { data, error, count } = await supabase
+        let query = supabase
             .from('players')
             .select(
-                'wallet_address, username, is_banned, is_flagged, created_at',
+                'wallet_address, username, is_banned, ban_reason, flagged_for_review, flag_reason, total_wins, total_losses, total_earnings, total_wagered, created_at',
                 { count: 'exact' }
-            )
+            );
+
+        if (search) {
+            query = query.or(`username.ilike.%${search}%,wallet_address.ilike.%${search}%`);
+        }
+
+        const { data, error, count } = await query
             .range(offset, offset + limit - 1)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
 
-        // Normalize shape to match AdminUser interface
+        // Normalize shape — map flagged_for_review → is_flagged for the UI
         const normalized = (data || []).map((row: any) => ({
-            id: row.wallet_address,           // players table uses wallet as PK
+            id: row.wallet_address,
             wallet_address: row.wallet_address,
             username: row.username || '',
             is_banned: row.is_banned ?? false,
-            is_flagged: row.is_flagged ?? false,
+            ban_reason: row.ban_reason || '',
+            is_flagged: row.flagged_for_review ?? false,
+            flag_reason: row.flag_reason || '',
+            total_wins: row.total_wins ?? 0,
+            total_losses: row.total_losses ?? 0,
+            total_earnings: row.total_earnings ?? 0,
+            total_wagered: row.total_wagered ?? 0,
             created_at: row.created_at,
-            updated_at: row.updated_at || row.created_at,
+            updated_at: row.created_at,
         }));
 
         return { data: normalized, total: count || 0 };
@@ -142,7 +153,7 @@ export async function getUserDetails(walletAddress: string) {
     try {
         const { data, error } = await supabase
             .from('players')
-            .select('wallet_address, username, is_banned, is_flagged, created_at')
+            .select('wallet_address, username, is_banned, ban_reason, flagged_for_review, flag_reason, total_wins, total_losses, total_earnings, created_at')
             .eq('wallet_address', walletAddress)
             .single();
 
@@ -164,7 +175,7 @@ export async function getAllDisputedWagers(limit = 50, offset = 0) {
             .select('*', { count: 'exact' })
             .eq('status', 'disputed')
             .range(offset, offset + limit - 1)
-            .order('created_at', { ascending: false });
+            .order('dispute_created_at', { ascending: true });
 
         if (error) throw error;
         return { data, total: count || 0 };
