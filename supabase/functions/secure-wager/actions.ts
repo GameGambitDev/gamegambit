@@ -674,8 +674,8 @@ export async function handleConcedeDispute(supabase: Supabase, walletAddress: st
         await supabase.from('player_behaviour_log').insert({
             player_wallet: walletAddress,
             event_type: 'dispute_conceded',
-            wager_id: wagerId,
-            metadata: { winner_wallet: winnerWallet, conceded_at: now },
+            related_id: wagerId,
+            notes: `Conceded to ${winnerWallet}. Conceded at ${now}.`,
         });
     } catch { /* non-critical */ }
 
@@ -757,16 +757,65 @@ export async function handleRetractVote(supabase: Supabase, walletAddress: strin
     const { wagerId } = data;
     if (!wagerId) return respond({ error: 'wagerId required' }, 400);
     const wager = await getWager(supabase, wagerId as string);
-    if (wager.status !== 'voting') return respond({ error: 'Wager is not in voting state' }, 400);
+
+    // Allow retraction from both 'voting' (solo retract before opponent votes)
+    // and 'retractable' (15s window after both agreed — either player can pull back)
+    if (wager.status !== 'voting' && wager.status !== 'retractable') {
+        return respond({ error: 'Cannot retract at this stage' }, 400);
+    }
+
     const isPlayerA = wager.player_a_wallet === walletAddress;
     const isPlayerB = wager.player_b_wallet === walletAddress;
     if (!isPlayerA && !isPlayerB) return respond({ error: 'Not a participant' }, 403);
-    const opponentVote = isPlayerA ? wager.vote_player_b : wager.vote_player_a;
-    if (opponentVote) return respond({ error: 'Cannot retract — opponent has already voted' }, 400);
+
+    // In 'voting' state: can only retract your own vote if opponent hasn't voted yet
+    if (wager.status === 'voting') {
+        const opponentVote = isPlayerA ? wager.vote_player_b : wager.vote_player_a;
+        if (opponentVote) return respond({ error: 'Cannot retract — opponent has already voted' }, 400);
+    }
+
     const voteField = isPlayerA ? 'vote_player_a' : 'vote_player_b';
     const voteAtField = isPlayerA ? 'vote_a_at' : 'vote_b_at';
-    const { data: updated, error: updateErr } = await supabase.from('wagers').update({ [voteField]: null, [voteAtField]: null }).eq('id', wagerId).select().single();
+
+    // When retracting from 'retractable', clear both votes and reset to 'voting'
+    // so both players must re-vote. Also clear the retract window fields.
+    const updatePayload: Record<string, unknown> = {
+        [voteField]: null,
+        [voteAtField]: null,
+    };
+    if (wager.status === 'retractable') {
+        updatePayload.vote_player_a = null;
+        updatePayload.vote_a_at = null;
+        updatePayload.vote_player_b = null;
+        updatePayload.vote_b_at = null;
+        updatePayload.status = 'voting';
+        updatePayload.retract_deadline = null;
+        updatePayload.winner_wallet = null;
+    }
+
+    const { data: updated, error: updateErr } = await supabase.from('wagers')
+        .update(updatePayload)
+        .eq('id', wagerId)
+        .in('status', ['voting', 'retractable'])
+        .select()
+        .single();
     if (updateErr) return respond({ error: updateErr.message }, 500);
+
+    // Notify both players if a retraction happened during the agreed window
+    if (wager.status === 'retractable') {
+        const retractorName = await getDisplayName(supabase, walletAddress);
+        const opponentWallet = isPlayerA ? wager.player_b_wallet : wager.player_a_wallet;
+        if (opponentWallet) {
+            await insertNotifications(supabase, [{
+                player_wallet: opponentWallet,
+                type: 'wager_vote',
+                title: '↩️ Vote retracted',
+                message: `${retractorName} retracted their vote. Both players need to re-vote.`,
+                wager_id: wagerId as string,
+            }]);
+        }
+    }
+
     return respond({ wager: updated });
 }
 

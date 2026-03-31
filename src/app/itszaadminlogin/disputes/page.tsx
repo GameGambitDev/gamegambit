@@ -2,12 +2,16 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { ProtectedRoute } from '@/components/admin';
-import { motion } from 'framer-motion';
-import { Scale, Search, AlertTriangle, Loader } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    Scale, Search, AlertTriangle, Loader2, RefreshCcw, CheckCircle2,
+    X, Copy, Check, ExternalLink, Clock, ChevronRight, Trophy, RotateCcw,
+    Users, Swords, TrendingUp
+} from 'lucide-react';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
 
-interface Dispute {
+interface DisputeWager {
     id: string;
     match_id: number;
     player_a_wallet: string;
@@ -15,27 +19,346 @@ interface Dispute {
     game: 'chess' | 'codm' | 'pubg' | 'free_fire';
     stake_lamports: number;
     status: string;
-    vote_player_a: string;
-    vote_player_b: string;
+    vote_player_a: string | null;
+    vote_player_b: string | null;
     created_at: string;
+    dispute_created_at: string | null;
+    grace_conceded_by: string | null;
+    moderator_wallet: string | null;
+    winner_wallet: string | null;
+}
+
+const GAME_CONFIG: Record<string, { label: string; icon: string }> = {
+    chess: { label: 'Chess', icon: '♟️' },
+    codm: { label: 'CODM', icon: '🎯' },
+    pubg: { label: 'PUBG', icon: '🪖' },
+    free_fire: { label: 'Free Fire', icon: '🔥' },
+};
+
+function CopyBtn({ text }: { text: string }) {
+    const [copied, setCopied] = useState(false);
+    return (
+        <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            className="text-muted-foreground hover:text-primary transition-colors p-0.5">
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+    );
+}
+
+function TimeAgo({ date }: { date: string }) {
+    const ms = Date.now() - new Date(date).getTime();
+    const mins = Math.floor(ms / 60000);
+    const hrs = Math.floor(mins / 60);
+    const days = Math.floor(hrs / 24);
+    const label = days > 0 ? `${days}d ago` : hrs > 0 ? `${hrs}h ago` : `${mins}m ago`;
+    const urgent = hrs >= 24;
+    return <span className={`text-xs font-semibold ${urgent ? 'text-red-400' : 'text-muted-foreground'}`}>{label}</span>;
+}
+
+function VoteBlock({ label, voterWallet, votedFor, isCorrect }: {
+    label: string; voterWallet: string; votedFor: string | null; isCorrect?: boolean;
+}) {
+    const short = (w: string) => `${w.slice(0, 8)}...${w.slice(-4)}`;
+    const selfVote = votedFor === voterWallet;
+    return (
+        <div className="bg-background/50 rounded-xl p-3 border border-border/30">
+            <p className="text-xs text-muted-foreground font-semibold mb-1.5">{label}</p>
+            <div className="flex items-center gap-1.5 mb-2">
+                <span className="text-xs font-mono text-foreground">{short(voterWallet)}</span>
+                <CopyBtn text={voterWallet} />
+            </div>
+            {votedFor ? (
+                <div className={`text-xs rounded-lg px-2.5 py-1.5 font-semibold border ${selfVote
+                    ? 'bg-primary/10 border-primary/20 text-primary'
+                    : 'bg-purple-500/10 border-purple-500/20 text-purple-400'}`}>
+                    Voted: {selfVote ? '🙋 Themselves' : `Opponent (${short(votedFor)})`}
+                </div>
+            ) : (
+                <div className="text-xs bg-muted/20 border border-border/30 rounded-lg px-2.5 py-1.5 text-muted-foreground">
+                    No vote yet
+                </div>
+            )}
+        </div>
+    );
+}
+
+function DisputeCard({ dispute, isExpanded, onToggle, onAction, actionLoading, publicKey }: {
+    dispute: DisputeWager;
+    isExpanded: boolean;
+    onToggle: () => void;
+    onAction: (action: string, wagerId: string, extra?: Record<string, unknown>) => Promise<void>;
+    actionLoading: string | null;
+    publicKey: { toBase58(): string } | null;
+}) {
+    const [resolveStep, setResolveStep] = useState<null | 'pick' | 'confirm'>(null);
+    const [resolveWinner, setResolveWinner] = useState<string | null>(null);
+    const [refundStep, setRefundStep] = useState(false);
+    const [confirmText, setConfirmText] = useState('');
+
+    const short = (w: string) => `${w.slice(0, 8)}...${w.slice(-4)}`;
+    const solStake = (dispute.stake_lamports / 1e9).toFixed(4);
+    const disputedAt = dispute.dispute_created_at || dispute.created_at;
+    const gameCfg = GAME_CONFIG[dispute.game] || { label: dispute.game, icon: '🎮' };
+
+    const resetActions = () => {
+        setResolveStep(null); setResolveWinner(null);
+        setRefundStep(false); setConfirmText('');
+    };
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`glass rounded-2xl border overflow-hidden transition-colors ${isExpanded ? 'border-amber-500/40' : 'border-primary/20 hover:border-primary/40'}`}
+        >
+            {/* Card header - always visible, clickable */}
+            <div
+                className="p-5 cursor-pointer"
+                onClick={() => { onToggle(); resetActions(); }}
+            >
+                <div className="flex items-center justify-between gap-4">
+                    {/* Left: game + match info */}
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="text-2xl shrink-0">{gameCfg.icon}</div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <span className="text-sm font-gaming font-bold text-foreground">
+                                    #{dispute.match_id} · {gameCfg.label}
+                                </span>
+                                <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-semibold px-2 py-0.5 rounded-full">
+                                    Disputed
+                                </span>
+                                {dispute.grace_conceded_by && (
+                                    <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-semibold px-2 py-0.5 rounded-full">
+                                        Grace Conceded
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground font-mono truncate">{dispute.id}</p>
+                        </div>
+                    </div>
+
+                    {/* Right: stake + time */}
+                    <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-amber-400">{(dispute.stake_lamports * 2 / 1e9).toFixed(4)} SOL</p>
+                        <TimeAgo date={disputedAt} />
+                    </div>
+                </div>
+
+                {/* Players summary */}
+                <div className="flex items-center gap-2 mt-3 text-xs">
+                    <span className="font-mono text-muted-foreground">{short(dispute.player_a_wallet)}</span>
+                    <Swords className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span className="font-mono text-muted-foreground">{dispute.player_b_wallet ? short(dispute.player_b_wallet) : 'TBD'}</span>
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground ml-auto transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                </div>
+            </div>
+
+            {/* Expanded detail */}
+            <AnimatePresence>
+                {isExpanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                    >
+                        <div className="border-t border-border/50 p-5 space-y-5">
+                            {/* Vote breakdown */}
+                            <div>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Vote Breakdown</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <VoteBlock
+                                        label="Player A"
+                                        voterWallet={dispute.player_a_wallet}
+                                        votedFor={dispute.vote_player_a}
+                                    />
+                                    {dispute.player_b_wallet && (
+                                        <VoteBlock
+                                            label="Player B"
+                                            voterWallet={dispute.player_b_wallet}
+                                            votedFor={dispute.vote_player_b}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Grace concession info */}
+                            {dispute.grace_conceded_by && (
+                                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">
+                                    <p className="text-xs font-semibold text-emerald-400 mb-1">Player conceded during grace period</p>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-mono text-foreground">{short(dispute.grace_conceded_by)}</span>
+                                        <CopyBtn text={dispute.grace_conceded_by} />
+                                        <span className="text-xs text-muted-foreground ml-1">admitted opponent won</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Moderator info */}
+                            {dispute.moderator_wallet && (
+                                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+                                    <p className="text-xs font-semibold text-blue-400 mb-1">Moderator assigned</p>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-mono text-foreground">{short(dispute.moderator_wallet)}</span>
+                                        <CopyBtn text={dispute.moderator_wallet} />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Full wallet IDs */}
+                            <div className="bg-background/40 rounded-xl p-4 space-y-2 text-xs">
+                                <p className="font-semibold text-muted-foreground uppercase tracking-wider mb-2">Full Addresses</p>
+                                {[
+                                    { label: 'Wager ID', val: dispute.id },
+                                    { label: 'Player A', val: dispute.player_a_wallet },
+                                    { label: 'Player B', val: dispute.player_b_wallet },
+                                ].filter(r => r.val).map(r => (
+                                    <div key={r.label} className="flex items-start justify-between gap-3">
+                                        <span className="text-muted-foreground shrink-0 w-16">{r.label}</span>
+                                        <div className="flex items-center gap-1 min-w-0">
+                                            <span className="font-mono text-foreground truncate">{r.val!}</span>
+                                            <CopyBtn text={r.val!} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Admin action area */}
+                            <div className="space-y-3 pt-1">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Admin Resolution</p>
+
+                                {resolveStep === null && !refundStep && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            onClick={() => setResolveStep('pick')}
+                                            disabled={!publicKey}
+                                            className="flex items-center justify-center gap-2 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary font-semibold py-3 px-4 rounded-xl transition-colors text-sm disabled:opacity-40"
+                                        >
+                                            <Trophy className="h-4 w-4" />
+                                            Pick Winner
+                                        </button>
+                                        <button
+                                            onClick={() => setRefundStep(true)}
+                                            disabled={!publicKey}
+                                            className="flex items-center justify-center gap-2 bg-slate-500/20 hover:bg-slate-500/30 border border-slate-500/30 text-slate-400 font-semibold py-3 px-4 rounded-xl transition-colors text-sm disabled:opacity-40"
+                                        >
+                                            <RotateCcw className="h-4 w-4" />
+                                            Refund Both
+                                        </button>
+                                    </div>
+                                )}
+
+                                {!publicKey && (
+                                    <p className="text-xs text-amber-400 text-center">Connect admin wallet to take action</p>
+                                )}
+
+                                {/* Resolve: pick winner */}
+                                {resolveStep === 'pick' && (
+                                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+                                        <p className="text-xs text-muted-foreground font-semibold">Who won this match?</p>
+                                        {[
+                                            { label: 'Player A wins', wallet: dispute.player_a_wallet, voted: dispute.vote_player_a === dispute.player_a_wallet },
+                                            ...(dispute.player_b_wallet ? [{ label: 'Player B wins', wallet: dispute.player_b_wallet, voted: dispute.vote_player_b === dispute.player_b_wallet }] : []),
+                                        ].map(({ label, wallet, voted }) => (
+                                            <button key={wallet} onClick={() => { setResolveWinner(wallet); setResolveStep('confirm'); }}
+                                                className="w-full text-left flex items-center justify-between px-4 py-3 text-sm bg-card/60 border border-border/40 hover:border-primary/50 rounded-xl transition-colors">
+                                                <div>
+                                                    <span className="font-semibold text-foreground">{label}</span>
+                                                    <span className="text-xs text-muted-foreground ml-2 font-mono">{short(wallet)}</span>
+                                                </div>
+                                                {voted && <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">Voted for self</span>}
+                                            </button>
+                                        ))}
+                                        <button onClick={resetActions} className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                                            Cancel
+                                        </button>
+                                    </motion.div>
+                                )}
+
+                                {/* Resolve: confirm with CONFIRM input */}
+                                {resolveStep === 'confirm' && resolveWinner && (
+                                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                                        <div className="bg-primary/10 border border-primary/20 rounded-xl p-3">
+                                            <p className="text-xs text-muted-foreground mb-0.5">Awarding win to:</p>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-sm font-mono text-primary font-bold">{resolveWinner}</span>
+                                                <CopyBtn text={resolveWinner} />
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mt-1">They will receive {(dispute.stake_lamports * 2 * 0.9 / 1e9).toFixed(4)} SOL (after platform fee).</p>
+                                        </div>
+                                        <input type="text" value={confirmText} onChange={e => setConfirmText(e.target.value.toUpperCase())}
+                                            placeholder="Type CONFIRM to proceed..." autoFocus
+                                            className="w-full px-4 py-2.5 bg-card border border-border/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm placeholder:text-muted-foreground" />
+                                        <div className="flex gap-2">
+                                            <button onClick={resetActions} className="flex-1 py-2.5 text-sm bg-card border border-border/50 text-foreground rounded-xl hover:border-primary/40 transition-colors">Cancel</button>
+                                            <button
+                                                onClick={async () => {
+                                                    await onAction('forceResolve', dispute.id, {
+                                                        winnerWallet: resolveWinner,
+                                                        notes: 'Admin force resolved via dispute panel'
+                                                    });
+                                                    resetActions();
+                                                }}
+                                                disabled={confirmText !== 'CONFIRM' || actionLoading === dispute.id}
+                                                className="flex-1 py-2.5 text-sm bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                            >
+                                                {actionLoading === dispute.id ? <Loader2 className="h-4 w-4 animate-spin" /> : '✓ Confirm Resolution'}
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {/* Refund confirm */}
+                                {refundStep && (
+                                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                                        <div className="bg-slate-500/10 border border-slate-500/20 rounded-xl p-3">
+                                            <p className="text-xs font-semibold text-slate-400 mb-1">Refund both players</p>
+                                            <p className="text-xs text-muted-foreground">Each player receives {solStake} SOL back. No winner is declared.</p>
+                                        </div>
+                                        <input type="text" value={confirmText} onChange={e => setConfirmText(e.target.value.toUpperCase())}
+                                            placeholder="Type CONFIRM to proceed..." autoFocus
+                                            className="w-full px-4 py-2.5 bg-card border border-border/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm placeholder:text-muted-foreground" />
+                                        <div className="flex gap-2">
+                                            <button onClick={resetActions} className="flex-1 py-2.5 text-sm bg-card border border-border/50 text-foreground rounded-xl hover:border-primary/40 transition-colors">Cancel</button>
+                                            <button
+                                                onClick={async () => {
+                                                    await onAction('forceRefund', dispute.id, { notes: 'Admin force refund via dispute panel' });
+                                                    resetActions();
+                                                }}
+                                                disabled={confirmText !== 'CONFIRM' || actionLoading === dispute.id}
+                                                className="flex-1 py-2.5 text-sm bg-slate-500 hover:bg-slate-500/90 text-white rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                            >
+                                                {actionLoading === dispute.id ? <Loader2 className="h-4 w-4 animate-spin" /> : '↩ Confirm Refund'}
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </motion.div>
+    );
 }
 
 function DisputesContent() {
     const [searchTerm, setSearchTerm] = useState('');
-    const [disputes, setDisputes] = useState<Dispute[]>([]);
+    const [disputes, setDisputes] = useState<DisputeWager[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [selectedDispute, setSelectedDispute] = useState<string | null>(null);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
-    const [txSignature, setTxSignature] = useState<string | null>(null);
-    const [showResolveDropdown, setShowResolveDropdown] = useState<string | null>(null);
-    const [showConfirmInput, setShowConfirmInput] = useState<string | null>(null);
-    const [confirmText, setConfirmText] = useState('');
+    const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
     const { publicKey } = useWallet();
 
-    useEffect(() => {
-        fetchDisputes();
-    }, []);
+    const showToast = (type: 'success' | 'error', msg: string) => {
+        setToast({ type, msg });
+        setTimeout(() => setToast(null), 3500);
+    };
 
     const fetchDisputes = async () => {
         try {
@@ -43,12 +366,11 @@ function DisputesContent() {
             setError(null);
             const { data, error: fetchError } = await getSupabaseClient()
                 .from('wagers')
-                .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, vote_player_a, vote_player_b, created_at')
+                .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, vote_player_a, vote_player_b, created_at, dispute_created_at, grace_conceded_by, moderator_wallet, winner_wallet')
                 .eq('status', 'disputed')
-                .order('created_at', { ascending: true });
-
+                .order('dispute_created_at', { ascending: true, nullsFirst: false });
             if (fetchError) throw fetchError;
-            setDisputes(data || []);
+            setDisputes((data || []) as DisputeWager[]);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch disputes');
         } finally {
@@ -56,336 +378,147 @@ function DisputesContent() {
         }
     };
 
-    const truncateWallet = (wallet: string, start = 8, end = 4) => {
-        if (wallet.length <= start + end) return wallet;
-        return `${wallet.slice(0, start)}...${wallet.slice(-end)}`;
-    };
+    useEffect(() => { fetchDisputes(); }, []);
 
-    const getTimeInDispute = (createdAt: string) => {
-        const now = new Date();
-        const created = new Date(createdAt);
-        const diffMs = now.getTime() - created.getTime();
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-
-        if (diffHours < 1) {
-            const diffMins = Math.floor(diffMs / (1000 * 60));
-            return `${diffMins}m ago`;
-        }
-        if (diffHours < 24) {
-            return `${diffHours}h ago`;
-        }
-        const diffDays = Math.floor(diffHours / 24);
-        return `${diffDays}d ago`;
-    };
-
-    const handleForceResolve = async (disputeId: string, winnerWallet: string) => {
-        if (!publicKey) {
-            setError('Please connect your wallet');
-            return;
-        }
-
-        if (confirmText !== 'CONFIRM') {
-            setError('Please type CONFIRM to proceed');
-            return;
-        }
-
+    const doAction = async (action: string, wagerId: string, extra: Record<string, unknown> = {}) => {
+        if (!publicKey) { showToast('error', 'Connect your wallet first'); return; }
+        setActionLoading(wagerId);
         try {
-            setActionLoading(`resolve-${disputeId}`);
-            const response = await fetch('/api/admin/action', {
+            const res = await fetch('/api/admin/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'forceResolve',
-                    adminWallet: publicKey.toBase58(),
-                    wagerId: disputeId,
-                    winnerWallet,
-                    notes: 'Force resolved from disputes by admin',
-                }),
+                credentials: 'include',
+                body: JSON.stringify({ action, adminWallet: publicKey.toBase58(), wagerId, ...extra }),
             });
-
-            const result = await response.json();
-            if (!result.success) throw new Error(result.error || 'Failed to resolve dispute');
-
-            setTxSignature(result.txSignature);
-            setDisputes(disputes.filter(d => d.id !== disputeId));
-            setTimeout(() => {
-                setSelectedDispute(null);
-                setShowResolveDropdown(null);
-                setShowConfirmInput(null);
-                setConfirmText('');
-                setTxSignature(null);
-            }, 3000);
+            const result = await res.json();
+            if (!result.success) throw new Error(result.error || 'Action failed');
+            showToast('success', action === 'forceResolve' ? 'Dispute resolved — funds sent!' : 'Refund issued — wager cancelled!');
+            setDisputes(prev => prev.filter(d => d.id !== wagerId));
+            setExpandedId(null);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to resolve dispute');
+            showToast('error', err instanceof Error ? err.message : 'Action failed');
         } finally {
             setActionLoading(null);
         }
     };
 
-    const handleForceRefund = async (disputeId: string) => {
-        if (!publicKey) {
-            setError('Please connect your wallet');
-            return;
-        }
-
-        try {
-            setActionLoading(`refund-${disputeId}`);
-            const response = await fetch('/api/admin/action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'forceRefund',
-                    adminWallet: publicKey.toBase58(),
-                    wagerId: disputeId,
-                    notes: 'Force refunded from disputes by admin',
-                }),
-            });
-
-            const result = await response.json();
-            if (!result.success) throw new Error(result.error || 'Failed to refund dispute');
-
-            setTxSignature(result.txSignature);
-            setDisputes(disputes.filter(d => d.id !== disputeId));
-            setTimeout(() => {
-                setSelectedDispute(null);
-                setTxSignature(null);
-            }, 3000);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to refund dispute');
-        } finally {
-            setActionLoading(null);
-        }
-    };
-
-    const filteredDisputes = disputes.filter(dispute => {
-        const matchesSearch = dispute.id.includes(searchTerm) ||
-            dispute.player_a_wallet.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            dispute.player_b_wallet.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesSearch;
+    const filteredDisputes = disputes.filter(d => {
+        const q = searchTerm.toLowerCase();
+        return !q || d.id.includes(q) || d.player_a_wallet.toLowerCase().includes(q) || (d.player_b_wallet?.toLowerCase().includes(q) ?? false);
     });
 
-    if (loading) {
-        return (
-            <ProtectedRoute>
-                <div className="flex items-center justify-center py-12">
-                    <Loader className="h-8 w-8 animate-spin text-primary" />
-                </div>
-            </ProtectedRoute>
-        );
-    }
+    // Stats
+    const urgentCount = disputes.filter(d => {
+        const hrs = (Date.now() - new Date(d.dispute_created_at || d.created_at).getTime()) / 3600000;
+        return hrs >= 24;
+    }).length;
+    const totalPot = disputes.reduce((s, d) => s + d.stake_lamports * 2, 0);
 
     return (
         <ProtectedRoute>
             <div className="space-y-6">
+
+                {/* Toast */}
+                <AnimatePresence>
+                    {toast && (
+                        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+                            className={`fixed top-20 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium
+                                ${toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' : 'bg-red-500/15 border-red-500/30 text-red-400'}`}>
+                            {toast.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                            {toast.msg}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* Header */}
-                <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                >
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/20 rounded-xl p-3">
-                            <Scale className="h-6 w-6 text-primary" />
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 rounded-xl p-3 border border-amber-500/20">
+                            <Scale className="h-6 w-6 text-amber-400" />
                         </div>
                         <div>
                             <h1 className="text-3xl font-gaming font-bold text-glow">Dispute Resolution</h1>
-                            <p className="text-muted-foreground">Review and resolve contested wagers</p>
+                            <p className="text-sm text-muted-foreground">
+                                {disputes.length} active dispute{disputes.length !== 1 ? 's' : ''}
+                                {urgentCount > 0 && <span className="text-red-400 ml-2">· {urgentCount} urgent (24h+)</span>}
+                            </p>
                         </div>
                     </div>
+                    <button onClick={fetchDisputes} disabled={loading}
+                        className="flex items-center gap-2 px-4 py-2 bg-card border border-border/50 hover:border-primary/40 rounded-xl text-sm text-foreground transition-colors disabled:opacity-50">
+                        <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                        <span className="hidden sm:inline">Refresh</span>
+                    </button>
                 </motion.div>
 
-                {/* Error Message */}
-                {error && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-lg"
-                    >
-                        {error}
+                {/* Stats row */}
+                {disputes.length > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-3 gap-3">
+                        {[
+                            { label: 'Total Disputes', value: disputes.length.toString(), icon: Scale, color: 'text-amber-400' },
+                            { label: 'Urgent (24h+)', value: urgentCount.toString(), icon: Clock, color: urgentCount > 0 ? 'text-red-400' : 'text-muted-foreground' },
+                            { label: 'SOL at Stake', value: `${(totalPot / 1e9).toFixed(2)} SOL`, icon: TrendingUp, color: 'text-primary' },
+                        ].map(({ label, value, icon: Icon, color }) => (
+                            <div key={label} className="glass rounded-2xl p-4 border border-primary/20 text-center">
+                                <Icon className={`h-5 w-5 mx-auto mb-1.5 ${color}`} />
+                                <p className={`text-xl font-gaming font-bold ${color}`}>{value}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+                            </div>
+                        ))}
                     </motion.div>
                 )}
 
-                {/* Tx Signature Display */}
-                {txSignature && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-success/10 border border-success/30 text-success px-4 py-3 rounded-lg"
-                    >
-                        <p className="text-sm font-semibold mb-2">Transaction confirmed:</p>
-                        <a
-                            href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs break-all hover:underline"
-                        >
-                            {txSignature}
-                        </a>
-                    </motion.div>
+                {error && (
+                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+                        <AlertTriangle className="h-4 w-4" />{error}
+                    </div>
                 )}
 
                 {/* Search */}
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="glass rounded-2xl p-4 border border-primary/20"
-                >
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+                    className="glass rounded-2xl p-4 border border-primary/20">
                     <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <input
-                            type="text"
-                            placeholder="Search by dispute ID, wager ID, or player..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-card border border-border/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground"
-                        />
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <input type="text" placeholder="Search by wager ID or player wallet..."
+                            value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2.5 bg-card border border-border/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground text-sm" />
                     </div>
                 </motion.div>
 
-                {/* Disputes List */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.2 }}
-                    className="space-y-4"
-                >
-                    {filteredDisputes.map((dispute, idx) => (
-                        <motion.div
-                            key={dispute.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.3 + idx * 0.05 }}
-                            onClick={() => setSelectedDispute(selectedDispute === dispute.id ? null : dispute.id)}
-                            className="glass rounded-2xl border border-primary/20 cursor-pointer hover:border-primary/40 transition-all overflow-hidden"
-                        >
-                            <div className="p-6">
-                                <div className="flex items-start justify-between gap-4 mb-4">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <AlertTriangle className="h-4 w-4 text-orange-400" />
-                                            <h3 className="text-lg font-gaming font-bold text-foreground">Dispute #{dispute.id.slice(0, 8)}</h3>
-                                        </div>
-                                        <p className="text-sm text-muted-foreground mb-3">Wager ID: {dispute.id}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-sm text-primary font-semibold">{(dispute.stake_lamports / 1_000_000_000).toFixed(4)} SOL</p>
-                                        <p className="text-xs text-muted-foreground">{getTimeInDispute(dispute.created_at)}</p>
-                                    </div>
-                                </div>
-
-                                <div className="grid md:grid-cols-2 gap-4 mb-4 pb-4 border-b border-border/50">
-                                    <div>
-                                        <p className="text-xs text-muted-foreground mb-1">Players</p>
-                                        <p className="text-sm text-foreground">{truncateWallet(dispute.player_a_wallet)} vs {truncateWallet(dispute.player_b_wallet)}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-muted-foreground mb-1">Game</p>
-                                        <p className="text-sm text-foreground capitalize">{dispute.game}</p>
-                                    </div>
-                                </div>
-
-                                <div className="mb-4">
-                                    <p className="text-xs text-muted-foreground mb-2">Votes</p>
-                                    <div className="space-y-2 text-sm">
-                                        <p className="text-foreground">Player A voted for: <span className="text-primary font-mono">{truncateWallet(dispute.vote_player_a)}</span></p>
-                                        <p className="text-foreground">Player B voted for: <span className="text-primary font-mono">{truncateWallet(dispute.vote_player_b)}</span></p>
-                                    </div>
-                                </div>
-
-                                {selectedDispute === dispute.id && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: -10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="pt-4 border-t border-border/50 space-y-3"
-                                    >
-                                        <div className="space-y-2">
-                                            <p className="text-xs text-muted-foreground">Force Resolve - Select Winner:</p>
-                                            <div className="flex flex-col md:flex-row gap-2">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setShowResolveDropdown(showResolveDropdown === dispute.id ? null : dispute.id);
-                                                    }}
-                                                    disabled={actionLoading?.startsWith('resolve') || !publicKey}
-                                                    className="flex-1 bg-primary hover:bg-primary/90 disabled:bg-muted text-primary-foreground font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
-                                                >
-                                                    {actionLoading?.startsWith('resolve') ? 'Resolving...' : 'Pick Winner'}
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleForceRefund(dispute.id);
-                                                    }}
-                                                    disabled={actionLoading?.startsWith('refund') || !publicKey}
-                                                    className="flex-1 bg-destructive/20 hover:bg-destructive/30 disabled:bg-muted text-destructive font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
-                                                >
-                                                    {actionLoading?.startsWith('refund') ? 'Refunding...' : 'Force Refund'}
-                                                </button>
-                                            </div>
-
-                                            {showResolveDropdown === dispute.id && (
-                                                <div className="glass rounded-lg border border-primary/20 p-3 space-y-2">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setShowConfirmInput(dispute.id);
-                                                            setShowResolveDropdown(null);
-                                                        }}
-                                                        className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-card rounded transition-colors"
-                                                    >
-                                                        Winner: Player A ({truncateWallet(dispute.player_a_wallet)})
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setShowConfirmInput(`${dispute.id}-b`);
-                                                            setShowResolveDropdown(null);
-                                                        }}
-                                                        className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-card rounded transition-colors"
-                                                    >
-                                                        Winner: Player B ({truncateWallet(dispute.player_b_wallet)})
-                                                    </button>
-                                                </div>
-                                            )}
-
-                                            {showConfirmInput === dispute.id || showConfirmInput === `${dispute.id}-b` ? (
-                                                <div className="glass rounded-lg border border-primary/20 p-3 space-y-2">
-                                                    <p className="text-xs text-muted-foreground">Type CONFIRM to proceed:</p>
-                                                    <input
-                                                        type="text"
-                                                        value={confirmText}
-                                                        onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
-                                                        placeholder="Type CONFIRM..."
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className="w-full px-3 py-2 bg-card border border-border/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm"
-                                                    />
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            const winnerWallet = showConfirmInput === dispute.id
-                                                                ? dispute.player_a_wallet
-                                                                : dispute.player_b_wallet;
-                                                            handleForceResolve(dispute.id, winnerWallet);
-                                                        }}
-                                                        disabled={confirmText !== 'CONFIRM' || actionLoading === `resolve-${dispute.id}`}
-                                                        className="w-full bg-success hover:bg-success/90 disabled:bg-muted text-success-foreground font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
-                                                    >
-                                                        Confirm Resolution
-                                                    </button>
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </div>
-                        </motion.div>
-                    ))}
-                </motion.div>
-
-                {filteredDisputes.length === 0 && (
-                    <div className="text-center py-12 text-muted-foreground">
-                        No active disputes 🎉
+                {/* Disputes list */}
+                {loading ? (
+                    <div className="flex items-center justify-center py-20">
+                        <div className="flex flex-col items-center gap-3">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="text-sm text-muted-foreground">Loading disputes...</p>
+                        </div>
                     </div>
+                ) : filteredDisputes.length === 0 ? (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                        className="glass rounded-2xl border border-primary/20 text-center py-16">
+                        <Scale className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
+                        <p className="text-lg font-gaming font-bold text-foreground mb-1">
+                            {searchTerm ? 'No matches found' : 'No active disputes'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                            {searchTerm ? 'Try a different search' : 'All disputes resolved 🎉'}
+                        </p>
+                    </motion.div>
+                ) : (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
+                        className="space-y-3">
+                        {filteredDisputes.map(dispute => (
+                            <DisputeCard
+                                key={dispute.id}
+                                dispute={dispute}
+                                isExpanded={expandedId === dispute.id}
+                                onToggle={() => setExpandedId(expandedId === dispute.id ? null : dispute.id)}
+                                onAction={doAction}
+                                actionLoading={actionLoading}
+                                publicKey={publicKey}
+                            />
+                        ))}
+                    </motion.div>
                 )}
             </div>
         </ProtectedRoute>
@@ -394,7 +527,7 @@ function DisputesContent() {
 
 export default function DisputesPage() {
     return (
-        <Suspense fallback={<div className="text-center py-12 text-muted-foreground">Loading disputes...</div>}>
+        <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
             <DisputesContent />
         </Suspense>
     );
