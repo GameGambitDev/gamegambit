@@ -9,14 +9,21 @@
 //   1. Realtime INSERT from GameEventContext  → catches the initial assignment live
 //   2. useActiveModerationRequest poll (5s)   → restores state after page refresh
 //
-// Bug 1 fix: the original only used source 1. A moderator who accepted and then
-// refreshed would lose panelRequest (local state reset) and never see the panel
-// again, silently burning their 30-minute decision window.
-//
 // Flow:
 //   pending  → show ModerationRequestModal (30s popup)
 //   accepted → show ModerationPanel (30-min workflow)
 //   any other status → render nothing
+//
+// Fix — panelRequest status patch:
+//   When the moderator accepts via the popup, the Realtime object still has
+//   status='pending' and decision_deadline=null (the INSERT event fires before
+//   the accept API responds). Without patching, the panel mounts with a null
+//   deadline and the countdown shows '--:--' forever.
+//
+//   handleAccepted() now patches the request object to status='accepted' and
+//   sets a provisional decision_deadline of now+30min. The poll (every 5s) will
+//   overwrite this with the real DB value within 5 seconds anyway, so the UI
+//   stays accurate. The patch only exists in local state — no DB write.
 
 import { useState, useEffect } from 'react';
 import { useGameEvents } from '@/contexts/GameEventContext';
@@ -46,6 +53,20 @@ export function ModerationOrchestrator() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [polledRequest?.id, polledRequest?.status]);
 
+    // ── Keep panelRequest fresh from poll ────────────────────────────────────
+    // Once the panel is open, sync it with the latest polled data so the
+    // decision_deadline and status stay accurate without requiring a re-open.
+    useEffect(() => {
+        if (
+            panelRequest &&
+            polledRequest?.id === panelRequest.id &&
+            polledRequest.status === 'accepted'
+        ) {
+            setPanelRequest(polledRequest);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [polledRequest?.decided_at, polledRequest?.decision_deadline]);
+
     // ── Derive what to show ───────────────────────────────────────────────────
     // Realtime event takes priority (it has the freshest object).
     // Poll is the fallback for refresh recovery or missed events.
@@ -67,7 +88,19 @@ export function ModerationOrchestrator() {
         // Prefer the Realtime object (has .status freshly set by accept API);
         // fall back to polledRequest if Realtime already cleared.
         const req = activeModerationRequest ?? polledRequest;
-        if (req) setPanelRequest(req);
+        if (req) {
+            // Patch the request so the panel has a valid decision_deadline immediately.
+            // The real value from the DB will overwrite this within 5s via the poll.
+            // Without the patch, the panel mounts with decision_deadline=null (the
+            // Realtime INSERT event fires before the accept API call completes) and
+            // the countdown shows '--:--' until the first poll cycle.
+            const provisionalDeadline = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+            setPanelRequest({
+                ...req,
+                status: 'accepted',
+                decision_deadline: req.decision_deadline ?? provisionalDeadline,
+            });
+        }
         clearModerationRequest();
     }
 
