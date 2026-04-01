@@ -28,6 +28,12 @@ const games = [
     bgGradient: 'from-yellow-500/20 to-orange-500/20',
     features: ['Solo duels', 'Custom lobbies', 'Kill race'],
   },
+  {
+    ...GAMES.FREE_FIRE,
+    description: 'Fast-paced Battle Royale on mobile. Coming soon — verification integration in progress.',
+    bgGradient: 'from-orange-500/20 to-red-500/20',
+    features: ['Solo duels', 'Custom rooms', 'Kill race'],
+  },
 ]
 
 function GameCard({ game, index }: { game: typeof games[number]; index: number }) {
@@ -175,8 +181,8 @@ export function SupportedGames() {
           </p>
         </div>
 
-        {/* Games grid — each card self-animates */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Games grid — 4 cards, 2-col on md, 4-col on xl */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {games.map((game, index) => (
             <GameCard key={game.id} game={game} index={index} />
           ))}
@@ -197,10 +203,10 @@ export function SupportedGames() {
               <Gamepad2 className="h-12 w-12 text-cyber-magenta mb-4" />
               <h3 className="text-xl font-bold text-balance mb-2">More Games Coming Soon</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                We're actively integrating CODM, PUBG, and additional platforms
+                We're actively integrating CODM, PUBG, Free Fire, and additional platforms
               </p>
               <Badge variant="cyber" className="px-4 py-2">
-                Roadmap: CODM · PUBG · FIFA · Valorant · League of Legends
+                Roadmap: CODM · PUBG · Free Fire · FIFA · Valorant · League of Legends
               </Badge>
             </CardContent>
           </Card>

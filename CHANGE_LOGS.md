@@ -11,6 +11,61 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased] — In Progress (April 1, 2026)
+
+### Bug Fixes — Pre-Step 6 Cleanup
+
+Four bugs confirmed and resolved before Step 6 work begins.
+
+---
+
+**Bug 1 — `settings/route.ts` used wrong secret (BROKEN auth — every call returned 401)**
+
+`src/app/api/settings/route.ts` was validating `X-Session-Token` headers using `AUTHORITY_WALLET_SECRET`.
+However, `verify-wallet` signs tokens with `SUPABASE_SERVICE_ROLE_KEY`. The two secrets are different values,
+so the HMAC comparison always failed. Every call to `GET /api/settings` and `PATCH /api/settings` returned
+401 — the settings page was silently broken for every user.
+
+Fix: Changed `const secret = process.env.AUTHORITY_WALLET_SECRET!` → `const secret = process.env.SUPABASE_SERVICE_ROLE_KEY!`
+and updated the file header comment to reflect the correct secret name and edge function reference.
+
+---
+
+**Bug 2 — `SupportedGames.tsx` missing Free Fire card**
+
+`GAMES.FREE_FIRE` was present in `src/lib/constants.ts` and in `CreateWagerModal` but the hardcoded `games`
+array in `src/components/landing/SupportedGames.tsx` only listed Chess, CODM, and PUBG. The landing page
+showed 3 game cards instead of 4 — Free Fire was invisible to new visitors.
+
+Fix: Added Free Fire entry to the `games` array. Updated grid from `md:grid-cols-3` → `md:grid-cols-2 xl:grid-cols-4`
+to properly lay out 4 cards. Updated "coming soon" copy and Roadmap badge to include Free Fire.
+
+---
+
+**Bug 3 — `LiveFeed.tsx` missing `free_fire` switch case**
+
+`getGameData()` had `case 'chess'`, `case 'codm'`, and `case 'pubg'` but no `case 'free_fire'`. Any Free
+Fire wager surfaced in the live feed fell through to the `default` return, showing a chess icon and the
+name "Chess" instead of the Free Fire emoji and name.
+
+Fix: Added `case 'free_fire': return GAMES.FREE_FIRE` to the switch.
+
+---
+
+**Bug 4 — Moderation timeout cron was never activated**
+
+The `moderation-timeout` Supabase Edge Function was deployed and wired correctly. However, the pg_cron
+schedule that calls it every minute was never run. The cron job only existed in a comment inside the edge
+function — it was never executed in the Supabase SQL editor. As a result, timed-out moderation requests
+(moderator didn't accept within 20s, or accepted but didn't submit verdict) were never reassigned. The
+fallback loop was completely inactive.
+
+Fix: Added `activate_moderation_cron.sql` to the repo root. Run it once in Supabase Dashboard → SQL Editor.
+It creates a `pg_cron` job named `moderation-timeout` that fires every minute and calls the edge function
+via `pg_net`. The function itself handles deadline filtering — running every minute is safe.
+
+---
+
 ## [Unreleased] — In Progress (March 30, 2026)
 
 ### Bug Fix — Player B Deposit Ordering (`ReadyRoomModal`)
@@ -354,7 +409,7 @@ When deploying to Solana Mainnet:
 
 ## Known Issues
 
-### Current (v1.6.0)
+### Current (April 1, 2026)
 
 - `wager_messages`, v1.5.0/v1.6.0 player/wager columns, and `free_fire` game type are not reflected in auto-generated `src/integrations/supabase/types.ts` — worked around with `as any` casts and local interface definitions. Re-run `supabase gen types typescript` after any schema change.
 - `retractable` wager status exists in DB enum but is unused in the current flow.
@@ -362,6 +417,13 @@ When deploying to Solana Mainnet:
 - Occasional delays in Lichess game data synchronization.
 - Admin analytics need optimization for large datasets.
 - 2FA implementation requires email service integration.
+
+### Fixed (April 1, 2026)
+
+- [x] `settings/route.ts` validated session tokens with `AUTHORITY_WALLET_SECRET` instead of `SUPABASE_SERVICE_ROLE_KEY` — every call to GET/PATCH `/api/settings` returned 401
+- [x] `SupportedGames.tsx` was missing Free Fire card — landing page showed 3 games instead of 4
+- [x] `LiveFeed.tsx` `getGameData()` had no `free_fire` case — Free Fire wagers showed chess icon/name
+- [x] `moderation-timeout` pg_cron job was never activated — timed-out moderation requests were never reassigned
 
 ### Fixed (v1.6.0)
 
@@ -409,7 +471,7 @@ When deploying to Solana Mainnet:
 ## Roadmap
 
 ### Q2 2026
-- [ ] Step 4–6 completion (dispute grace period, moderator system, punishments)
+- [ ] Step 6 completion (punishment system — strike tracking, auto-suspend, admin escalation)
 - [ ] Mobile application (React Native)
 - [ ] Tournament mode with brackets
 - [ ] Advanced admin analytics dashboard
@@ -462,4 +524,4 @@ For issues or feature requests:
 
 ---
 
-**Last Updated:** March 28, 2026
+**Last Updated:** April 1, 2026

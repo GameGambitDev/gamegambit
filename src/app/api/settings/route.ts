@@ -3,8 +3,8 @@
 // GET  /api/settings      — returns push_notifications_enabled + moderation_requests_enabled
 // PATCH /api/settings     — updates one or both settings
 //
-// Auth: X-Session-Token header (same HMAC-SHA256 scheme as secure-player edge function)
-// The token contains { wallet, exp } signed with AUTHORITY_WALLET_SECRET.
+// Auth: X-Session-Token header (same HMAC-SHA256 scheme as verify-wallet edge function)
+// The token contains { wallet, exp } signed with SUPABASE_SERVICE_ROLE_KEY.
 //
 // NOTE: push_notifications_enabled and moderation_requests_enabled are new columns
 // added by migration 001. Until `supabase gen types` is re-run after the migration,
@@ -17,9 +17,10 @@ import crypto from 'crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const secret = process.env.AUTHORITY_WALLET_SECRET!;
+// FIX: was AUTHORITY_WALLET_SECRET — verify-wallet signs tokens with SUPABASE_SERVICE_ROLE_KEY
+const secret = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// ── Session validation — mirrors secure-player edge function logic ─────────────
+// ── Session validation — mirrors verify-wallet edge function logic ─────────────
 // Token format: base64(JSON payload) + '.' + sha256_hex(payload + secret)
 
 async function validateSessionToken(token: string): Promise<string | null> {

@@ -16,6 +16,7 @@ const getGameData = (game: string) => {
     case 'chess': return GAMES.CHESS
     case 'codm': return GAMES.CODM
     case 'pubg': return GAMES.PUBG
+    case 'free_fire': return GAMES.FREE_FIRE
     default: return GAMES.CHESS
   }
 }
