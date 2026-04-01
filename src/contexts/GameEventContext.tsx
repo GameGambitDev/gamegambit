@@ -8,7 +8,8 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getSupabaseClient } from '@/integrations/supabase/client'
 import type { Wager } from '@/hooks/useWagers'
-import { useCheckGameComplete } from '@/hooks/useWagers'  // ← ADDED
+import { useCheckGameComplete } from '@/hooks/useWagers'
+import type { ModerationRequest } from '@/hooks/useModeration'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,9 @@ interface GameEventContextValue {
     pendingResults: PendingResult[]
     markResultSeen: (wagerId: string) => void
     clearPendingResult: (wagerId: string) => void
+    // Moderation request popup
+    activeModerationRequest: ModerationRequest | null
+    clearModerationRequest: () => void
 }
 
 const GameEventContext = createContext<GameEventContextValue | null>(null)
@@ -35,13 +39,21 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
     const queryClient = useQueryClient()
     const listenersRef = useRef<Set<(wager: Wager) => void>>(new Set())
 
-    // ── ADDED: stable ref so the polling effect never needlessly restarts ─────
+    // Stable ref so the polling effect never needlessly restarts
     const checkGameComplete = useCheckGameComplete()
     const checkRef = useRef(checkGameComplete)
     useEffect(() => { checkRef.current = checkGameComplete }, [checkGameComplete])
     const inFlightRef = useRef<Set<string>>(new Set())
-    // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Moderation request popup state ────────────────────────────────────────
+    const [activeModerationRequest, setActiveModerationRequest] = useState<ModerationRequest | null>(null)
+    const seenModerationRequestIds = useRef<Set<string>>(new Set())
+
+    const clearModerationRequest = useCallback(() => {
+        setActiveModerationRequest(null)
+    }, [])
+
+    // ── Pending results (persisted to sessionStorage) ─────────────────────────
     const [pendingResults, setPendingResults] = useState<PendingResult[]>(() => {
         if (typeof window === 'undefined') return []
         try {
@@ -53,7 +65,7 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (typeof window === 'undefined') return
         try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pendingResults)) }
-        catch { /* ignore */ }
+        catch { /* ignore quota errors */ }
     }, [pendingResults])
 
     const fireResolved = useCallback((wager: Wager) => {
@@ -79,9 +91,8 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
         setPendingResults(prev => prev.filter(r => r.wager.id !== wagerId))
     }, [])
 
-    // ── ADDED: App-wide background polling ────────────────────────────────────
-    // Previously this only ran inside ArenaPage (broke when you navigated away).
-    // Now it lives here so it works on every page as long as wallet is connected.
+    // ── App-wide background polling for chess game completion ─────────────────
+    // Lives here (not in ArenaPage) so it keeps working across page navigations.
     useEffect(() => {
         if (!walletAddress) return
         const supabase = getSupabaseClient()
@@ -115,24 +126,53 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
             })
         }
 
-        const timeout = setTimeout(poll, 3_000)      // first check 3 s after wallet connects
-        const interval = setInterval(poll, 10_000)   // then every 10 s
+        const timeout = setTimeout(poll, 3_000)    // first check 3s after wallet connects
+        const interval = setInterval(poll, 10_000) // then every 10s
 
         return () => {
             clearTimeout(timeout)
             clearInterval(interval)
         }
     }, [walletAddress, fireResolved, queryClient])
-    // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Realtime: moderation requests assigned to this wallet ─────────────────
+    // When assign-moderator inserts a new row for this wallet, show the popup.
     useEffect(() => {
         if (!walletAddress) return
         const supabase = getSupabaseClient()
 
-        // Two filtered channels — one per player slot.
-        // Supabase Realtime doesn't support OR filters in a single subscription,
-        // so we use two channels. Each user only receives their own wager events
-        // instead of the entire platform's wager table.
+        const channel = supabase
+            .channel(`moderation_requests:${walletAddress}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'moderation_requests',
+                    filter: `moderator_wallet=eq.${walletAddress}`,
+                },
+                (payload) => {
+                    const req = payload.new as ModerationRequest
+                    // Only show if pending and not already seen in this session
+                    if (req.status === 'pending' && !seenModerationRequestIds.current.has(req.id)) {
+                        seenModerationRequestIds.current.add(req.id)
+                        setActiveModerationRequest(req)
+                    }
+                },
+            )
+            .subscribe()
+
+        return () => { supabase.removeChannel(channel) }
+    }, [walletAddress])
+
+    // ── Realtime: wager state changes ─────────────────────────────────────────
+    // Two filtered channels (one per player slot) + one public INSERT channel.
+    // Supabase Realtime doesn't support OR filters in a single subscription,
+    // so we use separate channels to avoid loading the entire wagers table.
+    useEffect(() => {
+        if (!walletAddress) return
+        const supabase = getSupabaseClient()
+
         const handleEvent = (payload: { eventType: string; new: unknown }) => {
             const updated = payload.new as Wager
             const isParticipant =
@@ -219,7 +259,14 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
     }, [walletAddress, queryClient, fireResolved])
 
     return (
-        <GameEventContext.Provider value={{ onWagerResolved, pendingResults, markResultSeen, clearPendingResult }}>
+        <GameEventContext.Provider value={{
+            onWagerResolved,
+            pendingResults,
+            markResultSeen,
+            clearPendingResult,
+            activeModerationRequest,
+            clearModerationRequest,
+        }}>
             {children}
         </GameEventContext.Provider>
     )

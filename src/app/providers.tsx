@@ -19,6 +19,7 @@ import { PWAInstallPrompt, ServiceWorkerUpdater } from '@/components/PWASetup'
 import { GameEventProvider } from '@/contexts/GameEventContext'
 import { ModalProvider } from '@/contexts/ModalContext'
 import { BalanceAnimationProvider } from '@/contexts/BalanceAnimationContext'
+import { ModerationOrchestrator } from '@/components/ModerationOrchestrator'
 
 import '@solana/wallet-adapter-react-ui/styles.css'
 
@@ -135,6 +136,7 @@ export function Providers({ children }: { children: ReactNode }) {
                       <PWAInstallPrompt />
                       <ServiceWorkerUpdater />
                       <AutoPlayerSetup />
+                      <ModerationOrchestrator />
                       {children}
                       {/* <Toaster /> */}
                       <Sonner />

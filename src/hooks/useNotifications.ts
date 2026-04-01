@@ -11,11 +11,13 @@ export interface AppNotification {
     | 'wager_lost'
     | 'wager_draw'
     | 'wager_cancelled'
+    | 'wager_disputed'
     | 'game_started'
     | 'rematch_challenge'
     | 'wager_vote'
     | 'chat_message'
     | 'wager_proposal'
+    | 'moderation_request'
     title: string
     message: string
     wager_id: string | null

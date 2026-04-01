@@ -32,12 +32,12 @@ Real, finalized transactions from the deployed program on Solana Devnet:
 
 | Instruction | Transaction | What Happened |
 |---|---|---|
-| `create_wager` | [`3rUc3Sb...G1Qf`](https://explorer.solana.com/tx/3rUc3SbENp5UcnsLYs5AdZkPuknte4dhUYRFusxueFon7LRaSZxJvN3mBrzkQpcZEFHrJcVsHWdfcZrgLDbzG1Qf?cluster=devnet) | Player A staked 0.5 SOL into escrow PDA |
-| `join_wager` | [`3tB5F8w...nwf`](https://explorer.solana.com/tx/3tB5F8wZMkvFrfUqTw4WhrAmrohsktaxsHT7Z8iDc3wXjB54RbrDrBFt32boBRvnwek6bBVMRteachqPnMHuxnwf?cluster=devnet) | Player B matched the stake — 1 SOL total locked |
-| `resolve_wager` | [`4amRCjE...PBu`](https://explorer.solana.com/tx/4amRCjEFo3NwfExitnbf5F8x9asyxaxYW1tjjG8AHBznHuxER4LjyDXXMeQnTraxYMLoXJGfgprZbDrGvRZwjPBu?cluster=devnet) | Winner received 0.9 SOL, platform took 0.1 SOL fee |
-| `resolve_wager` | [`33Te8Vj...k1n`](https://explorer.solana.com/tx/33Te8VjmqXkKJ9U3MfHRtEyVUC6TTE3H96YvyHZA6drswYw7g1RhbLRtMXskfbRQezvsiTQsP6h4p8YCcJ5v9k1n?cluster=devnet) | Additional resolved wager — 0.9 SOL payout |
-| `close_wager` (draw) | [`63Z4uvP...xhx`](https://explorer.solana.com/tx/63Z4uvPFpYdsMScowXQhfSk4uvfVs3hB2zBNrr2f7Jsst3odEUADFnsWXUV1TfGdu1yRWDmZ6USeGVjjYGdG3xhx?cluster=devnet) | Draw — both players refunded in full |
-| `close_wager` (cancel) | [`2VyA5SF...DyM`](https://explorer.solana.com/tx/2VyA5SFMqWSKeG68aY73aYQ4gd4zFe6C2W37zAMoXPtaevpdJAyudNfSwXhnBmpVaDvMXZ9B3ScxaoHKvrA3TDyM?cluster=devnet) | Cancelled wager — on-chain refund to both players |
+| `create_wager` | [`3rUc3SbENp5UcnsLYs5AdZkPuknte4dhUYRFusxueFon7LRaSZxJvN3mBrzkQpcZEFHrJcVsHWdfcZrgLDbzG1Qf`](https://explorer.solana.com/tx/3rUc3SbENp5UcnsLYs5AdZkPuknte4dhUYRFusxueFon7LRaSZxJvN3mBrzkQpcZEFHrJcVsHWdfcZrgLDbzG1Qf?cluster=devnet) | Player A staked 0.5 SOL into escrow PDA |
+| `join_wager` | [`3tB5F8wZMkvFrfUqTw4WhrAmrohsktaxsHT7Z8iDc3wXjB54RbrDrBFt32boBRvnwek6bBVMRteachqPnMHuxnwf`](https://explorer.solana.com/tx/3tB5F8wZMkvFrfUqTw4WhrAmrohsktaxsHT7Z8iDc3wXjB54RbrDrBFt32boBRvnwek6bBVMRteachqPnMHuxnwf?cluster=devnet) | Player B matched the stake — 1 SOL total locked |
+| `resolve_wager` | [`4amRCjEFo3NwfExitnbf5F8x9asyxaxYW1tjjG8AHBznHuxER4LjyDXXMeQnTraxYMLoXJGfgprZbDrGvRZwjPBu`](https://explorer.solana.com/tx/4amRCjEFo3NwfExitnbf5F8x9asyxaxYW1tjjG8AHBznHuxER4LjyDXXMeQnTraxYMLoXJGfgprZbDrGvRZwjPBu?cluster=devnet) | Winner received 0.9 SOL, platform took 0.1 SOL fee |
+| `resolve_wager` | [`33Te8VjmqXkKJ9U3MfHRtEyVUC6TTE3H96YvyHZA6drswYw7g1RhbLRtMXskfbRQezvsiTQsP6h4p8YCcJ5v9k1n`](https://explorer.solana.com/tx/33Te8VjmqXkKJ9U3MfHRtEyVUC6TTE3H96YvyHZA6drswYw7g1RhbLRtMXskfbRQezvsiTQsP6h4p8YCcJ5v9k1n?cluster=devnet) | Additional resolved wager — 0.9 SOL payout |
+| `close_wager` (draw) | [`63Z4uvPFpYdsMScowXQhfSk4uvfVs3hB2zBNrr2f7Jsst3odEUADFnsWXUV1TfGdu1yRWDmZ6USeGVjjYGdG3xhx`](https://explorer.solana.com/tx/63Z4uvPFpYdsMScowXQhfSk4uvfVs3hB2zBNrr2f7Jsst3odEUADFnsWXUV1TfGdu1yRWDmZ6USeGVjjYGdG3xhx?cluster=devnet) | Draw — both players refunded in full |
+| `close_wager` (cancel) | [`2VyA5SFMqWSKeG68aY73aYQ4gd4zFe6C2W37zAMoXPtaevpdJAyudNfSwXhnBmpVaDvMXZ9B3ScxaoHKvrA3TDyM`](https://explorer.solana.com/tx/2VyA5SFMqWSKeG68aY73aYQ4gd4zFe6C2W37zAMoXPtaevpdJAyudNfSwXhnBmpVaDvMXZ9B3ScxaoHKvrA3TDyM?cluster=devnet) | Cancelled wager — on-chain refund to both players |
 
 The `resolve_wager` transaction emits a `WagerResolved` event on-chain with `total_payout: 900,000,000` lamports and `platform_fee: 100,000,000` lamports — exactly matching the 10% fee configured in program constants.
 
@@ -111,6 +111,7 @@ A Next.js 15 application providing complete player and admin interfaces:
 - Transaction history with Solana Explorer links for every on-chain event
 - PWA with Web Push notifications for match events (wager joined, game started, win/loss/draw)
 - Admin panel for dispute resolution, player management, and audit logging
+- **Moderator dispute system** — real-time popup when assigned as moderator, 5-step guided verdict workflow, on-chain settlement with 4% fee incentive
 
 ---
 
@@ -269,6 +270,7 @@ Solana (source of truth for funds)         Supabase (source of truth for game st
                                               Off-chain mirror of on-chain deposit status
                                               Ready room chat (wager_messages)
                                               Push notification subscriptions
+                                              Moderation request queue
 ```
 
 Storing game metadata on-chain would cost significant rent for string data (game IDs, usernames), and real-time updates would require constant RPC polling. Supabase handles high-frequency read/write while Solana handles the financial layer where trustlessness matters.
@@ -290,6 +292,7 @@ Storing game metadata on-chain would cost significant rent for string data (game
 - Lichess username verification before auto-resolution
 - Rate limiting on wager creation and notifications
 - Admin-only dispute resolution for non-chess games
+- Moderator assignment with deadline enforcement and fee incentive
 
 **What the user must trust:**
 - Authority keypair is kept secure (multi-sig planned for mainnet)
@@ -325,7 +328,7 @@ Voting flow for non-chess games:
 ```
 voting → both confirm game complete → 10s sync → vote (5 min window)
        → agree    = auto-resolve on-chain
-       → disagree = dispute → moderator assigned
+       → disagree = dispute → moderator assigned → 5-step verdict workflow
 ```
 
 ---
@@ -398,7 +401,7 @@ Web3ProdigyDev/gamegambit-sol  ← Solana smart contract (Anchor/Rust)
 - [x] Push notifications (PWA, VAPID)
 - [x] Admin panel — dispute resolution, user management
 - [x] Real-time arena + ready room
-- [ ] Moderator dispute system (Step 5)
+- [x] Moderator dispute system — real-time assignment popup, 5-step guided verdict workflow, on-chain settlement with fee incentive
 - [ ] Tournament / bracket mode
 - [ ] Mainnet deployment + multi-sig authority
 - [ ] Mobile app (React Native)

@@ -1,6 +1,10 @@
 'use client';
 
-import { Bell, Trophy, Swords, Clock, Wallet, CheckCheck, ExternalLink, Loader2, MessageSquare, RefreshCw, FileEdit } from 'lucide-react';
+import {
+  Bell, Trophy, Swords, Clock, Wallet, CheckCheck,
+  ExternalLink, Loader2, MessageSquare, RefreshCw,
+  FileEdit, Scale,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,7 +18,16 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 
 export function NotificationsDropdown() {
-  const { notifications, unreadCount, hasMore, loadMore, loadingMore, loading, markAllRead, markRead } = useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    hasMore,
+    loadMore,
+    loadingMore,
+    loading,
+    markAllRead,
+    markRead,
+  } = useNotifications();
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -40,12 +53,21 @@ export function NotificationsDropdown() {
         return <MessageSquare className="h-4 w-4 text-muted-foreground" />;
       case 'wager_proposal':
         return <FileEdit className="h-4 w-4 text-amber-400" />;
+      case 'wager_disputed':
+        return <Swords className="h-4 w-4 text-orange-400" />;
+      case 'moderation_request':
+        return <Scale className="h-4 w-4 text-amber-400" />;
       default:
         return <Bell className="h-4 w-4" />;
     }
   };
 
-  const getModalTarget = (type: AppNotification['type']): { route: 'arena' | 'my-wagers'; modal: string } => {
+  // All possible routes a notification can deep-link to
+  type NotificationRoute = 'arena' | 'my-wagers' | 'dashboard';
+
+  const getModalTarget = (
+    type: AppNotification['type'],
+  ): { route: NotificationRoute; modal: string } => {
     switch (type) {
       case 'wager_joined':
       case 'game_started':
@@ -64,21 +86,29 @@ export function NotificationsDropdown() {
       case 'chat_message':
       case 'wager_proposal':
         return { route: 'arena', modal: 'ready-room' };
+      case 'wager_disputed':
+        return { route: 'my-wagers', modal: 'details' };
+      case 'moderation_request':
+        return { route: 'dashboard', modal: 'moderation' };
       default:
         return { route: 'my-wagers', modal: 'details' };
     }
   };
 
-  const handleNotificationClick = useCallback((notification: AppNotification) => {
-    if (!notification.read) markRead(notification.id);
-    setOpen(false);
+  const handleNotificationClick = useCallback(
+    (notification: AppNotification) => {
+      if (!notification.read) markRead(notification.id);
+      setOpen(false);
 
-    if (!notification.wager_id) return;
+      if (!notification.wager_id) return;
 
-    const { route, modal } = getModalTarget(notification.type);
-    const params = new URLSearchParams({ wager: notification.wager_id, modal });
-    router.push(`/${route}?${params.toString()}`);
-  }, [markRead, router]);
+      const { route, modal } = getModalTarget(notification.type);
+      const params = new URLSearchParams({ wager: notification.wager_id, modal });
+      router.push(`/${route}?${params.toString()}`);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [markRead, router],
+  );
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -94,10 +124,7 @@ export function NotificationsDropdown() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-80 p-0 bg-card border-border"
-      >
+      <DropdownMenuContent align="end" className="w-80 p-0 bg-card border-border">
         {/* Header */}
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between">
@@ -128,8 +155,8 @@ export function NotificationsDropdown() {
                     key={notification.id}
                     onClick={() => handleNotificationClick(notification)}
                     className={cn(
-                      "p-4 hover:bg-muted/50 cursor-pointer transition-colors",
-                      !notification.read && "bg-primary/5 border-l-2 border-l-primary"
+                      'p-4 hover:bg-muted/50 cursor-pointer transition-colors',
+                      !notification.read && 'bg-primary/5 border-l-2 border-l-primary',
                     )}
                   >
                     <div className="flex gap-3">
@@ -214,6 +241,10 @@ function getActionLabel(type: AppNotification['type']): string {
       return 'Open Chat →';
     case 'wager_proposal':
       return 'Review Proposal →';
+    case 'wager_disputed':
+      return 'View Dispute →';
+    case 'moderation_request':
+      return 'Open Panel →';
     default:
       return 'View →';
   }
