@@ -1,6 +1,6 @@
 # GameGambit — Database Schema
 
-**Last Updated:** March 28, 2026
+**Last Updated:** April 2, 2026
 **Version:** v1.6.0
 **Database:** PostgreSQL (Supabase)
 **Environment:** Production
@@ -1041,7 +1041,27 @@ Called alongside `update_winner_stats`. Increments `total_losses`, `total_spent`
 
 ---
 
-### `merge_game_bound_at` *(v1.5.0)*
+### `increment_moderation_skip_count` *(April 2, 2026)*
+Atomically increments `moderation_skipped_count` on a player row by 1. Used by `moderation-timeout` and `decline/route.ts` to penalise moderators who time out or decline. Replaces the previous read-then-write pattern which had a race condition under concurrent cron execution.
+
+```sql
+create or replace function increment_moderation_skip_count(p_wallet text)
+returns void language sql as $$
+  update players set moderation_skipped_count = moderation_skipped_count + 1
+  where wallet_address = p_wallet;
+$$;
+```
+
+```typescript
+// Usage from edge function or API route
+await supabase.rpc('increment_moderation_skip_count', { p_wallet: walletAddress });
+```
+
+> **No permissions restriction** — callable by service role only in practice since all callers are server-side functions. Unlike `merge_game_bound_at`, no explicit REVOKE is needed as anon clients have no path to call this directly.
+
+---
+
+### `merge_game_bound_at`
 Merges a single game key into the `game_username_bound_at` JSONB column without overwriting other keys. Only callable by the service role.
 
 ```sql
@@ -1127,9 +1147,10 @@ The following tables are enabled in the `supabase_realtime` publication and emit
 | `wagers` | INSERT, UPDATE | `GameEventContext` keeps query cache in sync for all wager state changes |
 | `wager_transactions` | INSERT | Used to track on-chain deposit confirmations in the Ready Room |
 | `notifications` | INSERT | Bell icon dropdown, filtered by `player_wallet` |
+| `moderation_requests` | INSERT | `GameEventContext` — filtered by `moderator_wallet=eq.{wallet}`, triggers moderator popup |
 | `wager_messages` | INSERT, UPDATE | Ready room chat and proposals, filtered by `wager_id` — **one subscription per wager per client** |
 
-Tables **not** in realtime: `players`, `admin_*`, `push_subscriptions`, `rate_limit_logs`, `nfts`, `achievements`, `moderation_requests`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log`.
+Tables **not** in realtime: `players`, `admin_*`, `push_subscriptions`, `rate_limit_logs`, `nfts`, `achievements`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log`.
 
 ---
 

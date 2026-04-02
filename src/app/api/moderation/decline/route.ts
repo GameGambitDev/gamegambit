@@ -94,25 +94,10 @@ export async function POST(req: NextRequest) {
         return json({ error: 'Failed to decline request' }, 500);
     }
 
-    // Increment moderation_skipped_count — non-blocking, fire-and-forget
-    // Wrapped in Promise.resolve() because Supabase returns PromiseLike (not a
-    // full Promise), which lacks .catch(). Promise.resolve() promotes it so the
-    // full Promise API (.then/.catch/.finally) is available.
-    Promise.resolve(
-        supabase
-            .from('players')
-            .select('moderation_skipped_count')
-            .eq('wallet_address', wallet)
-            .single()
-    )
-        .then(({ data }) => {
-            const current = (data as { moderation_skipped_count: number } | null)?.moderation_skipped_count ?? 0;
-            return supabase
-                .from('players')
-                .update({ moderation_skipped_count: current + 1 })
-                .eq('wallet_address', wallet);
-        })
-        .catch((e) => console.warn('[moderation/decline] skip count update failed:', e));
+    // Atomically increment moderation_skipped_count — avoids race condition
+    // if two requests fire at the same time (e.g. cron timeout + manual decline).
+    supabase.rpc('increment_moderation_skip_count', { p_wallet: wallet })
+        .catch((e: unknown) => console.warn('[moderation/decline] skip count update failed:', e));
 
     return json({ ok: true });
 }

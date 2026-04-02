@@ -393,20 +393,48 @@ When a dispute is raised (votes disagree or `vote_deadline` expires), the backen
 dispute detected → assign-moderator inserts moderation_requests row
                  → Supabase Realtime INSERT fires on moderator's client
                  → GameEventContext sets activeModerationRequest
+                   (seen IDs persisted to sessionStorage — no re-show on refresh)
                  → ModerationOrchestrator renders ModerationRequestModal (30s popup)
                  → moderator clicks Accept → POST /api/moderation/accept
-                 → ModerationPanel opens (5-step workflow)
+                 → ModerationPanel opens (5-step workflow, 10-min decision window)
                  → moderator selects verdict → POST /api/moderation/verdict
                  → on-chain settlement + 4% fee to moderator wallet
+
+timeout path → pg_cron fires moderation-timeout every minute
+             → marks expired pending/accepted requests as timed_out
+             → increments moderation_skipped_count atomically via RPC
+             → fires assign-moderator again for next candidate
 ```
+
+### pg_cron Setup (run once in Supabase SQL Editor)
+
+```sql
+-- Required for HTTP calls from pg_cron
+create extension if not exists pg_net;
+
+-- Schedule the timeout handler (runs every minute)
+select cron.schedule(
+  'moderation-timeout', '* * * * *',
+  $$ select net.http_post(
+       url := 'https://vqgtwalwvalbephvpxap.supabase.co/functions/v1/moderation-timeout',
+       headers := jsonb_build_object('Content-Type','application/json',
+                    'Authorization','Bearer ' || current_setting('app.service_role_key')),
+       body := '{}'::jsonb) $$);
+
+-- Verify
+select jobname, schedule from cron.job where jobname = 'moderation-timeout';
+```
+
+> The 30s popup window is enforced by the `deadline` column in `moderation_requests`, not the cron frequency. Running every minute is safe — the queries inside the function filter by `deadline < NOW()`.
 
 ### API Routes
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `POST` | `/api/moderation/accept` | Player session token | Moderator accepts assignment; sets status → `accepted`, writes `decision_deadline` |
-| `POST` | `/api/moderation/decline` | Player session token | Moderator declines; sets status → `declined`; triggers reassignment |
+| `POST` | `/api/moderation/decline` | Player session token | Moderator declines; sets status → `declined`; increments skip count atomically; triggers reassignment |
 | `POST` | `/api/moderation/verdict` | Player session token | Submits verdict (`player_wallet \| 'draw' \| 'cannot_determine'`); triggers on-chain settlement and moderator fee payout |
+| `POST` | `/api/moderation/report` | Player session token | Player reports an unfair verdict after dispute resolves |
 
 ### `useModeration.ts` Exports
 

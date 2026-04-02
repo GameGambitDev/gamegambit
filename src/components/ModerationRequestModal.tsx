@@ -53,6 +53,13 @@ export function ModerationRequestModal({ request, onAccepted, onDismissed }: Pro
     const [closing, setClosing] = useState(false);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // Fix: keep onDismissed/onAccepted in refs so the interval closure never
+    // captures a stale version if the parent re-renders and passes new callbacks.
+    const onDismissedRef = useRef(onDismissed);
+    const onAcceptedRef = useRef(onAccepted);
+    useEffect(() => { onDismissedRef.current = onDismissed; }, [onDismissed]);
+    useEffect(() => { onAcceptedRef.current = onAccepted; }, [onAccepted]);
+
     const accept = useAcceptModeration();
     const decline = useDeclineModeration();
 
@@ -62,7 +69,8 @@ export function ModerationRequestModal({ request, onAccepted, onDismissed }: Pro
         wager?.player_b_wallet,
     ]);
 
-    // Countdown — polls on 500ms tick so the ring stays smooth
+    // Countdown — polls on 500ms tick so the ring stays smooth.
+    // Uses refs for callbacks so the interval is never re-registered on parent renders.
     useEffect(() => {
         intervalRef.current = setInterval(() => {
             const remaining = Math.max(0, Math.round((deadline - Date.now()) / 1000));
@@ -73,12 +81,13 @@ export function ModerationRequestModal({ request, onAccepted, onDismissed }: Pro
             }
         }, 500);
         return () => clearInterval(intervalRef.current!);
+        // deadline is stable for the lifetime of this request — intentional dep list
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deadline]);
 
     function handleDismiss() {
         setClosing(true);
-        setTimeout(onDismissed, 300);
+        setTimeout(() => onDismissedRef.current(), 300);
     }
 
     async function handleDecline() {
@@ -94,7 +103,7 @@ export function ModerationRequestModal({ request, onAccepted, onDismissed }: Pro
         try {
             await accept.mutateAsync({ requestId: request.id });
             setClosing(true);
-            setTimeout(onAccepted, 300);
+            setTimeout(() => onAcceptedRef.current(), 300);
         } catch (e) {
             console.error('[ModerationRequestModal] accept error:', e);
         }

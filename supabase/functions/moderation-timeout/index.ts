@@ -119,21 +119,12 @@ Deno.serve(async (req) => {
                         console.log(`[moderation-timeout] Timed out accepted (no verdict) ${r.id} (wager ${r.wager_id})`);
                         timedOutWagerIds.push(r.wager_id);
 
-                        // Increment skip count — read-then-write (no atomic increment RPC by default)
+                        // Atomically increment skip count via RPC — avoids race
+                        // condition when cron fires twice in quick succession.
                         try {
-                            const { data: player } = await supabase
-                                .from("players")
-                                .select("moderation_skipped_count")
-                                .eq("wallet_address", r.moderator_wallet)
-                                .single();
-
-                            const current = (player as { moderation_skipped_count: number } | null)
-                                ?.moderation_skipped_count ?? 0;
-
-                            await supabase
-                                .from("players")
-                                .update({ moderation_skipped_count: current + 1 })
-                                .eq("wallet_address", r.moderator_wallet);
+                            await supabase.rpc("increment_moderation_skip_count", {
+                                p_wallet: r.moderator_wallet,
+                            });
                         } catch (e) {
                             console.warn(`[moderation-timeout] skip count update failed for ${r.moderator_wallet}:`, e);
                         }

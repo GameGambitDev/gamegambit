@@ -47,7 +47,18 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
 
     // ── Moderation request popup state ────────────────────────────────────────
     const [activeModerationRequest, setActiveModerationRequest] = useState<ModerationRequest | null>(null)
-    const seenModerationRequestIds = useRef<Set<string>>(new Set())
+
+    // Persisted to sessionStorage so a hard refresh doesn't re-show a popup for
+    // a pending request the user already saw (but didn't act on) in this tab session.
+    const seenModerationRequestIds = useRef<Set<string>>(() => {
+        if (typeof window === 'undefined') return new Set<string>()
+        try {
+            const stored = sessionStorage.getItem('gg:seen_mod_requests')
+            return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>()
+        } catch {
+            return new Set<string>()
+        }
+    })()
 
     const clearModerationRequest = useCallback(() => {
         setActiveModerationRequest(null)
@@ -156,6 +167,13 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
                     // Only show if pending and not already seen in this session
                     if (req.status === 'pending' && !seenModerationRequestIds.current.has(req.id)) {
                         seenModerationRequestIds.current.add(req.id)
+                        // Keep sessionStorage in sync so hard refresh doesn't re-show this request
+                        try {
+                            sessionStorage.setItem(
+                                'gg:seen_mod_requests',
+                                JSON.stringify([...seenModerationRequestIds.current])
+                            )
+                        } catch { /* ignore quota errors */ }
                         setActiveModerationRequest(req)
                     }
                 },

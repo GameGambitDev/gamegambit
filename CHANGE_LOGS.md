@@ -11,60 +11,121 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased] — In Progress (April 1, 2026)
+## [Unreleased] — In Progress (April 2, 2026)
 
-### Bug Fixes — Pre-Step 6 Cleanup
+### Bug Fixes — Moderation System Hardening (Batch 1 + Batch 2)
 
-Four bugs confirmed and resolved before Step 6 work begins.
-
----
-
-**Bug 1 — `settings/route.ts` used wrong secret (BROKEN auth — every call returned 401)**
-
-`src/app/api/settings/route.ts` was validating `X-Session-Token` headers using `AUTHORITY_WALLET_SECRET`.
-However, `verify-wallet` signs tokens with `SUPABASE_SERVICE_ROLE_KEY`. The two secrets are different values,
-so the HMAC comparison always failed. Every call to `GET /api/settings` and `PATCH /api/settings` returned
-401 — the settings page was silently broken for every user.
-
-Fix: Changed `const secret = process.env.AUTHORITY_WALLET_SECRET!` → `const secret = process.env.SUPABASE_SERVICE_ROLE_KEY!`
-and updated the file header comment to reflect the correct secret name and edge function reference.
+Six bugs confirmed and resolved across the moderation stack before Step 6 work begins.
+Divided into two batches based on scope.
 
 ---
 
-**Bug 2 — `SupportedGames.tsx` missing Free Fire card**
+#### Batch 1
 
-`GAMES.FREE_FIRE` was present in `src/lib/constants.ts` and in `CreateWagerModal` but the hardcoded `games`
-array in `src/components/landing/SupportedGames.tsx` only listed Chess, CODM, and PUBG. The landing page
-showed 3 game cards instead of 4 — Free Fire was invisible to new visitors.
+**Bug 1 — `ModerationRequestModal` stale closure on countdown auto-dismiss**
 
-Fix: Added Free Fire entry to the `games` array. Updated grid from `md:grid-cols-3` → `md:grid-cols-2 xl:grid-cols-4`
-to properly lay out 4 cards. Updated "coming soon" copy and Roadmap badge to include Free Fire.
+The 30s countdown timer called `onDismissed` directly via a closure captured at mount. If the parent
+component (`ModerationOrchestrator`) re-rendered and passed a new `onDismissed` reference before the
+countdown expired, the interval would invoke the stale version — the context state would not clear and
+the popup could appear frozen or fail to transition.
 
----
+Fix: `onDismissed` and `onAccepted` are now stored in `useRef` with a `useEffect` that keeps them in sync.
+Both `handleDismiss` and `handleAccept` call `ref.current()` instead of the raw prop. The interval is
+stable for the lifetime of the request regardless of parent re-renders.
 
-**Bug 3 — `LiveFeed.tsx` missing `free_fire` switch case**
-
-`getGameData()` had `case 'chess'`, `case 'codm'`, and `case 'pubg'` but no `case 'free_fire'`. Any Free
-Fire wager surfaced in the live feed fell through to the `default` return, showing a chess icon and the
-name "Chess" instead of the Free Fire emoji and name.
-
-Fix: Added `case 'free_fire': return GAMES.FREE_FIRE` to the switch.
+File: `src/components/ModerationRequestModal.tsx`
 
 ---
 
-**Bug 4 — Moderation timeout cron was never activated**
+**Bug 2 — `moderation-timeout` pg_cron job was never activated**
 
-The `moderation-timeout` Supabase Edge Function was deployed and wired correctly. However, the pg_cron
-schedule that calls it every minute was never run. The cron job only existed in a comment inside the edge
-function — it was never executed in the Supabase SQL editor. As a result, timed-out moderation requests
-(moderator didn't accept within 20s, or accepted but didn't submit verdict) were never reassigned. The
-fallback loop was completely inactive.
+The `moderation-timeout` edge function was deployed and fully functional. However, the pg_cron schedule
+that calls it every minute was never executed in the Supabase SQL editor — it existed only as a comment
+inside the edge function source. As a result, timed-out pending requests (moderator didn't accept within
+30s) and timed-out accepted requests (moderator accepted but didn't submit verdict in time) were never
+marked timed_out and never reassigned. The retry loop was completely inactive.
 
-Fix: Added `activate_moderation_cron.sql` to the repo root. Run it once in Supabase Dashboard → SQL Editor.
-It creates a `pg_cron` job named `moderation-timeout` that fires every minute and calls the edge function
-via `pg_net`. The function itself handles deadline filtering — running every minute is safe.
+Fix: Run in Supabase SQL Editor (once):
+```sql
+create extension if not exists pg_net;
+select cron.schedule(
+  'moderation-timeout', '* * * * *',
+  $$ select net.http_post(
+       url := 'https://vqgtwalwvalbephvpxap.supabase.co/functions/v1/moderation-timeout',
+       headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
+       body := '{}'::jsonb) $$);
+```
+Verify: `select jobname, schedule from cron.job where jobname = 'moderation-timeout';`
 
 ---
+
+#### Batch 2
+
+**Bug 3 — Hard refresh re-showed already-dismissed moderation popup**
+
+`seenModerationRequestIds` in `GameEventContext` was an in-memory `useRef<Set<string>>` initialised to
+`new Set()` on every mount. After a hard page refresh, the ref reset — any pending `moderation_requests`
+row still in the DB would fire a new Realtime INSERT event and re-trigger the popup, even if the user
+had already dismissed it in the same browser session.
+
+Fix: `seenModerationRequestIds` now initialises from `sessionStorage` (key `gg:seen_mod_requests`) and
+writes back to it every time a new ID is added. On hard refresh the Set is restored from sessionStorage,
+so already-seen request IDs are never shown again within the same tab session.
+
+File: `src/contexts/GameEventContext.tsx`
+
+---
+
+**Bug 4 — Skip count increment in `moderation-timeout` was not atomic (race condition)**
+
+When `moderation-timeout` penalised a moderator who accepted but didn't submit a verdict, it used a
+read-then-write pattern: `SELECT moderation_skipped_count`, then `UPDATE ... SET count + 1`. If two cron
+ticks fired in quick succession (e.g. brief pg_cron overlap), both reads would see the same value and
+both writes would set `count + 1` — resulting in only one increment instead of two.
+
+Fix: Replaced with a call to the `increment_moderation_skip_count(p_wallet)` Postgres RPC (single atomic
+`UPDATE ... SET moderation_skipped_count = moderation_skipped_count + 1`). No read required; no race.
+
+File: `supabase/functions/moderation-timeout/index.ts`
+
+---
+
+**Bug 5 — Same race condition in `decline/route.ts` skip count increment**
+
+`POST /api/moderation/decline` had the identical read-then-write skip count pattern. A simultaneous
+cron timeout + manual decline click (rare but possible within the 30s window) would produce the same
+double-read race — one of the two increments would be lost.
+
+Fix: Same `increment_moderation_skip_count` RPC call replaces the read-then-write chain.
+
+File: `src/app/api/moderation/decline/route.ts`
+
+---
+
+**Bug 6 (SQL) — `increment_moderation_skip_count` RPC did not exist**
+
+Both Bug 4 and Bug 5 fixes depend on an `increment_moderation_skip_count(p_wallet text)` Postgres
+function. It was not present in the DB — calling `.rpc()` on it would throw until created.
+
+Fix: Run in Supabase SQL Editor (once):
+```sql
+create or replace function increment_moderation_skip_count(p_wallet text)
+returns void language sql as $$
+  update players set moderation_skipped_count = moderation_skipped_count + 1
+  where wallet_address = p_wallet;
+$$;
+```
+
+---
+
+### Fixed Summary (April 2, 2026)
+
+- [x] `ModerationRequestModal` — stale closure on `onDismissed`/`onAccepted` refs
+- [x] `GameEventContext` — `seenModerationRequestIds` not persisted across hard refresh
+- [x] `moderation-timeout` — skip count read-then-write race condition
+- [x] `decline/route.ts` — skip count read-then-write race condition
+- [x] `increment_moderation_skip_count` SQL RPC — created and live
+- [x] pg_cron job `moderation-timeout` — scheduled and verified active
 
 ## [Unreleased] — In Progress (March 30, 2026)
 
