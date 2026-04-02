@@ -26,6 +26,7 @@ interface DisputeWager {
     grace_conceded_by: string | null;
     moderator_wallet: string | null;
     winner_wallet: string | null;
+    moderator_decision: string | null;
 }
 
 const GAME_CONFIG: Record<string, { label: string; icon: string }> = {
@@ -226,6 +227,28 @@ function DisputeCard({ dispute, isExpanded, onToggle, onAction, actionLoading, p
                                 ))}
                             </div>
 
+                            {/* cannot_determine escalation */}
+                            {dispute.moderator_decision === 'cannot_determine' && (
+                                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <AlertTriangle className="h-4 w-4 text-purple-400 shrink-0" />
+                                        <p className="text-sm font-bold text-purple-400">Escalated to Admin</p>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        The assigned moderator could not determine a winner for this dispute.
+                                        Use <span className="text-foreground font-semibold">Pick Winner</span> or{' '}
+                                        <span className="text-foreground font-semibold">Refund Both</span> below to resolve it.
+                                    </p>
+                                    {dispute.moderator_wallet && (
+                                        <div className="flex items-center gap-1.5 pt-1">
+                                            <span className="text-xs text-muted-foreground">Escalated by moderator:</span>
+                                            <span className="text-xs font-mono text-purple-300">{`${dispute.moderator_wallet.slice(0, 8)}...${dispute.moderator_wallet.slice(-4)}`}</span>
+                                            <CopyBtn text={dispute.moderator_wallet} />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Admin action area */}
                             <div className="space-y-3 pt-1">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Admin Resolution</p>
@@ -366,7 +389,7 @@ function DisputesContent() {
             setError(null);
             const { data, error: fetchError } = await getSupabaseClient()
                 .from('wagers')
-                .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, vote_player_a, vote_player_b, created_at, dispute_created_at, grace_conceded_by, moderator_wallet, winner_wallet')
+                .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, vote_player_a, vote_player_b, created_at, dispute_created_at, grace_conceded_by, moderator_wallet, winner_wallet, moderator_decision')
                 .eq('status', 'disputed')
                 .order('dispute_created_at', { ascending: true, nullsFirst: false });
             if (fetchError) throw fetchError;

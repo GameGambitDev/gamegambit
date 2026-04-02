@@ -277,16 +277,19 @@ function ProfilePageInner() {
   useEffect(() => {
     if (!viewingWallet) return
     setPunishmentHistoryLoading(true)
-    getSupabaseClient()
-      .from('punishment_log')
-      .select('id, offense_count, offense_type, punishment, punishment_ends_at, created_at, wager_id')
-      .eq('player_wallet', viewingWallet)
-      .order('created_at', { ascending: false })
-      .limit(10)
-      .then(({ data }) => {
+    void (async () => {
+      try {
+        const { data } = await getSupabaseClient()
+          .from('punishment_log')
+          .select('id, offense_count, offense_type, punishment, punishment_ends_at, created_at, wager_id')
+          .eq('player_wallet', viewingWallet)
+          .order('created_at', { ascending: false })
+          .limit(10)
         if (data) setPunishmentHistory(data)
-      })
-      .finally(() => setPunishmentHistoryLoading(false))
+      } finally {
+        setPunishmentHistoryLoading(false)
+      }
+    })()
   }, [viewingWallet])
 
   // ── Loading / not-connected states ────────────────────────────────────────
@@ -772,4 +775,4 @@ export default function ProfilePage() {
       <ProfilePageInner />
     </Suspense>
   )
-} 
+}
