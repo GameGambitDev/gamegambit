@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
             .select("wallet_address, moderation_skipped_count")
             .eq("moderation_requests_enabled", true)
             .eq("is_suspended", false)
-            .order("moderation_skipped_count", { ascending: true })
+            .order("moderation_skipped_count", { ascending: true, nullsFirst: false })
             .limit(100);
 
         if (candidatesErr) {

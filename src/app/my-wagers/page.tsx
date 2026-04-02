@@ -258,11 +258,26 @@ function MyWagersInner() {
   const [gameCompleteOpen, setGameCompleteOpen] = useState(false)
   const [votingWager, setVotingWager] = useState<Wager | null>(null)
   const [votingOpen, setVotingOpen] = useState(false)
+  // ── Step 6: Punishment notice (shown after GameResultModal for mod-decided losses) ──
+  const [punishmentWager, setPunishmentWager] = useState<Wager | null>(null)
+  const [punishmentOpen, setPunishmentOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
+
+  // Derives whether the closed GameResultModal should hand off to PunishmentNoticeModal.
+  // Condition: wager was moderator-decided (moderator_wallet set) AND current user is the loser.
+  const maybeOpenPunishment = (wager: Wager | null) => {
+    if (!wager || !walletAddress) return
+    const isModeratorDecided = !!(wager as any).moderator_wallet
+    const isLoser = wager.winner_wallet !== null && wager.winner_wallet !== walletAddress
+    if (isModeratorDecided && isLoser) {
+      setPunishmentWager(wager)
+      setPunishmentOpen(true)
+    }
+  }
+
   // ── Step 4: Dispute Grace Period modal state ──────────────────────────────
   const [graceWager, setGraceWager] = useState<Wager | null>(null)
   const [graceOpen, setGraceOpen] = useState(false)
-
-  // ── useWagerChat — must come AFTER editWager useState ───────────────────
   const { sendProposal } = useWagerChat(editWager?.id ?? null)
 
   // ── Deep-link from notification ──────────────────────────────────────────
@@ -668,7 +683,10 @@ function MyWagersInner() {
 
       <GameResultModal
         open={resultOpen}
-        onOpenChange={(open) => { setResultOpen(open); if (!open) setResultWager(null) }}
+        onOpenChange={(open) => {
+          if (!open) { maybeOpenPunishment(resultWager); setResultWager(null) }
+          setResultOpen(open)
+        }}
         result={resultType(resultWager)}
         winnerWallet={resultWinnerWallet}
         winnerUsername={resultWinnerUsername ?? null}
@@ -680,7 +698,9 @@ function MyWagersInner() {
 
       <GameResultModal
         open={!!deepLinkResultId && !!deepLinkResultWager}
-        onOpenChange={(open) => !open && setDeepLinkResultId(null)}
+        onOpenChange={(open) => {
+          if (!open) { maybeOpenPunishment(deepLinkResultWager ?? null); setDeepLinkResultId(null) }
+        }}
         result={resultType(deepLinkResultWager ?? null)}
         winnerWallet={(deepLinkResultWager as any)?.winner_wallet ?? null}
         winnerUsername={null}
@@ -689,6 +709,10 @@ function MyWagersInner() {
         winnerPayout={Math.floor((deepLinkResultWager?.stake_lamports ?? 0) * 2 * 0.9)}
         refundAmount={deepLinkResultWager?.stake_lamports}
       />
+
+      {/* PunishmentNoticeModal + ReportModeratorModal — wired in Phase B */}
+      {/* punishmentWager={punishmentWager} open={punishmentOpen} onOpenChange={setPunishmentOpen} */}
+      {/* reportOpen={reportOpen} setReportOpen={setReportOpen} */}
 
       <EditWagerModal
         wager={editWager}

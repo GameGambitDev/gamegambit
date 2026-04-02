@@ -96,8 +96,11 @@ export async function POST(req: NextRequest) {
 
     // Atomically increment moderation_skipped_count — avoids race condition
     // if two requests fire at the same time (e.g. cron timeout + manual decline).
-    supabase.rpc('increment_moderation_skip_count', { p_wallet: wallet })
-        .catch((e: unknown) => console.warn('[moderation/decline] skip count update failed:', e));
+    // PostgrestFilterBuilder is thenable but has no .catch() — await and check error.
+    void (async () => {
+        const { error } = await supabase.rpc('increment_moderation_skip_count', { p_wallet: wallet });
+        if (error) console.warn('[moderation/decline] skip count update failed:', error.message);
+    })();
 
     return json({ ok: true });
 }

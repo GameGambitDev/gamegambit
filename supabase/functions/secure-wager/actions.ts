@@ -36,6 +36,10 @@ export async function handleCreate(supabase: Supabase, walletAddress: string, da
     if (!game || !['chess', 'codm', 'pubg', 'free_fire'].includes(game as string)) return respond({ error: 'Invalid game type' }, 400);
     if (!stake_lamports || (stake_lamports as number) <= 0) return respond({ error: 'Invalid stake amount' }, 400);
 
+    // Guard: suspended players cannot create wagers
+    const { data: creator } = await supabase.from('players').select('is_suspended').eq('wallet_address', walletAddress).single();
+    if (creator?.is_suspended) return respond({ error: 'Your account is suspended. You cannot create wagers until the suspension expires.' }, 403);
+
     if (game === 'chess') {
         const { data: p } = await supabase.from('players').select('lichess_username').eq('wallet_address', walletAddress).single();
         if (!p?.lichess_username) return respond({ error: 'Connect your Lichess account before creating chess wagers' }, 400);
@@ -70,6 +74,10 @@ export async function handleJoin(supabase: Supabase, walletAddress: string, data
     const wager = await getWager(supabase, wagerId as string);
     if (wager.status !== 'created') return respond({ error: 'Wager is not available to join' }, 400);
     if (wager.player_a_wallet === walletAddress) return respond({ error: 'Cannot join your own wager' }, 400);
+
+    // Guard: suspended players cannot join wagers
+    const { data: joiner } = await supabase.from('players').select('is_suspended').eq('wallet_address', walletAddress).single();
+    if (joiner?.is_suspended) return respond({ error: 'Your account is suspended. You cannot join wagers until the suspension expires.' }, 403);
 
     if (wager.game === 'chess') {
         const { data: p } = await supabase.from('players').select('lichess_username').eq('wallet_address', walletAddress).single();
