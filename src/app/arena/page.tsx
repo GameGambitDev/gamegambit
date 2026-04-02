@@ -42,6 +42,7 @@ import { LiveGameModal } from '@/components/LiveGameModal'
 import { GameCompleteModal } from '@/components/GameCompletemodal'
 import { VotingModal } from '@/components/Votingmodal'
 import { DisputeGraceModal } from '@/components/DisputeGraceModal'
+import { SuspensionBanner } from '@/components/SuspensionBanner'
 import { GameResultModal } from '@/components/GameResultModal'
 import { PlayerLink } from '@/components/PlayerLink'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
@@ -722,6 +723,7 @@ function ArenaInner() {
   // ── Main UI ───────────────────────────────────────────────────────────────
   return (
     <div className="py-6 pb-16">
+      <SuspensionBanner player={player} />
       <div className="container px-3 sm:px-4">
 
         {/* Header */}
@@ -735,7 +737,7 @@ function ArenaInner() {
             </h1>
             <p className="text-muted-foreground text-sm">Find opponents and stake your claim</p>
           </div>
-          <Button variant="neon" className="w-full sm:w-auto" onClick={handleCreateWager}>
+          <Button variant="neon" className="w-full sm:w-auto" onClick={handleCreateWager} disabled={!!player?.is_suspended}>
             <Plus className="h-4 w-4 mr-2" />Create Wager
           </Button>
         </motion.div>
@@ -770,7 +772,7 @@ function ArenaInner() {
             <Button
               variant="outline"
               onClick={handleQuickMatch}
-              disabled={quickMatch.isPending}
+              disabled={quickMatch.isPending || !!player?.is_suspended}
               className="flex-1 sm:flex-none hover:border-primary/50 hover:shadow-neon transition-all"
             >
               {quickMatch.isPending

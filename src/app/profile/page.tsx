@@ -16,7 +16,7 @@ const WalletMultiButton = dynamic(
 import {
   User, Trophy, Swords, Clock, Copy, Check, Loader2,
   Wallet, Edit2, Save, Link2, CheckCircle2, Settings,
-  LogOut as Unlink,
+  AlertTriangle, ShieldAlert, LogOut as Unlink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -39,6 +39,7 @@ import { AchievementBadges } from '@/components/AchievementBadges'
 import { getSupabaseClient } from '@/integrations/supabase/client'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import Link from 'next/link'
+import { SuspensionBanner } from '@/components/SuspensionBanner'
 
 // ── Inner component — uses useSearchParams, must be inside Suspense ──────────
 
@@ -261,6 +262,33 @@ function ProfilePageInner() {
     ? Math.round((player.total_wins / (player.total_wins + player.total_losses)) * 100)
     : 0
 
+  // ── Punishment history ────────────────────────────────────────────────────
+  const [punishmentHistory, setPunishmentHistory] = useState<Array<{
+    id: string
+    offense_count: number
+    offense_type: string
+    punishment: string
+    punishment_ends_at: string | null
+    created_at: string
+    wager_id: string | null
+  }>>([])
+  const [punishmentHistoryLoading, setPunishmentHistoryLoading] = useState(false)
+
+  useEffect(() => {
+    if (!viewingWallet) return
+    setPunishmentHistoryLoading(true)
+    getSupabaseClient()
+      .from('punishment_log')
+      .select('id, offense_count, offense_type, punishment, punishment_ends_at, created_at, wager_id')
+      .eq('player_wallet', viewingWallet)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data }) => {
+        if (data) setPunishmentHistory(data)
+      })
+      .finally(() => setPunishmentHistoryLoading(false))
+  }, [viewingWallet])
+
   // ── Loading / not-connected states ────────────────────────────────────────
 
   if (!walletReady) {
@@ -310,6 +338,7 @@ function ProfilePageInner() {
 
   return (
     <div className="py-8 pb-16">
+      <SuspensionBanner player={player} />
       <div className="container px-4 max-w-4xl">
 
         {/* Profile Header */}
@@ -656,6 +685,73 @@ function ProfilePageInner() {
             </Card>
           </motion.div>
 
+          {/* Punishment History */}
+          {(punishmentHistory.length > 0 || punishmentHistoryLoading) && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              className="lg:col-span-2"
+            >
+              <Card variant="gaming">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldAlert className="h-5 w-5 text-destructive" />
+                    Dispute History
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {punishmentHistoryLoading ? (
+                    <div className="flex justify-center py-6">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {punishmentHistory.map((entry) => {
+                        const isWarning = entry.punishment === 'warning'
+                        const date = new Date(entry.created_at).toLocaleDateString('en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })
+                        const punishmentLabel = (() => {
+                          switch (entry.punishment) {
+                            case 'warning': return 'Warning'
+                            case 'suspend_24h': return '24h Suspension'
+                            case 'suspend_72h': return '3-day Suspension'
+                            case 'suspend_168h': return '7-day Suspension'
+                            case 'ban_indefinite': return 'Indefinite Ban'
+                            default: return entry.punishment
+                          }
+                        })()
+                        return (
+                          <div
+                            key={entry.id}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${isWarning ? 'text-amber-500' : 'text-destructive'}`} />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">
+                                  Offense #{entry.offense_count} — {punishmentLabel}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{date}</p>
+                              </div>
+                            </div>
+                            <Badge
+                              variant={isWarning ? 'outline' : 'destructive'}
+                              className="flex-shrink-0 text-xs"
+                            >
+                              {isWarning ? 'Warning' : 'Suspended'}
+                            </Badge>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
         </div>
       </div>
     </div>
@@ -676,4 +772,4 @@ export default function ProfilePage() {
       <ProfilePageInner />
     </Suspense>
   )
-}
+} 

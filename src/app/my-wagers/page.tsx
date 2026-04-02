@@ -27,12 +27,30 @@ import { EditWagerModal, EditWagerData } from '@/components/EditWagerModal'
 import { GameCompleteModal } from '@/components/GameCompletemodal'
 import { VotingModal } from '@/components/Votingmodal'
 import { DisputeGraceModal } from '@/components/DisputeGraceModal'
+import { PunishmentNoticeModal } from '@/components/PunishmentNoticeModal'
+import { ReportModeratorModal } from '@/components/ReportModeratorModal'
 import { useEditWager } from '@/hooks/useWagers'
 import { staggerContainer, staggerItem } from '@/components/PageTransition'
 import { useGameEvents } from '@/contexts/GameEventContext'
 import { useWagerChat } from '@/hooks/useWagerChat'
 import { useBalanceAnimation } from '@/contexts/BalanceAnimationContext'
+import { getSupabaseClient } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface PunishmentLogEntry {
+  id: string
+  offense_count: number
+  offense_type: string
+  punishment: string
+  punishment_ends_at: string | null
+  created_at: string
+  wager_id: string | null
+  notes: string | null
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -87,7 +105,6 @@ function WagerRow({
 
   const isResolved = wager.status === 'resolved' || wager.status === 'cancelled'
 
-  // For non-chess wagers in voting: determine which modal to show
   const isNonChessVoting = wager.status === 'voting' && wager.game !== 'chess'
   const myConfirmed = wager.player_a_wallet === myWallet
     ? !!(wager as any).game_complete_a
@@ -184,7 +201,6 @@ function WagerRow({
               </Button>
             )}
 
-            {/* Disputed: show grace period button */}
             {wager.status === 'disputed' && !wager.grace_conceded_by && (
               <Button
                 variant="outline"
@@ -196,7 +212,6 @@ function WagerRow({
               </Button>
             )}
 
-            {/* Non-chess in-progress: show game complete / voting button */}
             {isNonChessVoting && (
               <Button
                 variant={bothConfirmed && !iVoted ? 'gold' : 'outline'}
@@ -258,19 +273,45 @@ function MyWagersInner() {
   const [gameCompleteOpen, setGameCompleteOpen] = useState(false)
   const [votingWager, setVotingWager] = useState<Wager | null>(null)
   const [votingOpen, setVotingOpen] = useState(false)
-  // ── Step 6: Punishment notice (shown after GameResultModal for mod-decided losses) ──
+
+  // ── Step 6: Punishment notice modal state ────────────────────────────────
   const [punishmentWager, setPunishmentWager] = useState<Wager | null>(null)
   const [punishmentOpen, setPunishmentOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
 
-  // Derives whether the closed GameResultModal should hand off to PunishmentNoticeModal.
-  // Condition: wager was moderator-decided (moderator_wallet set) AND current user is the loser.
+  // punishment_log entry for the current punishmentWager — fetched on demand
+  const [punishmentLog, setPunishmentLog] = useState<PunishmentLogEntry | null>(null)
+  const [punishmentLogLoading, setPunishmentLogLoading] = useState(false)
+
+  // Fetch the latest punishment_log row for the wager that just resolved against us
+  const fetchPunishmentLog = async (wager: Wager) => {
+    if (!walletAddress) return
+    setPunishmentLogLoading(true)
+    try {
+      const { data } = await getSupabaseClient()
+        .from('punishment_log')
+        .select('*')
+        .eq('player_wallet', walletAddress)
+        .eq('wager_id', wager.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      if (data) setPunishmentLog(data as PunishmentLogEntry)
+    } catch {
+      // no punishment log row — modal still shows with defaults
+    } finally {
+      setPunishmentLogLoading(false)
+    }
+  }
+
+  // Called when GameResultModal closes — opens PunishmentNoticeModal if applicable
   const maybeOpenPunishment = (wager: Wager | null) => {
     if (!wager || !walletAddress) return
     const isModeratorDecided = !!(wager as any).moderator_wallet
     const isLoser = wager.winner_wallet !== null && wager.winner_wallet !== walletAddress
     if (isModeratorDecided && isLoser) {
       setPunishmentWager(wager)
+      fetchPunishmentLog(wager)
       setPunishmentOpen(true)
     }
   }
@@ -308,7 +349,6 @@ function MyWagersInner() {
 
       if (readyRoomWagerIdRef.current === wager.id) setReadyRoomWagerId(null)
 
-      // Close game complete / voting modals if they were open for this wager
       if (gameCompleteWager?.id === wager.id) { setGameCompleteOpen(false); setGameCompleteWager(null) }
       if (votingWager?.id === wager.id) { setVotingOpen(false); setVotingWager(null) }
 
@@ -334,7 +374,6 @@ function MyWagersInner() {
   const { data: readyRoomWager } = useWagerById(readyRoomWagerId)
   const { data: deepLinkResultWager } = useWagerById(deepLinkResultId)
 
-  // Keep game complete / voting wagers in sync with live Realtime data
   const { data: gameCompleteWagerLive } = useWagerById(gameCompleteOpen ? gameCompleteWager?.id ?? null : null)
   const { data: votingWagerLive } = useWagerById(votingOpen ? votingWager?.id ?? null : null)
 
@@ -398,25 +437,21 @@ function MyWagersInner() {
     if (w) { setResultWager(w); setResultOpen(true) }
   }
 
-  // ── Open GameCompleteModal for a non-chess wager ──────────────────────────
   const handleOpenGameComplete = (wager: Wager) => {
     setGameCompleteWager(wager)
     setGameCompleteOpen(true)
   }
 
-  // ── Open VotingModal directly (both already confirmed) ───────────────────
   const handleOpenVoting = (wager: Wager) => {
     setVotingWager(wager)
     setVotingOpen(true)
   }
 
-  // ── Open DisputeGraceModal ────────────────────────────────────────────────
   const handleOpenGrace = (wager: Wager) => {
     setGraceWager(wager)
     setGraceOpen(true)
   }
 
-  // ── GameCompleteModal → both confirmed → open VotingModal ────────────────
   const handleBothConfirmed = () => {
     const w = gameCompleteWagerLive ?? gameCompleteWager
     setGameCompleteOpen(false)
@@ -656,7 +691,6 @@ function MyWagersInner() {
         onOpenGameComplete={handleOpenGameComplete}
       />
 
-      {/* Dispute Grace — shown when wager is disputed and not yet conceded */}
       <DisputeGraceModal
         wager={graceWager}
         open={graceOpen}
@@ -664,7 +698,6 @@ function MyWagersInner() {
         currentWallet={walletAddress}
       />
 
-      {/* Game Complete — non-chess wagers in voting state */}
       <GameCompleteModal
         wager={gameCompleteWagerLive ?? gameCompleteWager}
         open={gameCompleteOpen}
@@ -673,7 +706,6 @@ function MyWagersInner() {
         onBothConfirmed={handleBothConfirmed}
       />
 
-      {/* Voting — opens after both confirm, or directly if already confirmed */}
       <VotingModal
         wager={votingWagerLive ?? votingWager}
         open={votingOpen}
@@ -710,9 +742,26 @@ function MyWagersInner() {
         refundAmount={deepLinkResultWager?.stake_lamports}
       />
 
-      {/* PunishmentNoticeModal + ReportModeratorModal — wired in Phase B */}
-      {/* punishmentWager={punishmentWager} open={punishmentOpen} onOpenChange={setPunishmentOpen} */}
-      {/* reportOpen={reportOpen} setReportOpen={setReportOpen} */}
+      {/* ── Step 6: Punishment Notice — shown after GameResultModal for mod-decided losses */}
+      {!punishmentLogLoading && (
+        <PunishmentNoticeModal
+          open={punishmentOpen}
+          onOpenChange={(open) => {
+            setPunishmentOpen(open)
+            if (!open) { setPunishmentWager(null); setPunishmentLog(null) }
+          }}
+          wagerId={punishmentWager?.id ?? ''}
+          offenseCount={punishmentLog?.offense_count ?? 1}
+          punishment={punishmentLog?.punishment ?? 'warning'}
+          onReport={() => setReportOpen(true)}
+        />
+      )}
+
+      <ReportModeratorModal
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        wagerId={punishmentWager?.id ?? ''}
+      />
 
       <EditWagerModal
         wager={editWager}

@@ -31,6 +31,7 @@ import { useGameEvents } from '@/contexts/GameEventContext'
 import { GameCompleteModal } from '@/components/GameCompletemodal'
 import { VotingModal } from '@/components/Votingmodal'
 import { DisputeGraceModal } from '@/components/DisputeGraceModal'
+import { SuspensionBanner } from '@/components/SuspensionBanner'
 
 const getGameData = (game: string) => {
   switch (game) {
@@ -400,6 +401,7 @@ export default function DashboardPage() {
 
   return (
     <div className="py-8 pb-16">
+      <SuspensionBanner player={player} />
       <div className="container px-4">
 
         {/* Header */}
