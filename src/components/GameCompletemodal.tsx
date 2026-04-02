@@ -43,6 +43,7 @@ const getGameData = (game: string) => {
     switch (game) {
         case 'codm': return GAMES.CODM
         case 'pubg': return GAMES.PUBG
+        case 'free_fire': return GAMES.FREE_FIRE
         default: return GAMES.CHESS
     }
 }
@@ -61,8 +62,15 @@ export function GameCompleteModal({
 
     const markComplete = useMarkGameComplete()
     const [countdown, setCountdown] = useState<number | null>(null)
+    // Local flag so the button stays disabled even if the cache hasn't updated yet
+    const [localConfirmed, setLocalConfirmed] = useState(false)
     const onBothConfirmedRef = useRef(onBothConfirmed)
     useEffect(() => { onBothConfirmedRef.current = onBothConfirmed }, [onBothConfirmed])
+
+    // Reset local state when wager changes (new modal open)
+    useEffect(() => {
+        if (open) setLocalConfirmed(false)
+    }, [open, wager?.id])
 
     const isPlayerA = currentWallet === wager?.player_a_wallet
     const isPlayerB = currentWallet === wager?.player_b_wallet
@@ -119,7 +127,8 @@ export function GameCompleteModal({
         if (!wager) return
         try {
             await markComplete.mutateAsync({ wagerId: wager.id })
-            toast.success('Game marked as complete — waiting for opponent')
+            setLocalConfirmed(true)
+            toast.success('Game marked complete — waiting for opponent')
         } catch (err: any) {
             toast.error(err.message || 'Failed to mark game complete')
         }
@@ -205,14 +214,14 @@ export function GameCompleteModal({
                                     player: playerA,
                                     confirmed: !!(wager as any).game_complete_a,
                                     isMe: isPlayerA,
-                                    label: 'Challenger',
+                                    label: isPlayerA ? 'You' : 'Challenger',
                                 },
                                 {
                                     wallet: wager.player_b_wallet ?? '',
                                     player: playerB,
                                     confirmed: !!(wager as any).game_complete_b,
                                     isMe: isPlayerB,
-                                    label: 'Opponent',
+                                    label: isPlayerB ? 'You' : 'Opponent',
                                 },
                             ].map((p, i) => (
                                 <div key={i}>
@@ -223,7 +232,7 @@ export function GameCompleteModal({
                                     )}
                                     <div className={`flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${p.confirmed
                                         ? 'bg-success/10 border-success/30'
-                                        : 'bg-muted/30 border-border'
+                                        : p.isMe ? 'bg-primary/5 border-primary/20' : 'bg-muted/30 border-border'
                                         }`}>
                                         <div className="flex items-center gap-2">
                                             <div className={`p-1.5 rounded-full ${p.confirmed ? 'bg-success/20' : 'bg-muted'}`}>
@@ -233,9 +242,7 @@ export function GameCompleteModal({
                                                 }
                                             </div>
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground">
-                                                    {p.label} {p.isMe && '(You)'}
-                                                </p>
+                                                <p className="text-[10px] text-muted-foreground">{p.label}</p>
                                                 <PlayerLink
                                                     walletAddress={p.wallet}
                                                     username={p.player?.username}
@@ -243,8 +250,16 @@ export function GameCompleteModal({
                                                 />
                                             </div>
                                         </div>
-                                        <Badge variant={p.confirmed ? 'success' : 'secondary'} className="text-[10px]">
-                                            {p.confirmed ? 'Confirmed ✓' : 'Waiting…'}
+                                        <Badge
+                                            variant={p.confirmed ? 'success' : 'secondary'}
+                                            className="text-[10px]"
+                                        >
+                                            {p.confirmed
+                                                ? 'Confirmed ✓'
+                                                : p.isMe
+                                                    ? (localConfirmed || myConfirmed ? 'Confirmed ✓' : 'Tap below ↓')
+                                                    : 'Waiting…'
+                                            }
                                         </Badge>
                                     </div>
                                 </div>
@@ -252,9 +267,9 @@ export function GameCompleteModal({
                         </div>
                     )}
 
-                    {/* Waiting for opponent */}
+                    {/* Waiting for opponent — shown after I confirmed */}
                     <AnimatePresence>
-                        {myConfirmed && !bothConfirmed && (
+                        {(myConfirmed || localConfirmed) && !bothConfirmed && (
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
@@ -269,14 +284,14 @@ export function GameCompleteModal({
                                                 ? wager.player_b_wallet?.slice(0, 6) + '…'
                                                 : wager.player_a_wallet.slice(0, 6) + '…')}
                                     </span>
-                                    {' '}to confirm…
+                                    {' '}to confirm they're done too…
                                 </p>
                             </motion.div>
                         )}
                     </AnimatePresence>
 
                     {/* Warning */}
-                    {!myConfirmed && (
+                    {!myConfirmed && !localConfirmed && (
                         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
                             <p className="text-xs text-amber-300 font-medium mb-1">⚠️ Only confirm if your game is done</p>
                             <p className="text-[10px] text-muted-foreground">
@@ -286,12 +301,12 @@ export function GameCompleteModal({
                     )}
 
                     {/* Actions */}
-                    {!myConfirmed && (
+                    {!myConfirmed && !localConfirmed && (
                         <Button
                             variant="neon"
                             className="w-full"
                             onClick={handleMarkComplete}
-                            disabled={markComplete.isPending}
+                            disabled={markComplete.isPending || localConfirmed}
                         >
                             {markComplete.isPending
                                 ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -301,10 +316,10 @@ export function GameCompleteModal({
                         </Button>
                     )}
 
-                    {myConfirmed && !bothConfirmed && (
+                    {(myConfirmed || localConfirmed) && !bothConfirmed && (
                         <Button variant="outline" className="w-full" disabled>
                             <Clock className="h-4 w-4 mr-2" />
-                            Waiting for Opponent…
+                            Waiting for Opponent to Confirm…
                         </Button>
                     )}
                 </div>

@@ -24,7 +24,12 @@ export function useMarkGameComplete() {
             return data.wager
         },
         onSuccess: (wager) => {
+            // Update the per-wager cache immediately so the modal sees the new
+            // game_complete_a/b flag before the next Realtime event arrives.
             queryClient.setQueryData(['wagers', wager.id], wager)
+            // Also invalidate so useWagerById refetches — covers the case where
+            // setQueryData alone doesn't trigger a re-render of the modal.
+            queryClient.invalidateQueries({ queryKey: ['wagers', wager.id] })
             queryClient.invalidateQueries({ queryKey: ['wagers', 'my'] })
         },
     })

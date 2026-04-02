@@ -230,9 +230,12 @@ async function encryptWebPushPayload(
 }
 
 function b64urlDecode(b64: string): Uint8Array {
-    const padded = b64.replace(/-/g, '+').replace(/_/g, '/');
-    const padding = '='.repeat((4 - (padded.length % 4)) % 4);
-    return Uint8Array.from(atob(padded + padding), c => c.charCodeAt(0));
+    // Strip whitespace and any existing padding before recalculating —
+    // VAPID keys from env secrets sometimes arrive with trailing = or newlines,
+    // and atob() throws InvalidCharacterError if padding is doubled.
+    const clean = b64.trim().replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+    const padding = '='.repeat((4 - (clean.length % 4)) % 4);
+    return Uint8Array.from(atob(clean + padding), c => c.charCodeAt(0));
 }
 
 function concat(...arrays: Uint8Array[]): Uint8Array {
