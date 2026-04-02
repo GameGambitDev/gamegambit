@@ -39,6 +39,7 @@ export default function ProfileByWalletPage({ params }: ProfilePageProps) {
     { game: GAMES.CHESS, linkedUsername: player?.lichess_username || null, key: 'lichess_username' },
     { game: GAMES.CODM, linkedUsername: player?.codm_username || null, key: 'codm_username' },
     { game: GAMES.PUBG, linkedUsername: player?.pubg_username || null, key: 'pubg_username' },
+    { game: GAMES.FREE_FIRE, linkedUsername: (player as any)?.free_fire_username || null, key: 'free_fire_username' },
   ]
 
   const copyAddress = () => {

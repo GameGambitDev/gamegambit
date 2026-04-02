@@ -50,15 +50,19 @@ export function GameEventProvider({ children }: { children: ReactNode }) {
 
     // Persisted to sessionStorage so a hard refresh doesn't re-show a popup for
     // a pending request the user already saw (but didn't act on) in this tab session.
-    const seenModerationRequestIds = useRef<Set<string>>(() => {
-        if (typeof window === 'undefined') return new Set<string>()
-        try {
-            const stored = sessionStorage.getItem('gg:seen_mod_requests')
-            return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>()
-        } catch {
-            return new Set<string>()
-        }
-    })()
+    // NOTE: useRef does not support lazy initializers like useState — the IIFE must
+    // be evaluated first and the resulting Set passed as the initial value directly.
+    const seenModerationRequestIds = useRef<Set<string>>(
+        (() => {
+            if (typeof window === 'undefined') return new Set<string>()
+            try {
+                const stored = sessionStorage.getItem('gg:seen_mod_requests')
+                return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>()
+            } catch {
+                return new Set<string>()
+            }
+        })()
+    )
 
     const clearModerationRequest = useCallback(() => {
         setActiveModerationRequest(null)

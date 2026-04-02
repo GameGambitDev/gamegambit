@@ -204,11 +204,13 @@ async function resolveOnChain(
 
 // ── Punishment tiers ──────────────────────────────────────────────────────────
 
-function getPunishment(offenceCount: number): { punishment: string; suspendHours: number | null } {
-    if (offenceCount === 1) return { punishment: "warning", suspendHours: null };
-    if (offenceCount === 2) return { punishment: "suspend_24h", suspendHours: 24 };
-    if (offenceCount === 3) return { punishment: "suspend_72h", suspendHours: 72 };
-    return { punishment: "suspend_168h", suspendHours: 168 }; // 7 days
+function getPunishment(offenceCount: number): { punishment: string; suspendHours: number | null; indefinite: boolean } {
+    if (offenceCount === 1) return { punishment: "warning", suspendHours: null, indefinite: false };
+    if (offenceCount === 2) return { punishment: "suspend_24h", suspendHours: 24, indefinite: false };
+    if (offenceCount === 3) return { punishment: "suspend_72h", suspendHours: 72, indefinite: false };
+    if (offenceCount === 4) return { punishment: "suspend_168h", suspendHours: 168, indefinite: false };
+    // Offense 5+ — permanent ban, suspension_ends_at remains null indefinitely
+    return { punishment: "ban_indefinite", suspendHours: null, indefinite: true };
 }
 
 async function applyPunishment(
@@ -225,7 +227,7 @@ async function applyPunishment(
             .eq("offense_type", "dispute_loss");
 
         const offenceCount = (existing?.length ?? 0) + 1;
-        const { punishment, suspendHours } = getPunishment(offenceCount);
+        const { punishment, suspendHours, indefinite } = getPunishment(offenceCount);
         const punishmentEndsAt = suspendHours
             ? new Date(Date.now() + suspendHours * 60 * 60 * 1000).toISOString()
             : null;
@@ -248,11 +250,17 @@ async function applyPunishment(
             notes: `Offense #${offenceCount} — ${punishment}`,
         });
 
-        if (suspendHours) {
+        // Apply suspension — timed for offenses 2-4, permanent for 5+
+        if (suspendHours || indefinite) {
             await supabase.from("players")
-                .update({ is_suspended: true })
+                .update({
+                    is_suspended: true,
+                    // For indefinite bans suspension_ends_at stays null — no expiry
+                    ...(suspendHours ? { suspension_ends_at: punishmentEndsAt } : {}),
+                })
                 .eq("wallet_address", loserWallet);
-            console.log(`[process-verdict] Suspended ${loserWallet} for ${suspendHours}h (offense #${offenceCount})`);
+            const label = indefinite ? "permanently" : `for ${suspendHours}h`;
+            console.log(`[process-verdict] Suspended ${loserWallet} ${label} (offense #${offenceCount})`);
         }
     } catch (e) {
         console.warn("[process-verdict] applyPunishment error:", e);
