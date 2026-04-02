@@ -1,5 +1,7 @@
 'use client'
 
+// src/components/admin/AdminHeader.tsx
+
 import dynamic from 'next/dynamic'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { motion } from 'framer-motion'
@@ -24,6 +26,9 @@ const navItems = [
     { label: 'Wagers', href: '/itszaadminlogin/wagers', icon: '🎲' },
     { label: 'Disputes', href: '/itszaadminlogin/disputes', icon: '⚖️' },
     { label: 'Wallet', href: '/itszaadminlogin/wallet-bindings', icon: '💼' },
+    { label: 'Appeals', href: '/itszaadminlogin/username-appeals', icon: '🔗' },
+    { label: 'Changes', href: '/itszaadminlogin/username-changes', icon: '✏️' },
+    { label: 'Behaviour', href: '/itszaadminlogin/behaviour-flags', icon: '🚩' },
 ]
 
 export function AdminHeader() {
@@ -41,7 +46,7 @@ export function AdminHeader() {
         <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
             <div className="container mx-auto px-4">
                 <div className="flex h-16 items-center justify-between">
-                    {/* Logo - Responsive */}
+                    {/* Logo */}
                     <Link href="/itszaadminlogin/dashboard" className="flex items-center gap-2 sm:gap-3 group flex-shrink-0">
                         <motion.div
                             whileHover={{ rotate: 5, scale: 1.05 }}
@@ -67,7 +72,7 @@ export function AdminHeader() {
                         </div>
                     </Link>
 
-                    {/* Desktop Navigation - Full width on lg, icons only on md */}
+                    {/* Desktop Navigation */}
                     <nav className="hidden md:flex items-center gap-1">
                         {navItems.map((item) => {
                             const isActive = pathname === item.href
@@ -82,17 +87,17 @@ export function AdminHeader() {
                                         href={item.href}
                                         className={cn(
                                             "px-2 py-2 rounded-lg text-sm font-medium transition-all duration-300 flex items-center gap-2",
-                                            "lg:px-4",
+                                            "lg:px-3",
                                             isActive
                                                 ? "bg-primary/10 text-primary border-glow-subtle"
                                                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
                                         )}
                                     >
                                         <span className="text-base">{item.icon}</span>
-                                        <span className="hidden lg:inline">{item.label}</span>
+                                        <span className="hidden lg:inline text-xs xl:text-sm">{item.label}</span>
                                     </Link>
 
-                                    {/* Tooltip on md screens when hovering */}
+                                    {/* Tooltip on md screens */}
                                     {hoveredIcon === item.href && (
                                         <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 bg-card border border-border rounded text-xs whitespace-nowrap text-foreground pointer-events-none z-50 lg:hidden">
                                             {item.label}
@@ -120,12 +125,10 @@ export function AdminHeader() {
                             </>
                         )}
 
-                        {/* Custom styled wallet button - Always visible */}
                         <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!text-xs [&_.wallet-adapter-button]:sm:!text-sm [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-8 [&_.wallet-adapter-button]:sm:!h-9 [&_.wallet-adapter-button]:md:!h-10 [&_.wallet-adapter-button]:!px-2 [&_.wallet-adapter-button]:sm:!px-3 [&_.wallet-adapter-button]:md:!px-4 [&_.wallet-adapter-button]:hover:!shadow-neon [&_.wallet-adapter-button]:!transition-all [&_.wallet-adapter-button-trigger]:!h-8 [&_.wallet-adapter-button-trigger]:sm:!h-9 [&_.wallet-adapter-button-trigger]:md:!h-10">
                             <WalletMultiButton />
                         </div>
 
-                        {/* Logout button */}
                         <Button
                             variant="ghost"
                             size="icon"
@@ -136,7 +139,6 @@ export function AdminHeader() {
                             <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
                         </Button>
 
-                        {/* Mobile Menu Toggle */}
                         <Button
                             variant="ghost"
                             size="icon"
