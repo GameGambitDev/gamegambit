@@ -1,7 +1,7 @@
 # GameGambit — Database Schema
 
-**Last Updated:** April 2, 2026
-**Version:** v1.6.0
+**Last Updated:** April 3, 2026
+**Version:** v1.7.0
 **Database:** PostgreSQL (Supabase)
 **Environment:** Production
 
@@ -227,6 +227,7 @@ CREATE TABLE players (
   -- Account Status
   is_banned                 BOOLEAN DEFAULT false,
   ban_reason                TEXT,
+  ban_expires_at            TIMESTAMPTZ,            -- Timed ban expiry (set by resolve-wager ban_player action)
   verified                  BOOLEAN DEFAULT false,
 
   -- Moderation
@@ -274,6 +275,7 @@ CREATE TABLE players (
   -- Settings (v1.5.0)
   push_notifications_enabled    BOOLEAN NOT NULL DEFAULT true,
   moderation_requests_enabled   BOOLEAN NOT NULL DEFAULT true,
+  moderation_skipped_count      INT NOT NULL DEFAULT 0,      -- Incremented each time moderator declines/times out
 
   -- Timestamps
   last_active               TIMESTAMPTZ,
@@ -308,6 +310,8 @@ CREATE INDEX players_false_vote_count_idx
 - `false_vote_count / false_claim_count / moderator_abuse_count`: Incremented by edge functions; drive punishment escalation logic
 - `push_notifications_enabled`: Player opt-in for Web Push background notifications
 - `moderation_requests_enabled`: Player opt-in to receive dispute moderation assignments and earn moderator fees
+- `moderation_skipped_count`: Atomically incremented (via `increment_moderation_skip_count` RPC) each time this player declines or times out a moderation request. `assign-moderator` orders candidates by this ascending — willing players are prioritised
+- `ban_expires_at`: Set by `resolve-wager` `ban_player` action for timed bans. Not automatically cleared — a pg_cron suspension-lift job or admin action is required
 
 ---
 
@@ -730,12 +734,27 @@ CREATE TABLE notifications (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   player_wallet  TEXT NOT NULL,
   type           TEXT NOT NULL CHECK (type IN (
+                   -- Wager lifecycle
                    'wager_joined',
                    'wager_won',
                    'wager_lost',
                    'wager_draw',
                    'wager_cancelled',
-                   'game_started'
+                   'game_started',
+                   -- Voting / disputes
+                   'wager_vote',
+                   'wager_disputed',
+                   'wager_proposal',
+                   -- Chat / social
+                   'chat_message',
+                   'rematch_challenge',
+                   -- Moderation
+                   'moderation_request',
+                   -- Username system
+                   'username_appeal',
+                   'username_appeal_resolved',
+                   'username_appeal_update',
+                   'username_change_request'
                  )),
   title          TEXT NOT NULL,
   message        TEXT NOT NULL,
@@ -764,11 +783,21 @@ CREATE POLICY "Players can update own notifications"
 
 **Notification Types:**
 - `wager_joined` — Sent to Player A when Player B joins their wager
-- `game_started` — Sent to both players when both deposits confirmed + Lichess game created
+- `game_started` — Sent to both players when both deposits confirmed + Lichess game created (chess) or game goes live (others)
 - `wager_won` — Sent to winner when game resolves, includes payout amount
 - `wager_lost` — Sent to loser when game resolves
 - `wager_draw` — Sent to both players on draw/refund
 - `wager_cancelled` — Sent to the non-cancelling player when wager is cancelled
+- `wager_vote` — Sent when opponent casts or retracts a vote; also used for "votes agree / 15s window" alerts
+- `wager_disputed` — Sent to both players when votes mismatch or vote timer expires
+- `wager_proposal` — Sent when opponent proposes a wager edit in the ready room
+- `chat_message` — Sent when opponent sends a ready room chat message (rate-limited: 1 per 5 min per wager)
+- `rematch_challenge` — Sent when a player challenges opponent to a rematch on an open wager
+- `moderation_request` — Sent to the selected moderator candidate by `assign-moderator`; triggers `ModerationRequestModal`
+- `username_appeal` — Sent to the holder when a claimant files a username appeal
+- `username_appeal_resolved` — Sent to both parties when an appeal is resolved (release or rejection)
+- `username_appeal_update` — Sent to both parties when holder contests (appeal enters moderator review)
+- `username_change_request` — Sent to the requesting player confirming their change request was received
 
 **Realtime:** Frontend subscribes to `postgres_changes` on `notifications` filtered by `player_wallet`. New rows appear instantly in the bell icon dropdown without refresh.
 
@@ -837,8 +866,10 @@ CREATE TABLE IF NOT EXISTS moderation_requests (
   id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   wager_id          UUID        NOT NULL REFERENCES wagers(id) ON DELETE CASCADE,
   moderator_wallet  TEXT        NOT NULL REFERENCES players(wallet_address) ON DELETE CASCADE,
-  request_type      TEXT        NOT NULL DEFAULT 'match_dispute',
-  -- 'match_dispute' | 'username_ownership'
+  request_type      TEXT        NOT NULL DEFAULT 'dispute',
+  -- 'dispute' | 'username_ownership'
+  -- NOTE: assign-moderator inserts 'dispute' (not 'match_dispute').
+  -- The schema previously documented 'match_dispute' — 'dispute' is what the live code sends.
   status            TEXT        NOT NULL DEFAULT 'pending',
   -- 'pending' | 'accepted' | 'rejected' | 'timed_out' | 'completed' | 'cancelled'
   assigned_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -973,9 +1004,11 @@ CREATE TABLE IF NOT EXISTS player_behaviour_log (
   event_type     TEXT        NOT NULL,
   -- 'username_bound' | 'username_dispute_filed' | 'username_released_voluntarily'
   -- | 'appeal_filed' | 'appeal_dismissed' | 'appeal_upheld'
-  -- | 'dispute_conceded' | 'false_vote'
+  -- | 'dispute_conceded' | 'false_vote' | 'dispute_loss_moderated' | 'dispute_escalated'
   -- | 'change_request_submitted' | 'change_request_approved' | 'change_request_rejected'
   -- | 'moderator_reported' | 'moderator_report_upheld' | 'moderator_report_dismissed'
+  -- | 'moderation_no_verdict'  ← written by moderation-timeout when accepted mod misses decision_deadline
+  -- | 'verdict_reported'       ← written by /api/moderation/report when a player flags a verdict
   -- | 'suspension_applied' | 'ban_applied'
   related_id     TEXT,       -- wager_id, appeal_id, or request_id (TEXT for flexibility)
   notes          TEXT,
@@ -1150,6 +1183,8 @@ The following tables are enabled in the `supabase_realtime` publication and emit
 | `moderation_requests` | INSERT | `GameEventContext` — filtered by `moderator_wallet=eq.{wallet}`, triggers moderator popup |
 | `wager_messages` | INSERT, UPDATE | Ready room chat and proposals, filtered by `wager_id` — **one subscription per wager per client** |
 
+> **Migration required:** Run `ALTER PUBLICATION supabase_realtime ADD TABLE moderation_requests;` in the SQL editor if this table was created after the initial Realtime setup. Without this, `GameEventContext`'s moderator popup subscription will never fire.
+
 Tables **not** in realtime: `players`, `admin_*`, `push_subscriptions`, `rate_limit_logs`, `nfts`, `achievements`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log`.
 
 ---
@@ -1315,6 +1350,60 @@ ALTER TABLE wager_transactions ADD CONSTRAINT unique_tx_signature UNIQUE (tx_sig
 ---
 
 ## Recent Migrations
+
+### v1.7.0 — April 3, 2026
+
+Run in the Supabase SQL editor:
+
+**001 — `players` new columns**
+```sql
+-- Timed ban expiry (resolve-wager ban_player action)
+ALTER TABLE players ADD COLUMN IF NOT EXISTS ban_expires_at TIMESTAMPTZ;
+
+-- Moderator skip tracking — incremented atomically via increment_moderation_skip_count RPC
+ALTER TABLE players ADD COLUMN IF NOT EXISTS moderation_skipped_count INT NOT NULL DEFAULT 0;
+```
+
+**002 — `increment_moderation_skip_count` RPC** *(if not already created from the April 2 hotfix)*
+```sql
+CREATE OR REPLACE FUNCTION increment_moderation_skip_count(p_wallet text)
+RETURNS void LANGUAGE sql AS $$
+  UPDATE players SET moderation_skipped_count = moderation_skipped_count + 1
+  WHERE wallet_address = p_wallet;
+$$;
+```
+
+**003 — Expand `notifications.type` CHECK constraint**
+
+The existing CHECK constraint only covers the original 6 types. Nine more types are inserted by the codebase. Drop and recreate:
+```sql
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+
+ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+  CHECK (type IN (
+    'wager_joined', 'wager_won', 'wager_lost', 'wager_draw',
+    'wager_cancelled', 'game_started',
+    'wager_vote', 'wager_disputed', 'wager_proposal',
+    'chat_message', 'rematch_challenge',
+    'moderation_request',
+    'username_appeal', 'username_appeal_resolved',
+    'username_appeal_update', 'username_change_request'
+  ));
+```
+
+**004 — Enable `moderation_requests` in Realtime publication**
+```sql
+-- Only needed if the table was created before Realtime was configured for it
+ALTER PUBLICATION supabase_realtime ADD TABLE moderation_requests;
+```
+
+**005 — Fix `moderation_requests.request_type` default** *(if table already exists with wrong default)*
+```sql
+ALTER TABLE moderation_requests
+  ALTER COLUMN request_type SET DEFAULT 'dispute';
+```
+
+---
 
 ### v1.5.0 — March 25, 2026
 
