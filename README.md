@@ -112,6 +112,9 @@ A Next.js 15 application providing complete player and admin interfaces:
 - PWA with Web Push notifications for match events (wager joined, game started, win/loss/draw)
 - Admin panel for dispute resolution, player management, and audit logging
 - **Moderator dispute system** — real-time popup when assigned as moderator, 5-step guided verdict workflow, on-chain settlement with 4% fee incentive
+- **Phase 6 — Punishment system** — dispute grace period with concession flow, auto-escalating strike tiers (warning → 24h → 72h → 7d → indefinite ban), `punishment_log` audit trail, behaviour flags dashboard, admin escalation path
+- **Username binding system** — bind/appeal/change-request flows for PUBG, CODM, and Free Fire usernames with admin review queues
+- **Player settings** — push notification preferences and moderation opt-in/out controls
 
 ---
 
@@ -379,33 +382,886 @@ Web3ProdigyDev/gamegambit-sol  ← Solana smart contract (Anchor/Rust)
 ```
 
 ---
+## Getting Started
 
-## Documentation
+### Prerequisites
+
+- Node.js 18+ and npm/pnpm
+- Solana Devnet wallet (Phantom, Magic Eden, etc.)
+- Supabase project
+
+### Installation
+
+```bash
+git clone https://github.com/GameGambitDev/gamegambit.git
+cd gamegambit
+pnpm install
+cp .env.example .env.local
+```
+
+### Environment Variables
+
+```env
+# Solana
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_NETWORK=devnet
+NEXT_PUBLIC_PROGRAM_ID=E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR
+
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# App URL — used for Lichess OAuth PKCE callback
+NEXT_PUBLIC_SITE_URL=https://thegamegambit.vercel.app
+
+# Admin Authentication (Required for /itszaadminlogin)
+ADMIN_JWT_SECRET=your_jwt_secret_key_min_32_chars
+ADMIN_SESSION_TIMEOUT=3600000
+ADMIN_REFRESH_TIMEOUT=604800000
+NEXT_PUBLIC_ADMIN_SOLANA_NETWORK=devnet
+ADMIN_SMTP_HOST=smtp.your-email.com
+ADMIN_SMTP_PORT=587
+ADMIN_SMTP_USER=your-email@example.com
+ADMIN_SMTP_PASSWORD=your-app-password
+
+# PWA Push Notifications (VAPID)
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=your_vapid_public_key   # must have NO surrounding whitespace/quotes
+```
+
+**Edge function secrets** — set in Supabase Dashboard → Edge Functions → Secrets (not in `.env.local`):
+
+```
+AUTHORITY_WALLET_SECRET=[your,keypair,bytes,array]
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SOLANA_RPC_URL=https://api.devnet.solana.com
+LICHESS_PLATFORM_TOKEN=your_gamegambit_lichess_account_token
+VAPID_PRIVATE_KEY=your_vapid_private_key
+VAPID_PUBLIC_KEY=your_vapid_public_key
+ADMIN_WALLET=your_admin_wallet_address
+```
+
+> **VAPID key format:** The `NEXT_PUBLIC_VAPID_PUBLIC_KEY` value must contain no leading/trailing whitespace or quote characters — Vercel env var UI can silently include them. The `useNotifications.ts` hook validates the key format before subscribing and logs a warning if invalid characters are detected.
+
+### Running Locally
+
+```bash
+pnpm dev       # dev server with Turbopack
+pnpm build     # production build
+pnpm start     # start production server
+pnpm lint      # ESLint
+```
+
+Visit `http://localhost:3000`.
+
+### Database Setup
+
+Run `gamegambit-setup.sql` in Supabase SQL Editor — creates all 15 tables, indexes, constraints, RLS policies, DB functions, triggers, and Realtime subscriptions in one shot.
+
+For admin panel:
+1. Run `scripts/migrations/001_create_admin_tables.sql` in Supabase SQL Editor
+2. Set all `ADMIN_*` env vars
+3. Generate JWT secret: `openssl rand -base64 32`
+
+### Regenerating Types
+
+After any DB migration, regenerate the Supabase TypeScript types:
+```bash
+supabase gen types typescript --project-id your_project_ref > src/integrations/supabase/types.ts
+```
+
+> ⚠️ **`wager_messages` and all v1.5.0+ tables are not in the generated types.** See [Known Type Gaps](#known-type-gaps) below.
+
+---
+
+## Project Structure
+
+```
+gamegambit/
+├── src/
+│   ├── app/                       # Next.js 15 App Router
+│   │   ├── api/
+│   │   │   ├── auth/lichess/callback/  # Lichess OAuth PKCE callback
+│   │   │   ├── admin/                  # Admin API routes (auth, profile, wallet, audit)
+│   │   │   ├── moderation/             # Moderation API routes
+│   │   │   │   ├── accept/             # POST — moderator accepts assignment
+│   │   │   │   ├── decline/            # POST — moderator declines assignment
+│   │   │   │   └── verdict/            # POST — moderator submits final verdict
+│   │   │   └── lichess/webhook/        # Lichess game result webhook
+│   │   ├── itszaadminlogin/       # Admin panel pages
+│   │   │   ├── login/
+│   │   │   ├── signup/
+│   │   │   ├── dashboard/
+│   │   │   ├── profile/
+│   │   │   ├── wallet-bindings/
+│   │   │   ├── audit-logs/
+│   │   │   ├── disputes/
+│   │   │   ├── users/
+│   │   │   ├── wagers/
+│   │   │   ├── behaviour-flags/   # Phase 6 — player risk scores, false vote/dispute loss tracking
+│   │   │   ├── username-appeals/  # Phase 6 — review username appeal requests
+│   │   │   ├── username-changes/  # Phase 6 — review username change requests
+│   │   │   └── unauthorized/
+│   │   ├── arena/                 # Wager creation & matching
+│   │   ├── dashboard/             # User statistics
+│   │   ├── leaderboard/           # Rankings
+│   │   ├── my-wagers/             # Player's wager history
+│   │   ├── profile/[walletAddress]/ # Public player profiles
+│   │   ├── settings/              # Phase 6 — push notification + moderation prefs
+│   │   └── page.tsx               # Landing page
+│   │
+│   ├── components/
+│   │   ├── admin/                 # Admin UI components
+│   │   ├── landing/               # Landing page sections
+│   │   ├── layout/                # Navbar, footer, layout shells
+│   │   ├── CreateWagerModal.tsx   # Wager creation (chess time controls, game picker)
+│   │   ├── ReadyRoomModal.tsx     # Ready room + deposits + chat + proposals
+│   │   ├── EditWagerModal.tsx     # Wager edit proposals UI
+│   │   ├── LiveGameModal.tsx      # Lichess game embed (chess only)
+│   │   ├── GameCompleteModal.tsx  # Step 3 — non-chess "confirm game done" + sync countdown
+│   │   ├── VotingModal.tsx        # Step 3 — vote on winner (agree → resolve, disagree → dispute)
+│   │   ├── GameResultModal.tsx    # Win/loss/draw result screen
+│   │   ├── ModerationOrchestrator.tsx  # Mounts once in Providers; coordinates popup → panel state
+│   │   ├── ModerationRequestModal.tsx  # 30s accept/decline popup with countdown ring
+│   │   ├── ModerationPanel.tsx         # 5-step guided verdict workflow
+│   │   ├── DisputeGraceModal.tsx       # Phase 6 — concession prompt shown before moderator search
+│   │   ├── NotificationsDropdown.tsx
+│   │   ├── NFTGallery.tsx
+│   │   ├── AchievementBadges.tsx
+│   │   └── ui/                    # shadcn/ui components
+│   │
+│   ├── hooks/
+│   │   ├── admin/
+│   │   │   ├── useAdminAction.ts
+│   │   │   ├── useAdminAuth.ts
+│   │   │   ├── useAdminProfile.ts
+│   │   │   ├── useAdminSession.ts
+│   │   │   ├── useAdminUsers.ts
+│   │   │   ├── useAdminWagers.ts
+│   │   │   └── useAdminWallet.ts
+│   │   ├── useAutoCreatePlayer.ts  # Auto-registers player on first wallet connect
+│   │   ├── useDisputeGrace.ts      # Phase 6 — useConcede mutation for grace period concession
+│   │   ├── useGameComplete.ts      # useMarkGameComplete mutation (Step 3)
+│   │   ├── useLichess.ts           # OAuth PKCE flow, connect/disconnect
+│   │   ├── useModeration.ts        # ModerationRequest queries + accept/decline/verdict mutations
+│   │   ├── useNFTs.ts
+│   │   ├── useNotifications.ts     # Bell dropdown + Web Push subscription
+│   │   ├── usePlayer.ts
+│   │   ├── usePlayerSettings.ts    # Phase 6 — push/moderation preference toggles
+│   │   ├── useQuickMatch.ts
+│   │   ├── useSolanaProgram.ts     # Anchor program interaction
+│   │   ├── useTransactions.ts      # wager_transactions queries
+│   │   ├── useUsernameBinding.ts   # Phase 6 — bind/appeal/change-request for game usernames
+│   │   ├── useVoting.ts            # useSubmitVote, useRetractVote, deriveVoteOutcome (Step 3)
+│   │   ├── useWagerChat.ts         # Ready room chat + proposals (wager_messages)
+│   │   ├── useWagers.ts            # Wager CRUD + invokeSecureWager helper
+│   │   ├── useWalletAuth.ts        # Ed25519 session token management
+│   │   └── useWalletBalance.ts
+│   │
+│   ├── contexts/
+│   │   ├── GameEventContext.tsx    # Global Realtime listener — wager cache + moderation popup
+│   │   ├── WalletContext.tsx
+│   │   ├── ModalContext.tsx
+│   │   ├── PWAContext.tsx
+│   │   └── BalanceAnimationContext.tsx
+│   │
+│   ├── lib/
+│   │   ├── admin/
+│   │   │   ├── auth.ts             # JWT sign/verify
+│   │   │   ├── password.ts         # PBKDF2 hashing
+│   │   │   ├── permissions.ts      # RBAC matrix
+│   │   │   ├── validators.ts       # Input validation
+│   │   │   └── wallet-verify.ts    # Ed25519 signature verification
+│   │   ├── idl/                    # Solana IDL (gamegambit.json + gamegambit.ts)
+│   │   ├── constants.ts
+│   │   ├── data-consistency.ts
+│   │   ├── database-utils.ts
+│   │   ├── performance-tradeoffs.ts
+│   │   ├── rate-limiting.ts
+│   │   ├── solana-config.ts
+│   │   ├── utils.ts
+│   │   └── validation.ts
+│   │
+│   ├── integrations/supabase/
+│   │   ├── client.ts
+│   │   ├── types.ts               # Auto-generated (regen after migrations)
+│   │   └── admin/                 # Admin DB operations
+│   │       ├── actions.ts
+│   │       ├── audit.ts
+│   │       ├── auth.ts
+│   │       ├── profile.ts
+│   │       ├── sessions.ts
+│   │       └── wallets.ts
+│   │
+│   └── types/
+│       └── admin.ts
+│
+├── supabase/functions/
+│   ├── secure-wager/       # All wager actions + Lichess game creation
+│   ├── secure-player/      # Player create/update
+│   ├── admin-action/       # Admin dispute resolution (force resolve/draw/cancel, ban)
+│   ├── resolve-wager/      # On-chain settlement (called by admin-action + Lichess webhook)
+│   ├── assign-moderator/   # Assigns moderator from eligible pool on dispute
+│   ├── moderation-timeout/ # pg_cron — marks expired requests, triggers reassignment
+│   ├── process-verdict/    # On-chain settlement after moderator verdict + punishment tiers
+│   ├── process-concession/ # On-chain settlement for grace period concessions (no mod fee)
+│   ├── check-chess-games/  # Polls Lichess API for completed games
+│   └── verify-wallet/      # Ed25519 wallet signature → session token
+│
+├── public/
+│   ├── manifest.json    # PWA manifest
+│   └── sw.js            # Service worker (caching + push notification handler)
+│
+├── scripts/migrations/
+│   └── 001_create_admin_tables.sql
+│
+├── gamegambit-setup.sql   # Full DB setup in one shot
+└── package.json
+```
+
+---
+
+## Database Tables
+
+All tables confirmed in the live production DB. See [`DB_SCHEMA.md`](./DB_SCHEMA.md) for full column specs.
+
+| Table | Realtime | Purpose |
+|-------|----------|---------| 
+| `players` | ❌ | User accounts, stats, Lichess OAuth data |
+| `wagers` | ✅ | Gaming matches with full lifecycle state |
+| `wager_transactions` | ✅ | On-chain transaction ledger |
+| `wager_messages` | ✅ | Ready room chat and wager edit proposals |
+| `notifications` | ✅ | In-app event notifications |
+| `push_subscriptions` | ❌ | VAPID Web Push endpoint + keys per player |
+| `nfts` | ❌ | Victory NFTs minted to Solana |
+| `achievements` | ❌ | Player achievement badges |
+| `rate_limit_logs` | ❌ | Sliding-window rate limiter |
+| `admin_users` | ❌ | Admin portal accounts |
+| `admin_sessions` | ❌ | Admin JWT session store |
+| `admin_wallet_bindings` | ❌ | Admin Solana wallet bindings |
+| `admin_audit_logs` | ❌ | Full RBAC audit trail with before/after state |
+| `admin_logs` | ❌ | Wager-specific admin action log |
+| `admin_notes` | ❌ | Admin free-text notes on players/wagers |
+| `moderation_requests` | ✅ | Moderator assignment queue per dispute — Realtime INSERT triggers popup |
+| `username_appeals` | ❌ | Player appeals for taken usernames (v1.5.0) |
+| `username_change_requests` | ❌ | Formal username rebind requests (v1.5.0) |
+| `punishment_log` | ❌ | Immutable punishment audit trail (v1.5.0) |
+| `player_behaviour_log` | ❌ | Soft behavioural events for admin review (v1.5.0) |
+
+> **`moderation_requests` Realtime:** The channel `moderation_requests:{walletAddress}` is subscribed in `GameEventContext` with a `moderator_wallet=eq.{walletAddress}` filter. On INSERT, if the new row is `status: 'pending'` and not already seen in this session, it sets `activeModerationRequest` which triggers `ModerationOrchestrator` to show the popup. The `seenModerationRequestIds` ref prevents duplicate popups across re-renders.
+
+---
+
+## Known Type Gaps
+
+| Table / Column | Status | Workaround |
+|-------|--------|------------|
+| `wager_messages` | ❌ Not in `types.ts` | `as any` cast in `useWagerChat.ts`; `WagerMessage` + `ProposalData` interfaces defined there |
+| `moderation_requests` | ❌ Not in `types.ts` | `ModerationRequest` interface defined in `useModeration.ts` and imported where needed |
+| `username_appeals` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `username_change_requests` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `punishment_log` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `player_behaviour_log` | ❌ Not in `types.ts` | Define local interface in consuming hook |
+| `players` new columns (v1.5.0) | ❌ Not in `types.ts` | `as any` casts in `src/app/api/settings/route.ts` and `usePlayerSettings.ts` |
+| `wagers` new columns (v1.5.0 + v1.6.0) | ❌ Not in `types.ts` | Local field references in `useWagers.ts` `Wager` interface |
+| `game_type` enum `free_fire` | ❌ Not in `types.ts` | `GameType` union in `useWagers.ts` includes `'free_fire'` manually |
+
+**To fix:** Re-run `supabase gen types typescript --project-id your_project_ref > src/integrations/supabase/types.ts` after any schema change, then remove `as any` workarounds.
+
+---
+
+## Edge Functions
+
+Four edge functions handle all server-side operations. All run on Supabase's Deno runtime.
+
+### `secure-wager`
+All wager lifecycle actions. Requires `X-Session-Token` header (Ed25519 wallet session token) for auth. Called via `invokeSecureWager()` in `src/hooks/useWagers.ts`.
+
+| Action | Auth Required | Who Can Call | Description |
+|--------|---------------|--------------|-------------|
+| `create` | ✅ | Any player | INSERT new wager, create on-chain PDA |
+| `join` | ✅ | Any player (not owner) | UPDATE status → joined |
+| `vote` | ✅ | Either participant | UPDATE vote_player_a/b (legacy — use `submitVote` for new flow) |
+| `edit` | ✅ | Player A only | UPDATE stake/stream_url/is_public (status = created only) |
+| `applyProposal` | ✅ | Either participant | Apply an accepted proposal — bypasses owner-only edit restriction |
+| `notifyChat` | ✅ | Either participant | INSERT notification to opponent (rate-limited: 1 per 5 min per wager) |
+| `notifyProposal` | ✅ | Either participant | INSERT notification to opponent about new proposals |
+| `delete` | ✅ | Player A only | DELETE wager (status = created only) |
+| `setReady` | ✅ | Either participant | Calls `set_player_ready` DB RPC |
+| `startGame` | ✅ | Either participant | UPDATE status → voting; creates Lichess game via platform token |
+| `recordOnChainCreate` | ✅ | Player A only | UPDATE deposit_player_a = true, tx_signature_a |
+| `recordOnChainJoin` | ✅ | Player B only | UPDATE deposit_player_b = true, tx_signature_b |
+| `checkGameComplete` | ✅ | Either participant | Poll Lichess API — if game ended, trigger resolve |
+| `cancelWager` | ✅ | Either participant | UPDATE status → cancelled; trigger on-chain refund |
+| `concedeDispute` | ✅ | Either participant | **Phase 6** — concede during grace period; resolves on-chain instantly, no mod fee, logs honesty event |
+| `markGameComplete` | ✅ | Either participant | **Step 3** — sets `game_complete_a` or `game_complete_b`; when both set, writes `game_complete_deadline` (+10s) and `vote_deadline` (+5m 10s) |
+| `submitVote` | ✅ | Either participant | **Step 3** — sets `vote_player_a` or `vote_player_b`; if both match → auto-resolve on-chain; if mismatch → status = `disputed` |
+| `retractVote` | ✅ | Either participant | **Step 3** — clears caller's vote (only allowed while opponent hasn't voted yet) |
+
+> **`applyProposal` vs `edit`:** `edit` is owner-only and blocked when status = `joined`. `applyProposal` accepts auth from either participant and applies the change regardless of status. Always use `applyProposal` when responding to a proposal acceptance — never `edit`.
+
+> **`vote` vs `submitVote`:** The legacy `vote` action is kept for compatibility. All new code should use `submitVote` for the Step 3 peer voting flow.
+
+---
+
+### `secure-player`
+Player profile management. Requires `X-Session-Token` header.
+
+| Action | Description |
+|--------|-------------|
+| `create` | INSERT new player row (auto-called on first wallet connect via `useAutoCreatePlayer`) |
+| `update` | UPDATE player profile fields (username, bio, avatar, game usernames) |
+
+---
+
+### `admin-action`
+Admin dispute resolution and moderation. Requires admin JWT (not a player session token). Called via Next.js API routes at `/api/admin/action`.
+
+| Action | Min Role | Description |
+|--------|----------|-------------|
+| `forceResolve` | moderator | UPDATE wager status → resolved with given winner; calls on-chain `resolve_wager` |
+| `forceDraw` | moderator | UPDATE wager status → resolved as draw; calls on-chain `close_wager` |
+| `forceCancel` | moderator | UPDATE wager status → cancelled; calls on-chain `close_wager` |
+| `banPlayer` | admin | UPDATE player is_banned = true |
+| `unbanPlayer` | admin | UPDATE player is_banned = false |
+
+All actions write to both `admin_logs` and `admin_audit_logs` with before/after state.
+
+> **Cold-start fix:** `admin-action` uses lazy Solana SDK import (`getSolana()`) and HTTP-polling transaction confirmation instead of `sendAndConfirmTransaction()` / `connection.confirmTransaction()`. Eager SDK import exhausted Deno worker memory budget; WebSocket-based confirmation drained CPU budget past the ~2s limit. The HTTP-polling approach polls `getSignatureStatuses` over plain fetch with a 30s deadline and zero WebSocket usage.
+
+---
+
+### `resolve-wager`
+Low-level on-chain settlement. Called by `admin-action` and by the Lichess webhook after a chess game completes. Not called directly by the frontend.
+
+Performs:
+1. Derives the WagerAccount PDA from `player_a_wallet` + `match_id`
+2. Builds and sends `resolve_wager` instruction (90% → winner, 10% → platform)
+3. Or `close_wager` instruction for draws/cancels (100% → both players)
+4. Calls `update_winner_stats` / `update_loser_stats` DB RPCs
+5. INSERTs `wager_transactions` records for the payout
+
+### `process-verdict` (Phase 6)
+Called after a moderator submits a verdict via `/api/moderation/verdict`. Self-contained — Solana helpers inlined.
+
+Performs:
+1. Validates wager isn't already resolved
+2. On-chain settlement: `resolve_wager` (winner) | `close_wager` (draw) | skip (`cannot_determine` → admin escalation)
+3. Updates wager status + `wager_transactions`
+4. Updates winner/loser stats
+5. Applies auto-escalating punishment tier to the dispute loser (see [Punishment System](#phase-6--punishment-system))
+6. Notifies both players + moderator
+
+### `process-concession` (Phase 6)
+Called when a player concedes during the dispute grace period. Does NOT charge a moderator fee. Performs the same on-chain `resolve_wager` settlement but skips punishment tier logic — concession is rewarded, not penalised. Logs a positive honesty event to `player_behaviour_log`.
+
+---
+
+## Phase 6 — Punishment System
+
+### Dispute Grace Period (Step 4)
+
+When a dispute is raised, `DisputeGraceModal` is immediately shown to both players before any moderator is assigned. Either player can tap "I was wrong" to concede — this triggers `concedeDispute` in `secure-wager`, which calls `process-concession` for on-chain resolution with no moderator fee. The concession is logged as a positive honesty event in `player_behaviour_log`. The moderator search runs silently in the background during the grace window.
+
+```
+status = 'disputed'
+    → DisputeGraceModal shown to both players
+    → Either player concedes → process-concession → resolved on-chain (no mod fee)
+    → Nobody concedes → assign-moderator → ModerationRequestModal (Step 5)
+```
+
+### Auto-Escalating Strike Tiers
+
+When a moderator verdict is submitted, `process-verdict` applies a punishment to the dispute loser based on their `punishment_log` offense count:
+
+| Offense # | Punishment |
+|-----------|-----------|
+| 1 | Warning (no suspension) |
+| 2 | 24h suspension |
+| 3 | 72h suspension |
+| 4 | 7-day suspension |
+| 5+ | Indefinite ban |
+
+Every punishment is written to `punishment_log` (immutable) and reflected on the player row (`is_suspended`, `suspension_ends_at`). `cannot_determine` verdicts escalate to admin with no punishment applied.
+
+### Behaviour Flags Dashboard
+
+Admin page at `/itszaadminlogin/behaviour-flags` aggregates `player_behaviour_log` entries per player into a risk score:
+
+| Event Type | Weight |
+|------------|--------|
+| `false_vote` | High |
+| `dispute_loss` | Medium |
+| `moderator_reported` | High |
+
+Admins can see per-player false vote counts, dispute losses, moderator reports, full event history, and risk score. Used to identify repeat bad actors for manual review or escalation.
+
+### Username Binding System
+
+Players can bind their game usernames (PUBG, CODM, Free Fire) via `/api/username/bind`. If a username is taken by another player, they can file an appeal via `/api/username/appeal`. Existing bindings can be changed via `/api/username/change-request`. All appeals and change requests appear in their respective admin review queues.
+
+| Route | Description |
+|-------|-------------|
+| `POST /api/username/bind` | Bind a game username to wallet |
+| `POST /api/username/appeal` | File appeal on a taken username |
+| `POST /api/username/appeal/respond` | Admin responds to appeal |
+| `POST /api/username/change-request` | Request a username change |
+
+### Player Settings
+
+`/settings` page lets players control:
+- Push notification preferences (per event type)
+- Whether they appear in the moderator assignment pool (`moderation_requests_enabled`)
+
+Settings are stored on the `players` row and managed via `GET/PATCH /api/settings` with session token auth.
+
+---
+
+## Moderation System (Step 5)
+
+When a dispute is raised (votes disagree or `vote_deadline` expires), the backend assigns a moderator from the eligible player pool and inserts a row into `moderation_requests`. The entire moderator-facing UI is self-contained — nothing outside `ModerationOrchestrator` needs to know about it.
+
+### Flow
+
+```
+dispute detected → assign-moderator inserts moderation_requests row
+                 → Supabase Realtime INSERT fires on moderator's client
+                 → GameEventContext sets activeModerationRequest
+                   (seen IDs persisted to sessionStorage — no re-show on refresh)
+                 → ModerationOrchestrator renders ModerationRequestModal (30s popup)
+                 → moderator clicks Accept → POST /api/moderation/accept
+                 → ModerationPanel opens (5-step workflow, 10-min decision window)
+                 → moderator selects verdict → POST /api/moderation/verdict
+                 → on-chain settlement + 4% fee to moderator wallet
+
+timeout path → pg_cron fires moderation-timeout every minute
+             → marks expired pending/accepted requests as timed_out
+             → increments moderation_skipped_count atomically via RPC
+             → fires assign-moderator again for next candidate
+```
+
+### pg_cron Setup (run once in Supabase SQL Editor)
+
+```sql
+-- Required for HTTP calls from pg_cron
+create extension if not exists pg_net;
+
+-- Schedule the timeout handler (runs every minute)
+select cron.schedule(
+  'moderation-timeout', '* * * * *',
+  $$ select net.http_post(
+       url := 'https://vqgtwalwvalbephvpxap.supabase.co/functions/v1/moderation-timeout',
+       headers := jsonb_build_object('Content-Type','application/json',
+                    'Authorization','Bearer ' || current_setting('app.service_role_key')),
+       body := '{}'::jsonb) $$);
+
+-- Verify
+select jobname, schedule from cron.job where jobname = 'moderation-timeout';
+```
+
+> The 30s popup window is enforced by the `deadline` column in `moderation_requests`, not the cron frequency. Running every minute is safe — the queries inside the function filter by `deadline < NOW()`.
+
+### API Routes
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/moderation/accept` | Player session token | Moderator accepts assignment; sets status → `accepted`, writes `decision_deadline` |
+| `POST` | `/api/moderation/decline` | Player session token | Moderator declines; sets status → `declined`; increments skip count atomically; triggers reassignment |
+| `POST` | `/api/moderation/verdict` | Player session token | Submits verdict (`player_wallet \| 'draw' \| 'cannot_determine'`); triggers on-chain settlement and moderator fee payout |
+| `POST` | `/api/moderation/report` | Player session token | Player reports an unfair verdict after dispute resolves |
+
+### `useModeration.ts` Exports
+
+| Export | Type | Description |
+|--------|------|-------------|
+| `ModerationRequest` | interface | Full `moderation_requests` row shape |
+| `ModerationWager` | interface | Wager fields needed by the moderation UI |
+| `useActiveModerationRequest` | query | Polls every 5s for pending/accepted request assigned to this wallet |
+| `useModerationWager` | query | Fetches wager details for a given `wager_id` |
+| `usePlayerDisplayNames` | query | Resolves wallet addresses → usernames for display |
+| `useAcceptModeration` | mutation | `POST /api/moderation/accept` |
+| `useDeclineModeration` | mutation | `POST /api/moderation/decline` |
+| `useSubmitVerdict` | mutation | `POST /api/moderation/verdict` |
+
+### ModerationPanel Steps
+
+| Step | Label | What the moderator does |
+|------|-------|------------------------|
+| 1 | Overview | Sees dispute context, stake, players, time remaining, fee earned |
+| 2 | Evidence | Reviews each player's vote + stream URL if provided |
+| 3 | Research | Per-game verification links (Lichess, COD Mobile, PUBG, Free Fire) |
+| 4 | Decision | Picks winner / draw / cannot_determine; adds optional notes |
+| 5 | Confirm | Reviews selection and submits — irreversible |
+
+### Fee Calculation
+
+- Moderator earns **4% of pot** (= 40% of the 10% platform fee) on a fair verdict
+- `cannot_determine` escalates to admin and earns no fee
+- Fee formula: `stake_lamports × 2 × 0.04`
+
+---
+
+## DB Triggers — Developer Gotchas
+
+Four triggers fire automatically on DML. They **cannot be bypassed by the anon key** — only service role (used by edge functions) can write the protected fields.
+
+### `protect_player_sensitive_fields` (BEFORE UPDATE on `players`)
+Blocks direct client writes to: `is_banned`, `ban_reason`, `flagged_*`, `lichess_access_token`, `lichess_user_id`, `lichess_token_expires_at`.
+
+**Symptom if you hit this:** Player update silently returns stale data or the field doesn't change. Write must go through `secure-player` or the Lichess OAuth callback route instead.
+
+### `protect_wager_sensitive_fields` (BEFORE UPDATE on `wagers`)
+Blocks direct client writes to: `status`, `winner_wallet`, `vote_player_a/b`, `deposit_player_a/b`, `resolved_at`, `cancelled_at`, `cancelled_by`.
+
+**Symptom if you hit this:** Wager status update silently fails. All wager state transitions must go through `secure-wager`. This is by design — no frontend code should ever directly write wager status.
+
+### `validate_player_insert` / `validate_wager_insert`
+Validate new rows before insert. Enforce wallet address format, required fields, and basic business rules. If you see an unexpected 400 on player/wager creation, check these trigger conditions.
+
+### `update_updated_at` / `update_updated_at_column`
+Auto-refresh `updated_at` on any UPDATE. Two versions exist (`update_updated_at` and `update_updated_at_column`) — this is a legacy artefact from migration history. Both are active and harmless.
+
+---
+
+## Realtime Subscriptions
+
+Five tables/channels are used for Realtime (confirmed live):
+
+| Table | Channel Pattern | Used By |
+|-------|----------------|---------|
+| `wagers` | `game-events:player_a:{wallet}` | `GameEventContext` — player A's wager updates |
+| `wagers` | `game-events:player_b:{wallet}` | `GameEventContext` — player B's wager updates |
+| `wagers` | `game-events:public` | `GameEventContext` — public INSERT for open wager list |
+| `wager_transactions` | `wager-transactions:{wagerId}` | Ready Room deposit confirmation |
+| `notifications` | `notifications:{walletAddress}` | `useNotifications` — bell icon dropdown |
+| `wager_messages` | `wager-chat:{wagerId}` | `useWagerChat` — ready room chat + proposals |
+| `moderation_requests` | `moderation_requests:{walletAddress}` | `GameEventContext` — moderator assignment popup |
+
+> ⚠️ **Duplicate channel warning:** Never call `useWagerChat` for the same `wagerId` from both a parent and child component — Supabase silently drops duplicate channel names. The channel is created inside `useWagerChat` and must only exist once per wager per client session. Same applies to any other filtered channel. `GameCompleteModal` and `VotingModal` receive the live wager object from the React Query cache (kept fresh by `GameEventContext`) — they do NOT create their own Supabase subscriptions.
+
+---
+
+## Notification Types
+
+`AppNotification['type']` union — all values that can appear in the `notifications` table and must be handled by `NotificationsDropdown`:
+
+| Type | Icon | Routes to |
+|------|------|-----------|
+| `wager_joined` | Swords (primary) | `/arena?modal=ready-room` |
+| `game_started` | Clock (green) | `/arena?modal=ready-room` |
+| `wager_won` | Trophy (yellow) | `/my-wagers?modal=result` |
+| `wager_lost` | Swords (destructive) | `/my-wagers?modal=result` |
+| `wager_draw` | Wallet (muted) | `/my-wagers?modal=result` |
+| `wager_cancelled` | Wallet (orange) | `/my-wagers?modal=details` |
+| `rematch_challenge` | RefreshCw (primary) | `/arena?modal=details` |
+| `wager_vote` | Trophy (blue) | `/arena?modal=ready-room` |
+| `chat_message` | MessageSquare (muted) | `/arena?modal=ready-room` |
+| `wager_proposal` | FileEdit (amber) | `/arena?modal=ready-room` |
+| `wager_disputed` | Swords (orange) | `/my-wagers?modal=details` |
+| `moderation_request` | Scale (amber) | `/dashboard?modal=moderation` |
+
+> The `NotificationRoute` type in `NotificationsDropdown` is `'arena' | 'my-wagers' | 'dashboard'` — all three routes must be valid Next.js pages.
+
+---
+
+## Wager Chat & Proposals
+
+The ready room includes a real-time chat and a wager edit proposal system, both backed by `wager_messages`.
+
+**Chat flow:**
+1. Player calls `sendMessage(text)` in `useWagerChat`
+2. Direct INSERT to `wager_messages` with `message_type: 'chat'`
+3. Opponent receives it instantly via Realtime INSERT event
+4. `notifyChat` action fires a push notification to the opponent (rate-limited to 1 per 5 min per wager)
+
+**Proposal flow:**
+1. Player calls `sendProposal(wager, updates)` in `useWagerChat`
+2. One `proposal` message inserted per changed field
+3. Opponent sees pending proposals in their UI via Realtime
+4. Opponent calls `respondToProposal(messageId, 'accepted' | 'rejected', proposalData, wagerId)`
+5. On `'accepted'`: `applyProposal` is called on `secure-wager` — applies the change to the `wagers` row
+6. On `'rejected'`: Only the `proposal_status` is updated to `'rejected'`
+
+Supported proposal fields: `stake_lamports`, `is_public`, `stream_url`.
+
+---
+
+## Push Notifications
+
+Push notifications are delivered via the Web Push API (VAPID) to players even when the tab is closed.
+
+**Subscription flow:**
+1. `useNotifications` calls `subscribeToPush(wallet)` on wallet connect
+2. Requests browser notification permission if not already granted
+3. Subscribes via `pushManager.subscribe({ applicationServerKey: vapidPublicKey })`
+4. Upserts to `push_subscriptions` table keyed on `endpoint`
+
+**Notification delivery:**
+1. Edge function sends push notification using `VAPID_PRIVATE_KEY`
+2. Browser's push service delivers to service worker (`/public/sw.js`)
+3. Service worker shows OS notification via `showNotification()`
+4. Click on notification navigates to `/my-wagers`
+
+**Notification types supported for push:** `wager_joined`, `game_started`, `wager_won`, `wager_lost`, `wager_draw`, `wager_cancelled`, `wager_disputed`, `moderation_request`.
+
+---
+
+## NFT Tier System
+
+> ⚠️ **Correction:** The live DB `nft_tier` enum is `bronze | silver | gold | diamond`. Earlier docs incorrectly listed the top tier as `platinum`. **Diamond is the correct value.**
+
+| Tier | Trigger |
+|------|---------| 
+| `bronze` | First/basic victory |
+| `silver` | 5+ consecutive wins |
+| `gold` | 10+ consecutive wins |
+| `diamond` | 20+ consecutive wins |
+
+---
+
+## DB Functions (RPC)
+
+Callable via `.rpc()` on the Supabase client. Confirmed live in `information_schema.routines`.
+
+| Function | Called By | Description |
+|----------|-----------|-------------|
+| `set_player_ready` | `secure-wager` (`setReady` action) | Atomic ready toggle + countdown start |
+| `update_winner_stats` | `resolve-wager` | Increment wins, earnings, streak on players row |
+| `update_loser_stats` | `resolve-wager` | Increment losses, total_spent, reset streak |
+| `merge_game_bound_at` | `secure-player` | JSONB-merge a single game's bound timestamp without overwriting others (service role only) |
+
+---
+
+## Key Features
+
+### Chess — Lichess OAuth PKCE
+Players connect their Lichess account via OAuth PKCE — proves account ownership without sharing any password or token with GameGambit. When both players deposit their stakes and the wager enters `voting`, the platform automatically creates a locked Lichess game using a server-side platform token with `users=PlayerA,PlayerB`. Each player gets a per-color play link directly in the Ready Room. When the game ends on Lichess, GameGambit detects it within seconds and automatically pays out the winner on-chain.
+
+**Flow:** Connect Lichess (OAuth) → Create Wager → Both Deposit → Game Auto-Created → Play on Lichess → Auto-Resolved → Winner Paid
+
+---
+
+### CODM / PUBG / Free Fire — Peer Voting Flow (Step 3)
+Non-chess games resolve via a two-phase peer voting system. Both players play their external match, then return to the app to confirm and vote.
+
+**Phase 1 — Game Complete Confirmation:**
+1. Either player clicks "Confirm Game Complete" → `markGameComplete` in `secure-wager`
+2. Server sets `game_complete_a` or `game_complete_b` on the wager row
+3. When both are set, server writes `game_complete_deadline` (NOW + 10s) and `vote_deadline` (NOW + 5m 10s)
+4. `GameCompleteModal` shows a live countdown synced to `game_complete_deadline`
+5. Countdown hits 0 → parent component closes `GameCompleteModal`, opens `VotingModal`
+
+**Phase 2 — Voting:**
+1. Each player clicks their vote (Player A wins / Player B wins / Draw) → `submitVote`
+2. Server evaluates both votes:
+   - Same winner → calls `resolve-wager` on-chain instantly → status = `resolved`
+   - Different winners → status = `disputed` → moderator assigned (Step 5)
+3. Player can retract their vote (`retractVote`) only while opponent hasn't voted yet
+4. If `vote_deadline` passes with no resolution → status = `disputed`
+
+**Key implementation detail:** `GameCompleteModal` and `VotingModal` both receive the live `wager` object from React Query cache (kept fresh by `GameEventContext` Realtime subscription). No second Supabase subscription is created inside these modals.
+
+**`deriveVoteOutcome(wager, myWallet)`** — utility in `useVoting.ts` that returns `'waiting' | 'pending' | 'agree' | 'disagree'` — drives the VotingModal UI state.
+
+**Why `game_complete_deadline` exists:** Without it, both players' `VotingModal` countdowns could drift by a few seconds depending on when each client receives the Realtime update. The server-stamped deadline gives both clients the same reference point for the countdown.
+
+---
+
+### Wager Lifecycle
+
+```
+create → join → ready room (setReady + deposits) → startGame → voting → resolve / dispute / cancel
+```
+
+Chess path through `voting`:
+```
+startGame (Lichess game auto-created) → play on Lichess → webhook fires → resolve-wager on-chain
+```
+
+CODM / PUBG / Free Fire path through `voting`:
+```
+startGame → GameCompleteModal (both confirm) → 10s sync → VotingModal (5 min)
+          → agree    = resolve-wager on-chain
+          → disagree = status: disputed
+                     → DisputeGraceModal shown (Phase 6 — either player can concede instantly)
+                     │   → concede = process-concession on-chain (no mod fee, honesty logged)
+                     └── nobody concedes → moderator assigned → ModerationRequestModal popup
+                             → moderator accepts → ModerationPanel (5-step) → verdict
+                             → process-verdict on-chain + punishment tier applied to loser
+```
+
+### Deposit Ordering — Player B waits for Player A
+
+> ⚠️ `join_wager` reads `stake_lamports` from the on-chain PDA created by `create_wager`. If Player A's transaction hasn't confirmed when Player B's fires, the PDA doesn't exist and the program uses minimum rent (~0.00008 SOL) instead of the agreed stake.
+
+**Fix (in `ReadyRoomModal.runDepositFlow`):** Player B polls `deposit_player_a` on the live wager object every 2s before calling `joinWagerOnChain`. The countdown and Ready button are unchanged.
+
+### Error Recovery & Refunds
+- **Cancel Wager**: Either player can cancel from ready room
+- **Automatic Refunds**: Both players refunded on cancellation via `close_wager` on-chain
+- **Error Logging**: All on-chain failures logged as `tx_type = 'error_*'` rows in `wager_transactions`
+
+---
+
+## API Reference
+
+### Authentication
+All player-facing edge function calls require a wallet session token in the header:
+```javascript
+headers: { 'X-Session-Token': sessionToken }
+```
+
+Session tokens are Ed25519 wallet signatures issued by `verify-wallet` and managed by `useWalletAuth`. They expire and trigger a `gg:session-expired` custom DOM event when stale.
+
+### Edge Functions Summary
+
+| Function | Path | Auth |
+|----------|------|------|
+| `secure-wager` | `/functions/v1/secure-wager` | Player session token |
+| `secure-player` | `/functions/v1/secure-player` | Player session token |
+| `admin-action` | `/api/admin/action` (Next.js route → edge fn) | Admin JWT |
+| `resolve-wager` | Internal only (not called from frontend) | Service role |
+
+### Key Next.js API Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/auth/lichess/callback` | Lichess OAuth PKCE callback |
+| `POST` | `/api/admin/auth/login` | Admin login |
+| `POST` | `/api/admin/auth/logout` | Admin logout |
+| `POST` | `/api/admin/auth/signup` | Admin signup |
+| `GET` | `/api/admin/auth/verify` | Verify admin session |
+| `GET/PUT` | `/api/admin/profile` | Get/update admin profile |
+| `POST` | `/api/admin/action` | Admin wager/player actions |
+| `GET` | `/api/admin/audit-logs` | Fetch audit logs |
+| `POST` | `/api/admin/wallet/bind` | Bind Solana wallet to admin |
+| `POST` | `/api/admin/wallet/verify` | Verify admin wallet signature |
+| `POST` | `/api/moderation/accept` | Moderator accepts assignment |
+| `POST` | `/api/moderation/decline` | Moderator declines assignment |
+| `POST` | `/api/moderation/verdict` | Moderator submits verdict |
+| `POST` | `/api/moderation/report` | Player reports unfair verdict |
+| `GET/PATCH` | `/api/settings` | Get/update player notification + moderation prefs |
+| `POST` | `/api/username/bind` | Bind game username to wallet |
+| `POST` | `/api/username/appeal` | File appeal on taken username |
+| `POST` | `/api/username/appeal/respond` | Admin responds to username appeal |
+| `POST` | `/api/username/change-request` | Request a username rebind |
+| `GET` | `/api/pubg/verify-username` | Verify PUBG username exists |
+
+---
+
+## Performance
+
+Optimized for 200k+ MAUs:
+
+| Query | Target | Strategy |
+|-------|--------|----------|
+| Player lookup | < 10ms | Indexed on `wallet_address` |
+| Wager list | < 20ms | Indexed on `status`, `player_a_wallet` |
+| Leaderboard (top 100) | < 50ms | Materialized view |
+| Transaction history | < 50ms | Composite index on `wager_id` |
+| Live feed | < 30ms | Supabase Realtime — no polling |
+
+`GameEventContext` handles all wager Realtime subscriptions globally, keeping the React Query cache for `['wagers']` and `['wagers', 'open']` current without per-component polling. Chess game completion is polled app-wide every 10s from `GameEventContext` (previously only ran on the arena page — now survives navigation).
+
+---
+
+## Rate Limiting
+
+Per-wallet, per-endpoint sliding window via `rate_limit_logs`:
+
+```typescript
+const configs = {
+  public: { windowMs: 60_000, maxRequests: 100 },
+  api: { windowMs: 60_000, maxRequests: 50 },
+  auth: { windowMs: 900_000, maxRequests: 5 },
+  wagerCreation: { windowMs: 60_000, maxRequests: 10 },
+};
+```
+
+`notifyChat` has an additional application-level rate limit: 1 push notification per wager per 5 minutes, enforced in `secure-wager` before calling the push service.
+
+---
+
+## Security
+
+### Player Security
+- All state transitions require a valid Ed25519 session token
+- DB triggers (`protect_player_sensitive_fields`, `protect_wager_sensitive_fields`) prevent direct client writes to sensitive fields
+- Lichess OAuth PKCE — no passwords or tokens shared with GameGambit
+- RLS policies on `notifications` and `push_subscriptions`
+- Rate limiting on wager creation and notifications
+- Parameterized queries throughout (no SQL injection surface)
+
+### Admin Panel Security
+- PBKDF2 password hashing (100,000 iterations)
+- httpOnly + Secure + SameSite session cookies with auto-refresh
+- JWT tokens (Ed25519 signed) with expiry
+- Ed25519 signature verification for Solana wallet binding
+- Three-tier RBAC: moderator → admin → superadmin
+- Complete audit trail in `admin_audit_logs` with IP + user agent + before/after state
+
+### Moderation Security
+- All moderation API routes require a valid player session token
+- Moderator wallet is verified server-side against the `moderation_requests` row before any mutation
+- `seenModerationRequestIds` ref in `GameEventContext` prevents duplicate popups within a session
+- Verdict is irreversible once submitted — enforced at the DB level
+
+---
+
+## Deployment
+
+```bash
+# Deploy all edge functions
+supabase link --project-ref your_project_ref
+supabase functions deploy secure-wager
+supabase functions deploy secure-player
+supabase functions deploy admin-action
+supabase functions deploy resolve-wager
+
+# Frontend deploys automatically via Vercel on push to main
+```
+
+Set all edge function secrets in Supabase Dashboard → Edge Functions → Secrets before deploying.
+
+See [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) for the full checklist.
+
+---
+
+## Documentation Index
 
 | File | Description |
-|---|---|
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | Complete database schema — tables, triggers, functions, indexes, realtime |
-| [`README_DEV.md`](./README_DEV.md) | Developer reference — hooks, edge functions, env vars, project structure |
-| [`API_REFERENCE.md`](./API_REFERENCE.md) | Full REST API reference including admin endpoints |
-| [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) | Production deployment guide |
-| [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) | Local development setup and workflows |
-| [`PWA_GUIDE.md`](./PWA_GUIDE.md) | PWA setup, push notifications, VAPID configuration |
-| [`CHANGE_LOGS.md`](./CHANGE_LOGS.md) | Version history and release notes |
+|------|-------------|
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | All tables, triggers, RPCs, indexes, realtime |
+| [`API_REFERENCE.md`](./API_REFERENCE.md) | Full REST + edge function API reference |
+| [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) | Production deployment checklist |
+| [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) | Local dev setup and workflows |
+| [`PWA_GUIDE.md`](./PWA_GUIDE.md) | PWA setup, VAPID key generation, push notifications |
+| [`CHANGE_LOGS.md`](./CHANGE_LOGS.md) | Version history |
 
 ---
 
 ## Roadmap
 
-- [x] Chess — Lichess OAuth PKCE + auto-resolution
-- [x] CODM / PUBG / Free Fire — peer voting flow
-- [x] Push notifications (PWA, VAPID)
-- [x] Admin panel — dispute resolution, user management
-- [x] Real-time arena + ready room
-- [x] Moderator dispute system — real-time assignment popup, 5-step guided verdict workflow, on-chain settlement with fee incentive
+**Completed**
+- [x] Chess — Lichess OAuth PKCE + Lichess game auto-creation + webhook auto-resolution
+- [x] CODM / PUBG / Free Fire — peer voting flow (GameCompleteModal + VotingModal + secure-wager actions)
+- [x] Push notifications — Web Push API (VAPID) + PWA service worker
+- [x] Admin panel — dispute resolution, user management, audit trail, RBAC
+- [x] Real-time arena + ready room + wager chat + proposals
+- [x] In-app notifications (Supabase Realtime, bell dropdown)
+- [x] Achievement badges + NFT tier system
+- [x] Moderator dispute system — real-time assignment popup (30s countdown), 5-step guided verdict workflow, on-chain settlement with 4% fee incentive
+- [x] Step 6 — Punishment system (strike tracking, auto-suspend/ban, behaviour flags, dispute grace period + concession flow, username binding/appeals/change-requests, player settings)
+
+**Planned**
 - [ ] Tournament / bracket mode
-- [ ] Mainnet deployment + multi-sig authority
+- [ ] Social share cards ("I just won X SOL")
+- [ ] Weekly leaderboard rewards
+- [ ] Mainnet deployment + multi-sig authority wallet
 - [ ] Mobile app (React Native)
+- [ ] Streaming integration (Twitch, YouTube)
 
 ---
 
-*Built by [@Web3ProdigyDev](https://github.com/Web3ProdigyDev) · March 2026*
+**Made with ❤️ by Web3ProdigyDev**
