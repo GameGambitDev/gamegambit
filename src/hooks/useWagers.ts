@@ -137,7 +137,9 @@ export function useLiveWagers() {
       const { data, error } = await supabase
         .from('wagers')
         // Live feed card: same set as open wagers plus lichess_game_id for the stream link
-        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, is_public, stream_url, lichess_game_id, created_at, updated_at')
+        // game_complete_a/b/deadline are required by the arena recovery effect and
+        // GameCompleteModal so they must be included here.
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, is_public, stream_url, lichess_game_id, created_at, updated_at, game_complete_a, game_complete_b, game_complete_deadline')
         .in('status', ['joined', 'voting', 'disputed'])
         .order('created_at', { ascending: false });
       if (error) throw error;

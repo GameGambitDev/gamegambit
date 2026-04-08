@@ -344,6 +344,19 @@ function ArenaInner() {
   const [votingWager, setVotingWager] = useState<Wager | null>(null)
   const [votingOpen, setVotingOpen] = useState(false)
 
+  // Keep gameCompleteWager live from the per-wager cache.
+  // GameEventContext writes ['wagers', id] on every Realtime UPDATE — including
+  // when the opponent sets game_complete_b/a. Without this sync the modal reads
+  // a stale snapshot where the opponent's flag is still null, bothConfirmed never
+  // flips to true, and the countdown / VotingModal never open.
+  const { data: liveGameCompleteData } = useWagerById(
+    gameCompleteOpen ? (gameCompleteWager?.id ?? null) : null
+  )
+  useEffect(() => {
+    if (!gameCompleteOpen || !liveGameCompleteData) return
+    setGameCompleteWager(liveGameCompleteData as Wager)
+  }, [liveGameCompleteData, gameCompleteOpen])
+
   // ── Step 4: Dispute Grace Period ────────────────────────────────────────
   const [graceWager, setGraceWager] = useState<Wager | null>(null)
   const [graceOpen, setGraceOpen] = useState(false)

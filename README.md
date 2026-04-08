@@ -1,5 +1,6 @@
 # GameGambit — Trustless P2P Gaming Escrow on Solana
 
+| **Smart Contract Repo** | https://github.com/Web3ProdigyDev/gamegambit-sol |
 [![Live on Devnet](https://img.shields.io/badge/Solana-Devnet-9945FF?logo=solana)](https://explorer.solana.com/address/E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR?cluster=devnet)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org)
 [![Anchor](https://img.shields.io/badge/Anchor-0.30-512BD4)](https://anchor-lang.com)
