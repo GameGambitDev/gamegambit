@@ -11,6 +11,10 @@ const HeroCanvas = dynamic(
 )
 
 // Below-fold sections — not visible on first load, defer their JS
+const StatsBar = dynamic(
+  () => import('@/components/landing/StatsBar').then(m => ({ default: m.StatsBar })),
+  { ssr: false, loading: () => null }
+)
 const LiveFeed = dynamic(
   () => import('@/components/landing/LiveFeed').then(m => ({ default: m.LiveFeed })),
   { ssr: false, loading: () => null }
@@ -32,6 +36,7 @@ export default function HomePage() {
 
       {/* All sections sit at z-index: 1 via position: relative */}
       <Hero />
+      <StatsBar />
       <LiveFeed />
       <HowItWorks />
       <SupportedGames />
