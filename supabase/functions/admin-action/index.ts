@@ -20,6 +20,18 @@ const CORS = {
 const PROGRAM_ID_STR = "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR";
 const PLATFORM_WALLET_STR = "3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY";
 
+// ── Fee helper (must match calculate_platform_fee() in lib.rs) ────────────────
+const MICRO_THRESHOLD = 500_000_000;    // 0.5 SOL in lamports
+const WHALE_THRESHOLD = 5_000_000_000;  // 5.0 SOL in lamports
+
+function calculatePlatformFee(stakeLamports: number): number {
+  let bps: number;
+  if (stakeLamports < MICRO_THRESHOLD)       bps = 1000;
+  else if (stakeLamports <= WHALE_THRESHOLD) bps = 700;
+  else                                        bps = 500;
+  return Math.floor((stakeLamports * 2 * bps) / 10_000);
+}
+
 const DISCRIMINATORS = {
     resolve_wager: new Uint8Array([31, 179, 1, 228, 83, 224, 1, 123]),
     close_wager: new Uint8Array([167, 240, 85, 147, 127, 50, 69, 203]),
@@ -219,7 +231,7 @@ async function forceResolve(
     console.log(`[admin-action] forceResolve tx: ${sig}`);
 
     const totalPot = wager.stake_lamports * 2;
-    const platformFee = Math.floor(totalPot * 0.1);
+    const platformFee = calculatePlatformFee(wager.stake_lamports);
     const winnerPayout = totalPot - platformFee;
 
     await supabase.from("wager_transactions").upsert([

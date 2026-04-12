@@ -20,8 +20,37 @@ const corsHeaders = {
 // ── Constants (must match lib.rs) ─────────────────────────────────────────────
 const PROGRAM_ID = "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR";
 const PLATFORM_WALLET = "3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY";
-const PLATFORM_FEE_BPS = 1000;   // 10%
-const MODERATOR_FEE_SHARE = 0.40;
+// ── Fee helpers (must match calculate_platform_fee() in lib.rs) ───────────────
+const MICRO_THRESHOLD = 500_000_000;    // 0.5 SOL in lamports
+const WHALE_THRESHOLD = 5_000_000_000;  // 5.0 SOL in lamports
+const MODERATOR_FEE_SHARE = 0.30;
+const MOD_FEE_CAP_USD = 10;
+
+function calculatePlatformFee(stakeLamports: number): number {
+  let bps: number;
+  if (stakeLamports < MICRO_THRESHOLD)       bps = 1000;
+  else if (stakeLamports <= WHALE_THRESHOLD) bps = 700;
+  else                                        bps = 500;
+  return Math.floor((stakeLamports * 2 * bps) / 10_000);
+}
+
+async function getSolPriceUsd(): Promise<number> {
+  try {
+    const r = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'
+    );
+    const d = await r.json();
+    return d.solana.usd as number;
+  } catch {
+    return 150;
+  }
+}
+
+function calculateModFee(platformFeeLamports: number, solPriceUsd: number): number {
+  const feeUsd = (platformFeeLamports / 1_000_000_000) * solPriceUsd;
+  const modUsd = Math.min(feeUsd * MODERATOR_FEE_SHARE, MOD_FEE_CAP_USD);
+  return Math.floor((modUsd / solPriceUsd) * 1_000_000_000);
+}
 
 // Discriminators from IDL
 const DISCRIMINATORS = {
@@ -229,9 +258,10 @@ serve(async (req) => {
 
                     const stake = stakeLamports || wager?.stake_lamports || 0;
                     const totalPot = stake * 2;
-                    const platformFee = Math.floor(totalPot * PLATFORM_FEE_BPS / 10_000);
+                    const platformFee = calculatePlatformFee(stake);
                     const winnerPayout = totalPot - platformFee;
-                    const moderatorCut = moderatorWallet ? Math.floor(platformFee * MODERATOR_FEE_SHARE) : 0;
+                    const solPrice = moderatorWallet ? await getSolPriceUsd() : 150;
+                    const moderatorCut = moderatorWallet ? calculateModFee(platformFee, solPrice) : 0;
                     const netPlatform = platformFee - moderatorCut;
                     const loserWallet = winnerWallet === wager?.player_a_wallet ? wager?.player_b_wallet : wager?.player_a_wallet;
 
