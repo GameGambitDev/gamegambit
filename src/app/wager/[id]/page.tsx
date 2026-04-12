@@ -4,7 +4,7 @@ import { use, useEffect, useState } from 'react'
 import { useWagerById } from '@/hooks/useWagers'
 import { usePlayerByWallet } from '@/hooks/usePlayer'
 import { getSupabaseClient } from '@/integrations/supabase/client'
-import { GAMES, formatSol } from '@/lib/constants'
+import { GAMES, formatSol, calculatePlatformFee } from '@/lib/constants'
 import { getTxExplorerUrl } from '@/lib/solana-config'
 import { PlayerLink } from '@/components/PlayerLink'
 import { Badge } from '@/components/ui/badge'
@@ -228,7 +228,7 @@ export default function WagerSpectatorPage({ params }: { params: Promise<{ id: s
     const isCancelled = wager.status === 'cancelled'
     const isDraw = isResolved && !wager.winner_wallet
     const pot = wager.stake_lamports * 2
-    const platformFee = Math.floor(pot * 0.10)
+    const platformFee = calculatePlatformFee(wager.stake_lamports)
     const winnerPayout = pot - platformFee
     const isChess = wager.game === 'chess'
 

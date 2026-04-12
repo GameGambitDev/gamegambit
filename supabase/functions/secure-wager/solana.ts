@@ -8,7 +8,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const PROGRAM_ID = "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR";
 export const PLATFORM_WALLET = "3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY";
-export const PLATFORM_FEE_BPS = 1000;
+// Fee helpers (must match calculate_platform_fee() in lib.rs)
+const _MICRO_THRESHOLD = 500_000_000;
+const _WHALE_THRESHOLD = 5_000_000_000;
+
+export function calculatePlatformFee(stakeLamports: number): number {
+    let bps: number;
+    if (stakeLamports < _MICRO_THRESHOLD) bps = 1000;
+    else if (stakeLamports <= _WHALE_THRESHOLD) bps = 700;
+    else bps = 500;
+    return Math.floor((stakeLamports * 2 * bps) / 10_000);
+}
 
 const DISCRIMINATORS = {
     resolve_wager: [31, 179, 1, 228, 83, 224, 1, 123],
@@ -142,7 +152,7 @@ export async function resolveOnChain(
             ], { onConflict: 'tx_signature', ignoreDuplicates: true });
         } else {
             const totalPot = stake * 2;
-            const platformFee = Math.floor(totalPot * PLATFORM_FEE_BPS / 10_000);
+            const platformFee = calculatePlatformFee(stake);
             const winnerPayout = totalPot - platformFee;
             const winnerPubkey = new PublicKey(winnerWallet!);
             const platformPubkey = new PublicKey(PLATFORM_WALLET);

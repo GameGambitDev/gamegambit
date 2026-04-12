@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Clock, ExternalLink, Swords, Trophy, User, Crown, Minus, Edit, Share2, Check } from 'lucide-react';
 import { Wager, useEditWager } from '@/hooks/useWagers';
-import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
+import { GAMES, formatSol, truncateAddress, calculatePlatformFee } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -114,7 +114,7 @@ export function WagerDetailsModal({
     ? playerA?.username
     : playerB?.username;
 
-  const platformFee = Math.floor(wager.stake_lamports * 2 * 0.10);
+  const platformFee = calculatePlatformFee(wager.stake_lamports);
   const winnerPayout = wager.stake_lamports * 2 - platformFee;
 
   const isChess = wager.game === 'chess';

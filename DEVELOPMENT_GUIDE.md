@@ -533,7 +533,7 @@ PLATFORM_WALLET_PUBKEY  // 3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY
 PLATFORM_FEE_BPS   // 1000 (10%)
 RETRACT_WINDOW_SECONDS  // 15 (matches lib.rs)
 MODERATOR_POPUP_SECONDS // 30 (auto-reject window for moderation requests)
-MODERATOR_FEE_SHARE_PERCENT // 40 (moderator gets 40% of platform fee = 4% of pot)
+MODERATOR_FEE_SHARE_PERCENT // 30 (moderator gets 30% of platform fee)
 ```
 
 The instruction discriminators are also here — if you ever redeploy the Anchor program, update these from the new IDL. Using a stale discriminator will cause silent transaction failures.

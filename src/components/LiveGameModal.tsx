@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ExternalLink, Trophy, Loader2, RefreshCw, Clock, Play, Crown, Minus } from 'lucide-react';
 import { Wager, useCheckGameComplete } from '@/hooks/useWagers';
-import { GAMES, formatSol, truncateAddress } from '@/lib/constants';
+import { GAMES, formatSol, truncateAddress, calculatePlatformFee, getFeeTierLabel } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import {
@@ -61,10 +61,9 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
     currentWallet !== resolvedWinnerWallet;
   const isParticipant = currentWallet === wager?.player_a_wallet || currentWallet === wager?.player_b_wallet;
 
-  const PLATFORM_FEE = 0.10;
   const totalPot = (wager?.stake_lamports ?? 0) * 2;
-  const winnerPayout = Math.floor(totalPot * (1 - PLATFORM_FEE));
-  const platformFee = totalPot - winnerPayout;
+  const platformFee = calculatePlatformFee(totalPot / 2);
+  const winnerPayout = totalPot - platformFee;
 
   const winnerUsername =
     resolvedWinnerWallet === wager?.player_a_wallet ? playerA?.username :
@@ -180,7 +179,7 @@ export function LiveGameModal({ wager, open, onOpenChange, currentWallet }: Live
                     {isCurrentPlayerWinner ? `+${formatSol(winnerPayout)} SOL` : `Winner received ${formatSol(winnerPayout)} SOL`}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Platform fee: {formatSol(platformFee)} SOL (10%)
+                    Platform fee: {formatSol(platformFee)} SOL ({getFeeTierLabel(totalPot / 2)})
                   </p>
                 </>
               )}

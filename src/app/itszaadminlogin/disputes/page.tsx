@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { calculatePlatformFee } from '@/lib/constants';
 
 interface DisputeWager {
     id: string;
@@ -310,7 +311,7 @@ function DisputeCard({ dispute, isExpanded, onToggle, onAction, actionLoading, p
                                                 <span className="text-sm font-mono text-primary font-bold">{resolveWinner}</span>
                                                 <CopyBtn text={resolveWinner} />
                                             </div>
-                                            <p className="text-xs text-muted-foreground mt-1">They will receive {(dispute.stake_lamports * 2 * 0.9 / 1e9).toFixed(4)} SOL (after platform fee).</p>
+                                            <p className="text-xs text-muted-foreground mt-1">They will receive {((dispute.stake_lamports * 2 - calculatePlatformFee(dispute.stake_lamports)) / 1e9).toFixed(4)} SOL (after platform fee).</p>
                                         </div>
                                         <input type="text" value={confirmText} onChange={e => setConfirmText(e.target.value.toUpperCase())}
                                             placeholder="Type CONFIRM to proceed..." autoFocus

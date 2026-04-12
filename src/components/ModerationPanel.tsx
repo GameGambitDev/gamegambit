@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { calculatePlatformFee } from '@/lib/constants';
 import {
     useModerationWager,
     usePlayerDisplayNames,
@@ -70,6 +71,21 @@ export function ModerationPanel({ request, onClose }: Props) {
     const [closing, setClosing] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [submitDone, setSubmitDone] = useState(false);
+    const [solPriceUsd, setSolPriceUsd] = useState(150);
+
+    useEffect(() => {
+        fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd')
+            .then(r => r.json())
+            .then(d => setSolPriceUsd(d.solana.usd))
+            .catch(() => { });
+    }, []);
+
+    function calcModFee(stakeLamports: number): number {
+        const platformFee = calculatePlatformFee(stakeLamports);
+        const feeUsd = (platformFee / 1e9) * solPriceUsd;
+        const modUsd = Math.min(feeUsd * 0.30, 10);
+        return Math.floor((modUsd / solPriceUsd) * 1e9);
+    }
 
     const { data: wager } = useModerationWager(request.wager_id);
     const { data: names } = usePlayerDisplayNames([wager?.player_a_wallet, wager?.player_b_wallet]);
@@ -281,7 +297,7 @@ export function ModerationPanel({ request, onClose }: Props) {
                                 <div className="flex justify-between text-xs mt-2 pt-2 border-t border-border/40">
                                     <span className="text-muted-foreground">Your fee (fair verdict)</span>
                                     <span className="text-green-400 font-medium">
-                                        ~{wager ? ((wager.stake_lamports * 2 * 0.1 * 0.4) / 1e9).toFixed(4) : '...'} SOL
+                                        ~{wager ? (calcModFee(wager.stake_lamports) / 1e9).toFixed(4) : '...'} SOL
                                     </span>
                                 </div>
                             </div>
@@ -543,7 +559,7 @@ export function ModerationPanel({ request, onClose }: Props) {
                                     <p className="text-xs text-green-400">
                                         Submitting a fair verdict earns you{' '}
                                         <span className="font-semibold">
-                                            ~{wager ? ((wager.stake_lamports * 2 * 0.04) / 1e9).toFixed(4) : '...'} SOL
+                                            ~{wager ? (calcModFee(wager.stake_lamports) / 1e9).toFixed(4) : '...'} SOL
                                         </span>
                                     </p>
                                 </div>

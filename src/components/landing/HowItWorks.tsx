@@ -33,7 +33,7 @@ const steps = [
   },
   {
     icon: Trophy,
-    title: 'Winner Takes 90%',
+    title: 'Winner Takes 93%',
     description: 'Matching votes = instant payout. Disputes go to random moderators.',
   },
 ]

@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { GAMES, formatSol, truncateAddress } from '@/lib/constants'
+import { GAMES, formatSol, truncateAddress, calculatePlatformFee } from '@/lib/constants'
 import {
   useOpenWagers, useLiveWagers, useRecentWinners,
   useJoinWager, useEditWager, useDeleteWager, useSetReady,
@@ -430,7 +430,7 @@ function ArenaInner() {
 
       const won = wager.winner_wallet === walletAddress
       const isDraw = !wager.winner_wallet
-      const payout = Math.floor(wager.stake_lamports * 2 * 0.9)
+      const payout = wager.stake_lamports * 2 - calculatePlatformFee(wager.stake_lamports)
       queueAnimation({
         delta: isDraw ? 0 : won ? payout : -wager.stake_lamports,
         wagerId: wager.id,
@@ -794,7 +794,7 @@ function ArenaInner() {
 
   // ── Derived result state ─────────────────────────────────────────────────
   const gameResultTotalPot = (gameResultWager?.stake_lamports ?? 0) * 2
-  const gameResultPlatformFee = Math.floor(gameResultTotalPot * 0.1)
+  const gameResultPlatformFee = calculatePlatformFee(gameResultWager?.stake_lamports ?? 0)
   const gameResultPayout = gameResultTotalPot - gameResultPlatformFee
   const gameResultIsDraw = gameResultWager?.status === 'resolved' && !gameResultWager?.winner_wallet
   const gameResultType: 'win' | 'lose' | 'draw' = gameResultIsDraw
@@ -1160,8 +1160,8 @@ function ArenaInner() {
         winnerWallet={(deepLinkResultWager as any)?.winner_wallet ?? null}
         winnerUsername={null}
         totalPot={(deepLinkResultWager?.stake_lamports ?? 0) * 2}
-        platformFee={Math.floor((deepLinkResultWager?.stake_lamports ?? 0) * 2 * 0.1)}
-        winnerPayout={Math.floor((deepLinkResultWager?.stake_lamports ?? 0) * 2 * 0.9)}
+        platformFee={calculatePlatformFee(deepLinkResultWager?.stake_lamports ?? 0)}
+        winnerPayout={(deepLinkResultWager?.stake_lamports ?? 0) * 2 - calculatePlatformFee(deepLinkResultWager?.stake_lamports ?? 0)}
         refundAmount={deepLinkResultWager?.stake_lamports}
       />
     </div>

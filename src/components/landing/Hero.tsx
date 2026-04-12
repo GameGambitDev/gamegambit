@@ -128,7 +128,7 @@ export function Hero() {
             className="text-lg md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto text-balance px-2 sm:px-0"
           >
             The first trustless P2P gaming wager platform on Solana.
-            Challenge anyone. Stake real SOL. Winner takes 90%.
+            Challenge anyone. Stake real SOL. Winner takes 93%.
           </motion.p>
 
           <motion.div
@@ -197,7 +197,7 @@ export function Hero() {
 
           <style>{SHAKE_CSS}</style>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <FeatureCard icon={Zap} label="Instant Payouts" desc="Winner gets 90% of the pot" delay={0.6} shakeDelay={1200} />
+            <FeatureCard icon={Zap} label="Instant Payouts" desc="Winner gets 93% of the pot" delay={0.6} shakeDelay={1200} />
             <FeatureCard icon={Shield} label="Trustless" desc="Smart contract secured" delay={0.7} shakeDelay={1550} />
             <FeatureCard icon={Users} label="P2P Moderation" desc="Community-driven disputes" delay={0.8} shakeDelay={1900} />
           </div>

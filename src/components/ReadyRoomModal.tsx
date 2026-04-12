@@ -18,7 +18,7 @@ import {
   Shuffle, Share2,
 } from 'lucide-react';
 import { Wager, useCancelWager } from '@/hooks/useWagers';
-import { GAMES, formatSol } from '@/lib/constants';
+import { GAMES, formatSol, calculatePlatformFee } from '@/lib/constants';
 import { usePlayerByWallet } from '@/hooks/usePlayer';
 import { PlayerLink } from '@/components/PlayerLink';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -320,7 +320,7 @@ export function ReadyRoomModal({
   const winnerPlayer = winnerWallet === wager?.player_a_wallet ? playerA : playerB;
   const winnerUsername = winnerPlayer?.username ?? null;
   const totalPot = (wager?.stake_lamports ?? 0) * 2;
-  const winnerPayout = Math.floor(totalPot * 0.9);
+  const winnerPayout = totalPot - calculatePlatformFee(wager?.stake_lamports ?? 0);
 
   if (!wager) return null;
 
@@ -624,7 +624,7 @@ export function ReadyRoomModal({
                     <p className="text-sm font-medium text-success">Stakes locked in escrow!</p>
                     <p className="text-xs text-muted-foreground text-center px-4">
                       {formatSol(wager.stake_lamports * 2)} SOL secured on-chain. Winner receives{' '}
-                      {formatSol(Math.floor(wager.stake_lamports * 2 * 0.9))} SOL (90%) automatically.
+                      {formatSol(wager.stake_lamports * 2 - calculatePlatformFee(wager.stake_lamports))} SOL automatically.
                     </p>
                   </div>
 

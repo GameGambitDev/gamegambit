@@ -57,7 +57,7 @@ A fully deployed Anchor program implementing a stateful escrow engine with 8 ins
 | `join_wager` | Player B matches the stake — escrow is now fully funded |
 | `submit_vote` | Each player submits their claimed winner |
 | `retract_vote` | Either player can retract within the 15-second window |
-| `resolve_wager` | Authority releases 90% to winner, 10% to platform |
+| `resolve_wager` | Authority releases 90–95% to winner, 5–10% to platform (tiered) |
 | `close_wager` | On draw or cancel — returns funds to both players |
 | `ban_player` | Authority can ban a player's profile |
 
@@ -112,7 +112,7 @@ A Next.js 15 application providing complete player and admin interfaces:
 - Transaction history with Solana Explorer links for every on-chain event
 - PWA with Web Push notifications for match events (wager joined, game started, win/loss/draw)
 - Admin panel for dispute resolution, player management, and audit logging
-- **Moderator dispute system** — real-time popup when assigned as moderator, 5-step guided verdict workflow, on-chain settlement with 4% fee incentive
+- **Moderator dispute system** — real-time popup when assigned as moderator, 5-step guided verdict workflow, on-chain settlement with 30% of platform fee (capped at $10) incentive
 - **Phase 6 — Punishment system** — dispute grace period with concession flow, auto-escalating strike tiers (warning → 24h → 72h → 7d → indefinite ban), `punishment_log` audit trail, behaviour flags dashboard, admin escalation path
 - **Username binding system** — bind/appeal/change-request flows for PUBG, CODM, and Free Fire usernames with admin review queues
 - **Player settings** — push notification preferences and moderation opt-in/out controls
@@ -137,7 +137,7 @@ Player B ──funds──▶ Bank/Stripe account (custody)
                          │
               ┌──────────┴──────────┐
               ▼                     ▼
-         Winner gets 90%      Platform keeps 10%
+         Winner gets 93%       Platform keeps 7–10%
 ```
 
 A traditional escrow backend requires:
@@ -163,7 +163,7 @@ Player B ──SOL──▶ WagerAccount PDA (program-owned)
                          │
               ┌──────────┴──────────┐
               ▼                     ▼
-         Winner gets 90%      Platform gets 10%
+         Winner gets 93%       Platform gets 7–10%
          (SystemProgram transfer)  (SystemProgram transfer)
 ```
 
@@ -233,7 +233,7 @@ submit_vote        →  Each player submits winner claim (CODM/PUBG)
    OR
 [Lichess API auto-resolves for Chess]
         ↓
-resolve_wager      →  Authority signs, 90% → winner, 10% → platform
+resolve_wager      →  Authority signs, 90–95% → winner, 5–10% → platform (tiered)
    OR
 close_wager        →  Draw or cancel: 100% → both players equally
 ```
@@ -738,7 +738,7 @@ Low-level on-chain settlement. Called by `admin-action` and by the Lichess webho
 
 Performs:
 1. Derives the WagerAccount PDA from `player_a_wallet` + `match_id`
-2. Builds and sends `resolve_wager` instruction (90% → winner, 10% → platform)
+2. Builds and sends `resolve_wager` instruction (90–95% → winner, 5–10% → platform, tiered)
 3. Or `close_wager` instruction for draws/cancels (100% → both players)
 4. Calls `update_winner_stats` / `update_loser_stats` DB RPCs
 5. INSERTs `wager_transactions` records for the payout
@@ -834,7 +834,7 @@ dispute detected → assign-moderator inserts moderation_requests row
                  → moderator clicks Accept → POST /api/moderation/accept
                  → ModerationPanel opens (5-step workflow, 10-min decision window)
                  → moderator selects verdict → POST /api/moderation/verdict
-                 → on-chain settlement + 4% fee to moderator wallet
+                 → on-chain settlement + 30% of platform fee (capped at $10) to moderator wallet
 
 timeout path → pg_cron fires moderation-timeout every minute
              → marks expired pending/accepted requests as timed_out
@@ -897,9 +897,10 @@ select jobname, schedule from cron.job where jobname = 'moderation-timeout';
 
 ### Fee Calculation
 
-- Moderator earns **4% of pot** (= 40% of the 10% platform fee) on a fair verdict
+- Platform fee is tiered: **10%** (stake < 0.5 SOL) · **7%** (0.5–5 SOL) · **5%** (> 5 SOL)
+- Moderator earns **30% of the platform fee, capped at $10 USD** on a fair verdict
 - `cannot_determine` escalates to admin and earns no fee
-- Fee formula: `stake_lamports × 2 × 0.04`
+- Fee formula: `calculatePlatformFee(stake_lamports)` — mirrors `calculate_platform_fee()` in `lib.rs`
 
 ---
 
@@ -1252,7 +1253,7 @@ See [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) for the full checklist.
 - [x] Real-time arena + ready room + wager chat + proposals
 - [x] In-app notifications (Supabase Realtime, bell dropdown)
 - [x] Achievement badges + NFT tier system
-- [x] Moderator dispute system — real-time assignment popup (30s countdown), 5-step guided verdict workflow, on-chain settlement with 4% fee incentive
+- [x] Moderator dispute system — real-time assignment popup (30s countdown), 5-step guided verdict workflow, on-chain settlement with 30% of platform fee (capped at $10) incentive
 - [x] Step 6 — Punishment system (strike tracking, auto-suspend/ban, behaviour flags, dispute grace period + concession flow, username binding/appeals/change-requests, player settings)
 
 **Planned**

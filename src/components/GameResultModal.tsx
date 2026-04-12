@@ -8,7 +8,7 @@ import {
   Trophy, Frown, Scale, Sparkles, ArrowRight, ExternalLink,
   LayoutDashboard, Swords, BarChart3, RefreshCw, Home, Loader2,
 } from 'lucide-react';
-import { formatSol } from '@/lib/constants';
+import { formatSol, calculatePlatformFee, getFeeTierLabel } from '@/lib/constants';
 import { PlayerLink } from '@/components/PlayerLink';
 import { useRouter } from 'next/navigation';
 import confetti from 'canvas-confetti';
@@ -72,7 +72,8 @@ function VictoryContent({
   onRematch?: () => Promise<void>; isRematchPending?: boolean;
 }) {
   const router = useRouter();
-  const payout = winnerPayout || Math.floor(totalPot * 0.9);
+  const _platformFee = calculatePlatformFee(totalPot / 2);
+  const payout = winnerPayout || (totalPot - _platformFee);
   const [claimed, setClaimed] = useState(false);
 
   useEffect(() => {
@@ -183,7 +184,7 @@ function VictoryContent({
           <p className="text-3xl font-gaming font-bold text-success">+{formatSol(payout)} SOL</p>
         )}
         <p className="text-xs text-muted-foreground mt-2">
-          Total pot: {formatSol(totalPot)} SOL · Platform fee: {formatSol(platformFee)} SOL (10%)
+          Total pot: {formatSol(totalPot)} SOL · Platform fee: {formatSol(platformFee)} SOL ({getFeeTierLabel(totalPot / 2)})
         </p>
       </motion.div>
 
@@ -330,7 +331,7 @@ function DefeatContent({
             className="font-gaming font-bold text-primary text-sm"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Took home {formatSol(Math.floor(totalPot * 0.9))} SOL
+            Took home {formatSol(totalPot - calculatePlatformFee(totalPot / 2))} SOL
           </p>
         </motion.div>
       )}

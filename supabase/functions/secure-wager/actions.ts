@@ -15,6 +15,7 @@ import {
     deriveWagerPda,
     buildCloseWagerIx,
     resolveOnChain,
+    calculatePlatformFee,
 } from "./solana.ts";
 import { getDisplayName, insertNotifications } from "./notifications.ts";
 
@@ -406,7 +407,7 @@ export async function handleCheckGameComplete(supabase: Supabase, _walletAddress
         if (updateError || !updatedWager) return respond({ gameComplete: true, message: 'Already resolved by concurrent request' });
 
         const stake = wager.stake_lamports as number;
-        const payout = Math.floor(stake * 2 * 0.9);
+        const payout = stake * 2 - calculatePlatformFee(stake);
         const payoutSol = (payout / 1e9).toFixed(4);
 
         if (resultType === 'draw') {
@@ -564,7 +565,7 @@ export async function handleSubmitVote(supabase: Supabase, walletAddress: string
 
     if (opponentVote) {
         const stake = wager.stake_lamports as number;
-        const payout = Math.floor(stake * 2 * 0.9);
+        const payout = stake * 2 - calculatePlatformFee(stake);
         const payoutSol = (payout / 1e9).toFixed(4);
 
         if (opponentVote === votedWinner) {
@@ -657,7 +658,7 @@ export async function handleConcedeDispute(supabase: Supabase, walletAddress: st
     if (updateErr || !updated) return respond({ error: 'Failed to record concession — may have already been resolved' }, 500);
 
     const stake = wager.stake_lamports as number;
-    const payout = Math.floor(stake * 2 * 0.9);
+    const payout = stake * 2 - calculatePlatformFee(stake);
     const payoutSol = (payout / 1e9).toFixed(4);
     const concederName = await getDisplayName(supabase, walletAddress);
 
@@ -735,7 +736,7 @@ export async function handleFinalizeVote(supabase: Supabase, walletAddress: stri
     }
 
     const stake = wager.stake_lamports as number;
-    const payout = Math.floor(stake * 2 * 0.9);
+    const payout = stake * 2 - calculatePlatformFee(stake);
     const payoutSol = (payout / 1e9).toFixed(4);
 
     if (resultType === 'draw') {

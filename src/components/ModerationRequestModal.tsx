@@ -31,7 +31,7 @@ interface Props {
     onDismissed: () => void;  // close popup, do nothing
 }
 
-const MODERATOR_FEE_NOTE = '4% of pot';
+const MODERATOR_FEE_NOTE = '30% of platform fee (capped at $10)';
 
 function gameLabel(game: string): string {
     switch (game) {
