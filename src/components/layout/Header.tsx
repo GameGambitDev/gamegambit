@@ -13,6 +13,7 @@ import { truncateAddress } from '@/lib/constants'
 import dynamic from 'next/dynamic'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { WalletButton } from '@/components/WalletButton'
+import { useUnreadDmCount } from '@/hooks/useFriends'
 
 const NotificationsDropdown = dynamic(
   () => import('@/components/NotificationsDropdown').then(m => ({ default: m.NotificationsDropdown })),
@@ -32,6 +33,7 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [hoveredIcon, setHoveredIcon] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const unreadDms = useUnreadDmCount()
 
   const handleCopyAddress = useCallback(() => {
     if (!publicKey) return
@@ -124,7 +126,7 @@ export function Header() {
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          'h-8 w-8 sm:h-9 sm:w-9',
+                          'h-8 w-8 sm:h-9 sm:w-9 relative',
                           pathname === '/messages'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground'
@@ -132,6 +134,11 @@ export function Header() {
                         aria-label="Messages"
                       >
                         <MessageCircle className="h-4 w-4" />
+                        {unreadDms > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                            {unreadDms > 9 ? '9+' : unreadDms}
+                          </span>
+                        )}
                       </Button>
                     </Link>
                     {hoveredIcon === '/messages' && (
