@@ -11,6 +11,7 @@ const footerLinks = {
     { label: 'Arena', href: '/arena' },
     { label: 'Leaderboard', href: '/leaderboard' },
     { label: 'My Wagers', href: '/my-wagers' },
+    { label: 'Events', href: '/events' },
   ],
   resources: [
     { label: 'How It Works', href: '/#how-it-works' },

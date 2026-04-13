@@ -2,7 +2,7 @@
 
 import { useWallet } from '@solana/wallet-adapter-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, X, User, Copy, Check, Smartphone, Swords, LayoutDashboard, Dice5, Trophy, BarChart2, Settings, Rss, MessageCircle } from 'lucide-react'
+import { Menu, X, User, Copy, Check, Smartphone, Swords, LayoutDashboard, Dice5, Trophy, BarChart2, Settings, Rss, MessageCircle, Gift } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -26,6 +26,7 @@ const navItems = [
   { label: 'Arena', href: '/arena', icon: '⚔️', LucideIcon: Swords },
   { label: 'My Wagers', href: '/my-wagers', icon: '🎲', LucideIcon: Dice5 },
   { label: 'Leaderboard', href: '/leaderboard', icon: '🏆', LucideIcon: Trophy },
+  { label: 'Events', href: '/events', icon: '🎁', LucideIcon: Gift },
 ]
 
 export function Header() {
