@@ -116,7 +116,7 @@ export function useCreatePlayer() {
   const { getSessionToken } = useWalletAuth();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (referrerCode?: string) => {
       if (!publicKey) throw new Error('Wallet not connected');
 
       const sessionToken = await getSessionToken();
@@ -125,7 +125,7 @@ export function useCreatePlayer() {
       }
 
       const { data, error } = await getSupabaseClient().functions.invoke('secure-player', {
-        body: { action: 'create' },
+        body: { action: 'create', ...(referrerCode ? { referrerCode } : {}) },
         headers: { 'X-Session-Token': sessionToken },
       });
 

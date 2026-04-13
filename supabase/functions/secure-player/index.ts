@@ -201,15 +201,56 @@ serve(async (req) => {
 
             if (existing) return respond({ player: existing });
 
+            // Generate unique invite code: wallet prefix + random hex suffix
+            const randomSuffix = Math.random().toString(16).slice(2, 6);
+            const inviteCode = `${walletAddress.slice(0, 6).toLowerCase()}-${randomSuffix}`;
+
+            // Check for referral code passed from client cookie
+            const referrerCode = typeof data.referrerCode === 'string' ? data.referrerCode.trim() : null;
+            let referredByWallet: string | null = null;
+
+            if (referrerCode) {
+                const { data: referrer } = await supabase
+                    .from('players')
+                    .select('wallet_address')
+                    .eq('invite_code', referrerCode)
+                    .maybeSingle();
+                // Don't allow self-referral
+                if (referrer && referrer.wallet_address !== walletAddress) {
+                    referredByWallet = referrer.wallet_address;
+                }
+            }
+
+            const insertPayload: Record<string, unknown> = {
+                wallet_address: walletAddress,
+                invite_code: inviteCode,
+            };
+            if (referredByWallet) insertPayload.referred_by_wallet = referredByWallet;
+
             const { data: newPlayer, error } = await supabase
                 .from('players')
-                .insert({ wallet_address: walletAddress })
+                .insert(insertPayload)
                 .select()
                 .single();
 
             if (error) {
                 console.error('[secure-player] Create error:', error);
                 return respond({ error: 'Failed to create player' }, 500);
+            }
+
+            // Increment referrer's referral_count (non-fatal — don't fail the whole request)
+            if (referredByWallet) {
+                const { data: referrerRow } = await supabase
+                    .from('players')
+                    .select('referral_count')
+                    .eq('wallet_address', referredByWallet)
+                    .single();
+                const currentCount = (referrerRow?.referral_count as number) ?? 0;
+                await supabase
+                    .from('players')
+                    .update({ referral_count: currentCount + 1 })
+                    .eq('wallet_address', referredByWallet);
+                console.log(`[secure-player] Referral linked: ${walletAddress} referred by ${referredByWallet}`);
             }
 
             console.log(`[secure-player] Created player for: ${walletAddress}`);

@@ -15,6 +15,21 @@ import { useWalletAuth } from './useWalletAuth';
 // (i.e. isVerified === true from a persisted localStorage token), which is safe
 // because it only hits our own backend, not the wallet.
 
+const REFERRAL_COOKIE = 'gg_referrer';
+
+/** Read referral code stored by /invite/[code] page */
+function getReferralCookie(): string | null {
+    if (typeof document === 'undefined') return null;
+    const match = document.cookie.match(new RegExp(`(?:^|; )${REFERRAL_COOKIE}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Clear referral cookie after use */
+function clearReferralCookie() {
+    if (typeof document === 'undefined') return;
+    document.cookie = `${REFERRAL_COOKIE}=; path=/; max-age=0`;
+}
+
 export function useAutoCreatePlayer() {
     const { publicKey } = useWallet();
     const { isHydrated, isVerified, isVerifying } = useWalletAuth();
@@ -35,8 +50,13 @@ export function useAutoCreatePlayer() {
         if (hasAttempted.current) return;
 
         hasAttempted.current = true;
-        console.log('[useAutoCreatePlayer] Creating player record...');
-        createPlayerMutation.mutate();
+
+        // Read referral cookie — pass code to backend, clear cookie regardless
+        const referrerCode = getReferralCookie();
+        clearReferralCookie();
+
+        console.log('[useAutoCreatePlayer] Creating player record...', referrerCode ? `referrer: ${referrerCode}` : '');
+        createPlayerMutation.mutate(referrerCode ?? undefined);
     }, [publicKey, isHydrated, isVerified, player, isLoading, createPlayerMutation]);
 
     return {

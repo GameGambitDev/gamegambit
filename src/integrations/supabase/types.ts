@@ -562,6 +562,7 @@ export type Database = {
           free_fire_username: string | null
           game_username_bound_at: Json | null
           id: number
+          invite_code: string | null
           is_banned: boolean | null
           is_suspended: boolean
           last_active: string | null
@@ -575,6 +576,8 @@ export type Database = {
           pubg_player_id: string | null
           pubg_username: string | null
           push_notifications_enabled: boolean
+          referral_count: number
+          referred_by_wallet: string | null
           skill_rating: number | null
           suspension_ends_at: string | null
           total_earnings: number | null
@@ -607,6 +610,7 @@ export type Database = {
           free_fire_username?: string | null
           game_username_bound_at?: Json | null
           id?: number
+          invite_code?: string | null
           is_banned?: boolean | null
           is_suspended?: boolean
           last_active?: string | null
@@ -620,6 +624,8 @@ export type Database = {
           pubg_player_id?: string | null
           pubg_username?: string | null
           push_notifications_enabled?: boolean
+          referral_count?: number
+          referred_by_wallet?: string | null
           skill_rating?: number | null
           suspension_ends_at?: string | null
           total_earnings?: number | null
@@ -652,6 +658,7 @@ export type Database = {
           free_fire_username?: string | null
           game_username_bound_at?: Json | null
           id?: number
+          invite_code?: string | null
           is_banned?: boolean | null
           is_suspended?: boolean
           last_active?: string | null
@@ -665,6 +672,8 @@ export type Database = {
           pubg_player_id?: string | null
           pubg_username?: string | null
           push_notifications_enabled?: boolean
+          referral_count?: number
+          referred_by_wallet?: string | null
           skill_rating?: number | null
           suspension_ends_at?: string | null
           total_earnings?: number | null

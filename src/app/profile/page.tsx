@@ -16,7 +16,7 @@ const WalletMultiButton = dynamic(
 import {
   User, Trophy, Swords, Clock, Copy, Check, Loader2,
   Wallet, Edit2, Save, Link2, CheckCircle2, Settings,
-  AlertTriangle, ShieldAlert, LogOut as Unlink,
+  AlertTriangle, ShieldAlert, LogOut as Unlink, Users,
 } from 'lucide-react'
 import { ProfilePageSkeleton } from '@/components/skeletons/GamingSkeletonLoader'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,23 @@ const SuspensionBanner = dynamic(
   () => import('@/components/SuspensionBanner').then(m => ({ default: m.SuspensionBanner })),
   { ssr: false, loading: () => null }
 )
+
+// ── Copy invite link button with clipboard feedback ───────────────────────────
+function CopyInviteButton({ inviteCode }: { inviteCode: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    const url = `${window.location.origin}/invite/${inviteCode}`
+    navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <Button variant="outline" size="sm" onClick={handleCopy} className="flex-shrink-0 gap-1.5">
+      {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? 'Copied!' : 'Copy'}
+    </Button>
+  )
+}
 
 // ── Inner component — uses useSearchParams, must be inside Suspense ──────────
 
@@ -104,7 +121,7 @@ function ProfilePageInner() {
 
   useEffect(() => {
     if (connected && !isLoading && !player && publicKey) {
-      createPlayer.mutate()
+      createPlayer.mutate(undefined)
     }
   }, [connected, isLoading, player, publicKey])
 
@@ -754,6 +771,63 @@ function ProfilePageInner() {
                       })}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ── Invite Friends ──────────────────────────────────────────── */}
+          {player?.invite_code && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="lg:col-span-2"
+            >
+              <Card variant="gaming">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5 text-primary" />
+                    Invite Friends
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Referral count + qualify messaging */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border/50">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {player.referral_count ?? 0} player{(player.referral_count ?? 0) !== 1 ? 's' : ''} referred
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {(player.referral_count ?? 0) >= 3
+                          ? '✅ You qualify for the airdrop!'
+                          : `Refer ${3 - (player.referral_count ?? 0)} more to qualify for the airdrop`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-gaming text-2xl text-primary">{player.referral_count ?? 0}</div>
+                      <div className="text-[10px] text-muted-foreground">/ 3 needed</div>
+                    </div>
+                  </div>
+
+                  {/* Invite link */}
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">Your invite link</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${player.invite_code}`}
+                        className="text-xs font-mono bg-muted/40 border-border/50"
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <CopyInviteButton inviteCode={player.invite_code} />
+                    </div>
+                  </div>
+
+                  {/* Share text */}
+                  <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 text-xs text-muted-foreground italic">
+                    "Oya come wager on GameGambit 🎮⚔️ — bet SOL on Chess, PUBG, CODM and Free Fire. Real money, real stakes, Solana chain. Use my link 👆"
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
