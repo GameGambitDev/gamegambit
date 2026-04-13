@@ -24,6 +24,7 @@ import {
 } from '@/hooks/useFeed'
 import { cn } from '@/lib/utils'
 import { FriendButton } from '@/components/FriendButton'
+import { getStreamEmbed } from '@/lib/streamEmbed'
 import { toast } from 'sonner'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -58,28 +59,6 @@ function getStatusBadge(status: string) {
         case 'disputed': return <Badge variant="disputed">Disputed</Badge>
         case 'resolved': return <Badge variant="resolved">Resolved</Badge>
         default: return <Badge variant="glass">{status}</Badge>
-    }
-}
-
-function getStreamEmbedUrl(url: string): string | null {
-    try {
-        const u = new URL(url)
-        // YouTube
-        if (u.hostname.includes('youtube.com') && u.searchParams.get('v')) {
-            return `https://www.youtube.com/embed/${u.searchParams.get('v')}?autoplay=0`
-        }
-        if (u.hostname.includes('youtu.be')) {
-            return `https://www.youtube.com/embed${u.pathname}?autoplay=0`
-        }
-        // Twitch
-        if (u.hostname.includes('twitch.tv')) {
-            const channel = u.pathname.replace('/', '')
-            const parent = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-            return `https://player.twitch.tv/?channel=${channel}&parent=${parent}&autoplay=false`
-        }
-        return null
-    } catch {
-        return null
     }
 }
 
@@ -223,7 +202,7 @@ function StreamCard({
 }) {
     const game = getGameData(wager.game)
     const [expanded, setExpanded] = useState(false)
-    const embedUrl = wager.stream_url ? getStreamEmbedUrl(wager.stream_url) : null
+    const embed = wager.stream_url ? getStreamEmbed(wager.stream_url) : null
 
     return (
         <motion.div
@@ -267,7 +246,7 @@ function StreamCard({
                     </div>
 
                     <AnimatePresence>
-                        {expanded && embedUrl && (
+                        {expanded && (
                             <motion.div
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: 'auto', opacity: 1 }}
@@ -275,13 +254,31 @@ function StreamCard({
                                 transition={{ duration: 0.3 }}
                                 className="overflow-hidden mb-3"
                             >
-                                <iframe
-                                    src={embedUrl}
-                                    className="w-full rounded-lg border border-border/50"
-                                    style={{ height: 280 }}
-                                    allowFullScreen
-                                    allow="autoplay; encrypted-media"
-                                />
+                                {embed ? (
+                                    <iframe
+                                        src={embed.embedUrl}
+                                        className="w-full rounded-lg border border-border/50"
+                                        style={{ height: 280 }}
+                                        allowFullScreen
+                                        allow="autoplay; encrypted-media"
+                                        sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+                                        referrerPolicy="no-referrer-when-downgrade"
+                                    />
+                                ) : (
+                                    // Unsupported platform — graceful fallback
+                                    <div className="flex items-center justify-center h-16 rounded-lg border border-border/50 bg-muted/30 gap-2 text-sm text-muted-foreground">
+                                        <Tv2 className="h-4 w-4" />
+                                        <span>Can&apos;t embed this stream.</span>
+                                        <a
+                                            href={wager.stream_url!}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:underline flex items-center gap-1"
+                                        >
+                                            Open externally <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                    </div>
+                                )}
                             </motion.div>
                         )}
                     </AnimatePresence>

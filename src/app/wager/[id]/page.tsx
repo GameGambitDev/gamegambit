@@ -15,7 +15,7 @@ import {
     Crown, Swords, Trophy, Clock, Copy, Check,
     ExternalLink, ArrowRight, Loader2, AlertCircle,
     User, Minus, Share2, Coins, ChevronDown, ChevronUp, Lock,
-    TrendingUp, X,
+    TrendingUp, X, Tv2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
@@ -23,6 +23,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import type { Wager } from '@/hooks/useWagers'
 import { useQueryClient } from '@tanstack/react-query'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { getStreamEmbed } from '@/lib/streamEmbed'
 import {
     useSideBets,
     usePlaceSideBet,
@@ -66,6 +67,68 @@ function formatTimeAgo(ts: string) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StreamEmbed({
+    streamUrl,
+    embed,
+}: {
+    streamUrl: string
+    embed: ReturnType<typeof getStreamEmbed>
+}) {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div className="space-y-2">
+            <div className="flex justify-between items-center">
+                <span className="text-muted-foreground flex items-center gap-1">
+                    <Tv2 className="h-3 w-3 text-primary" /> Stream
+                </span>
+                <button
+                    onClick={() => setExpanded(v => !v)}
+                    className="text-primary hover:underline flex items-center gap-1 text-xs"
+                >
+                    {expanded ? 'Hide' : 'Watch Live'}
+                    <ChevronDown className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')} />
+                </button>
+            </div>
+            <AnimatePresence>
+                {expanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className="overflow-hidden"
+                    >
+                        {embed ? (
+                            <iframe
+                                src={embed.embedUrl}
+                                className="w-full rounded-lg border border-border/50"
+                                style={{ height: 280 }}
+                                allowFullScreen
+                                allow="autoplay; encrypted-media"
+                                sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+                                referrerPolicy="no-referrer-when-downgrade"
+                            />
+                        ) : (
+                            <div className="flex items-center justify-center h-14 rounded-lg border border-border/50 bg-muted/30 gap-2 text-sm text-muted-foreground">
+                                <Tv2 className="h-4 w-4" />
+                                <span>Can&apos;t embed this stream.</span>
+                                <a
+                                    href={streamUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary hover:underline flex items-center gap-1"
+                                >
+                                    Open externally <ExternalLink className="h-3 w-3" />
+                                </a>
+                            </div>
+                        )}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    )
+}
 
 function PlayerCard({
     wallet,
@@ -780,17 +843,10 @@ export default function WagerSpectatorPage({ params }: { params: Promise<{ id: s
                             )}
 
                             {wager.stream_url && (
-                                <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">Stream</span>
-                                    <a
-                                        href={wager.stream_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-primary hover:underline flex items-center gap-1 text-xs"
-                                    >
-                                        Watch Live <ExternalLink className="h-3 w-3" />
-                                    </a>
-                                </div>
+                                <StreamEmbed
+                                    streamUrl={wager.stream_url}
+                                    embed={getStreamEmbed(wager.stream_url)}
+                                />
                             )}
 
                             {isResolved && wager.resolved_at && (

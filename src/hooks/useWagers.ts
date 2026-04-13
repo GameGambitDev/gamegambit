@@ -191,7 +191,7 @@ export function useRecentWagers(limit: number = 10) {
       const { data, error } = await supabase
         .from('wagers')
         // Landing page live feed — minimal fields for the ticker
-        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, created_at')
+        .select('id, match_id, player_a_wallet, player_b_wallet, game, stake_lamports, status, stream_url, winner_wallet, is_public, created_at, updated_at')
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) throw error;
