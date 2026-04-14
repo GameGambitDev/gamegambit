@@ -678,7 +678,7 @@ function ArenaInner() {
     try {
       if (editWager.status === 'joined' && Object.keys(updates).some(k => k !== 'stream_url')) {
         await sendProposal(editWager, updates)
-        toast.success('Proposal sent — waiting for opponent approval')
+        toast.success('Proposal sent. Waiting for opponent approval.')
       } else {
         await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
         toast.success('Wager updated successfully')
@@ -828,9 +828,9 @@ function ArenaInner() {
               <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6 animate-glow-pulse">
                 <Swords className="h-10 w-10 text-primary" />
               </div>
-              <h1 className="text-3xl font-bold mb-4 font-gaming">Connect to Enter Arena</h1>
+              <h1 className="text-3xl font-bold mb-4 font-gaming">The Arena</h1>
               <p className="text-muted-foreground mb-8">
-                Connect your Solana wallet to browse wagers, challenge opponents, and start winning.
+                Connect wallet to browse wagers, challenge opponents, and start winning.
               </p>
             </div>
             <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-8 [&_.wallet-adapter-button]:hover:!shadow-neon">

@@ -120,7 +120,7 @@ export default function InvitePage({ params }: { params: Promise<{ code: string 
                             <h1 className="font-gaming text-2xl mb-2">You've Been Challenged</h1>
                             <p className="text-muted-foreground text-sm">
                                 <span className="text-primary font-semibold">{displayName}</span> invited you to join
-                                GameGambit — the Solana wagering arena for competitive gamers
+                                GameGambit. Wager on skill. Win on-chain.
                             </p>
                         </div>
 
@@ -165,7 +165,7 @@ export default function InvitePage({ params }: { params: Promise<{ code: string 
                         </Button>
 
                         <p className="text-center text-[11px] text-muted-foreground/60 mt-4">
-                            Connect your Solana wallet to start wagering. No account needed.
+                            Connect and play. No account needed.
                         </p>
                     </CardContent>
                 </Card>

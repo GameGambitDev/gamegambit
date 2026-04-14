@@ -108,7 +108,7 @@ export default function ProfileByWalletPage({ params }: ProfilePageProps) {
                       ({truncateAddress(walletAddress, 4)})
                     </span>
                   )}
-                  <Badge variant="outline" className="ml-2">Viewing Profile</Badge>
+
                   <Button variant="ghost" size="icon" onClick={copyAddress}>
                     {copiedAddress ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                   </Button>
