@@ -62,8 +62,8 @@ export default function SettingsPage() {
                     <div className="flex flex-col items-center justify-center py-20 gap-6">
                         <div className="text-4xl">⚙️</div>
                         <div className="text-center">
-                            <h2 className="text-xl font-gaming font-bold mb-2">Connect Your Wallet</h2>
-                            <p className="text-muted-foreground text-sm">Connect your wallet to manage settings.</p>
+                            <h2 className="text-xl font-gaming font-bold mb-2">Sign In to Manage Settings</h2>
+                            <p className="text-muted-foreground text-sm">Your preferences, notifications, and account links live here.</p>
                         </div>
                         <WalletMultiButton />
                     </div>
@@ -219,7 +219,7 @@ export default function SettingsPage() {
                                             ? <Shield className="h-4 w-4 text-accent flex-shrink-0" />
                                             : <ShieldOff className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                                         }
-                                        Accept Moderation Requests
+                                        Become a Match Moderator
                                         {settings.moderationRequestsEnabled && (
                                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-accent border-accent/30">
                                                 ON
@@ -228,7 +228,7 @@ export default function SettingsPage() {
                                     </Label>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
                                         Allow the platform to select you as a neutral moderator for disputed matches.
-                                        You earn a fee paid in SOL — arrives in seconds — for each case you moderate.
+                                        You earn a fee paid in SOL, arriving in seconds, for each case you moderate.
                                     </p>
                                 </div>
                                 <Switch
@@ -248,8 +248,8 @@ export default function SettingsPage() {
                                     className="p-3 rounded-lg bg-muted/40 border border-border/50"
                                 >
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        <span className="text-foreground font-medium">Moderation requests are off.</span>{' '}
-                                        You won't receive requests and won't earn moderator fees.
+                                        <span className="text-foreground font-medium">Moderation is off.</span>{' '}
+                                        You won't be called to review disputes or earn moderator fees.
                                         You can turn this back on anytime.
                                     </p>
                                 </motion.div>
@@ -262,7 +262,7 @@ export default function SettingsPage() {
                                         <Clock className="h-3.5 w-3.5 text-accent flex-shrink-0 mt-0.5" />
                                         <p className="text-xs text-muted-foreground leading-relaxed">
                                             When selected, you'll get a 20-second popup to accept or decline.
-                                            Declining is fine — it passes to someone else with no penalty.
+                                            Declining is fine. It passes to someone else with no penalty.
                                             If you accept, you have 10 minutes to review the match and submit a verdict.
                                         </p>
                                     </div>

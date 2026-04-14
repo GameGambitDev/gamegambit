@@ -50,9 +50,9 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent 
-        className="sm:max-w-md border-primary/30 bg-card" 
+    <Dialog open={open} onOpenChange={() => { }}>
+      <DialogContent
+        className="sm:max-w-md border-primary/30 bg-card"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
@@ -64,10 +64,10 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
             Choose Your Username
           </DialogTitle>
           <DialogDescription className="text-center">
-            This is your identity on the platform. Choose wisely - other players will see this name.
+            This is how you'll show up in the arena. Other players will know you by this name.
           </DialogDescription>
         </DialogHeader>
-        
+
         <form onSubmit={handleSubmit} className="space-y-6 mt-4">
           <div className="space-y-2">
             <Label htmlFor="username" className="text-sm font-medium">
@@ -96,18 +96,18 @@ export function UsernameSetupModal({ open, onSuccess }: UsernameSetupModalProps)
               Letters, numbers, and underscores only
             </p>
           </div>
-          
+
           <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
             <Shield className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground">
-              You must set a username before you can create or join wagers. This cannot be changed later without contacting support.
+              Required before your first wager. Pick carefully.
             </p>
           </div>
-          
-          <Button 
-            type="submit" 
+
+          <Button
+            type="submit"
             variant="neon"
-            className="w-full h-12 text-lg font-gaming" 
+            className="w-full h-12 text-lg font-gaming"
             disabled={updatePlayer.isPending || !username.trim()}
           >
             {updatePlayer.isPending ? (

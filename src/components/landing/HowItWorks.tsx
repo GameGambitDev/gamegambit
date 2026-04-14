@@ -8,8 +8,8 @@ import { CSSProperties, useRef, useState, useEffect } from 'react'
 const steps = [
   {
     icon: Wallet,
-    title: 'Connect Wallet',
-    description: 'Link your Solana wallet. No email, no password. Your keys, your wagers.',
+    title: 'Sign In',
+    description: 'No email, no password. Connect and you\'re in. Your account is on-chain.',
   },
   {
     icon: Search,
@@ -23,8 +23,8 @@ const steps = [
   },
   {
     icon: Lock,
-    title: 'Stakes Lock',
-    description: 'SOL is locked in a smart contract. No trust needed.',
+    title: 'Funds Locked In',
+    description: 'Both players\' SOL sits in escrow. Nobody can pull out once the match starts.',
   },
   {
     icon: Vote,
@@ -158,8 +158,8 @@ export function HowItWorks() {
             How It <span className="gradient-text text-glow">Works</span>
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto text-balance">
-            From wallet connect to winner payout in minutes.
-            No middlemen, no fees, no trust required.
+            From first move to payout in minutes.
+            No signup, no house, no nonsense.
           </p>
         </div>
 

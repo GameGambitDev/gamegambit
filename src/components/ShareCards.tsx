@@ -187,7 +187,7 @@ function drawWinCard(
 
     ctx.font = '18px Arial, sans-serif'
     ctx.fillStyle = 'rgba(255,255,255,0.5)'
-    ctx.fillText('🎮 P2P Gaming Wagers on Solana', 48, H - 30)
+    ctx.fillText('Wager on skill. Win on-chain.', 48, H - 30)
 
     ctx.font = '18px Arial, sans-serif'
     ctx.fillStyle = '#9945FF'
@@ -221,7 +221,7 @@ export function WinShareCard({
     const handleShareX = useCallback(() => {
         const sol = (amountSol / 1e9).toFixed(4)
         const invite = inviteCode ? `\ngamegambit.gg/invite/${inviteCode}` : '\ngamegambit.gg'
-        const text = `Just won ${sol} SOL on @GameGambit wagering ${game}! 🏆🎮${invite}`
+        const text = `Beat my opponent for ${sol} SOL playing ${game} on @GameGambit. Who's next? 🏆${invite}`
         window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank')
     }, [amountSol, game, inviteCode])
 
@@ -255,7 +255,7 @@ export function WinShareCard({
                 <DialogHeader>
                     <DialogTitle className="font-gaming text-lg flex items-center gap-2">
                         <Share2 className="h-5 w-5 text-success" />
-                        Share Your Win
+                        Flex your win
                     </DialogTitle>
                 </DialogHeader>
 
@@ -394,7 +394,7 @@ function drawAirdropCard(
 
     ctx.font = '18px Arial, sans-serif'
     ctx.fillStyle = 'rgba(255,255,255,0.5)'
-    ctx.fillText('🎮 P2P Gaming Wagers on Solana', 48, H - 30)
+    ctx.fillText('Wager on skill. Win on-chain.', 48, H - 30)
 
     ctx.font = '18px Arial, sans-serif'
     ctx.fillStyle = '#9945FF'
@@ -514,7 +514,7 @@ export function AirdropShareButton({
         <>
             <Button variant="outline" className={`gap-2 ${className ?? ''}`} onClick={() => setOpen(true)}>
                 <Share2 className="h-4 w-4" />
-                Share Your Card
+                Show your standing
             </Button>
             <AirdropShareCard
                 open={open}

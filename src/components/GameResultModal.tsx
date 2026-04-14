@@ -389,7 +389,7 @@ function DefeatContent({
       >
         {!acknowledged ? (
           <Button variant="default" className="w-full" onClick={() => setAcknowledged(true)}>
-            Accept Defeat
+            Walk it off
           </Button>
         ) : (
           <motion.div

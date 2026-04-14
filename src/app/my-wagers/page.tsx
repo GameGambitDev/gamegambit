@@ -424,7 +424,7 @@ function MyWagersInner() {
     try {
       if (editWager.status === 'joined' && Object.keys(updates).some(k => k !== 'stream_url')) {
         await sendProposal(editWager, updates)
-        toast.success('Proposals sent — waiting for opponent approval')
+        toast.success('Proposals sent. Waiting for opponent approval.')
       } else {
         await editWagerMutation.mutateAsync({ wagerId: editWager.id, ...updates })
         toast.success('Wager updated successfully')
@@ -501,9 +501,9 @@ function MyWagersInner() {
               <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6 animate-glow-pulse">
                 <Trophy className="h-10 w-10 text-primary" />
               </div>
-              <h1 className="text-3xl font-bold mb-4 font-gaming">View Your Wagers</h1>
+              <h1 className="text-3xl font-bold mb-4 font-gaming">Your Match History</h1>
               <p className="text-muted-foreground mb-8">
-                Connect your wallet to see your active and completed wagers.
+                Connect wallet to see your active matches and full record.
               </p>
             </div>
             <div className="[&_.wallet-adapter-button]:!bg-primary [&_.wallet-adapter-button]:!text-primary-foreground [&_.wallet-adapter-button]:!font-gaming [&_.wallet-adapter-button]:!rounded-xl [&_.wallet-adapter-button]:!h-12 [&_.wallet-adapter-button]:!px-8 [&_.wallet-adapter-button]:hover:!shadow-neon">
@@ -532,7 +532,7 @@ function MyWagersInner() {
             <span className="text-foreground">My </span>
             <span className="text-primary">Wagers</span>
           </h1>
-          <p className="text-muted-foreground">Track all your active and completed matches</p>
+          <p className="text-muted-foreground">Your wins, losses, and everything in between.</p>
         </motion.div>
 
         <motion.div
@@ -613,7 +613,7 @@ function MyWagersInner() {
                     )}
                   </>
                 ) : (
-                  <EmptyState message="You haven't created or joined any wagers yet." />
+                  <EmptyState message="No wagers yet. Head to the Arena and get started." />
                 )}
               </TabsContent>
 
@@ -636,7 +636,7 @@ function MyWagersInner() {
                     ))}
                   </motion.div>
                 ) : (
-                  <EmptyState message="No active wagers. Create or join one!" />
+                  <EmptyState message="Nothing active right now. The Arena is one tap away." />
                 )}
               </TabsContent>
 
@@ -664,7 +664,7 @@ function MyWagersInner() {
                     )}
                   </>
                 ) : (
-                  <EmptyState message="No completed wagers yet." />
+                  <EmptyState message="No finished matches yet. Your record starts with the next one." />
                 )}
               </TabsContent>
             </>

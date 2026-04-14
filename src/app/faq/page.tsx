@@ -7,7 +7,7 @@ import { HelpCircle, ChevronDown } from 'lucide-react'
 const faqs = [
     {
         q: 'What is GameGambit?',
-        a: 'GameGambit is a peer-to-peer skill-based wagering platform built on the Solana blockchain. You challenge another player, agree on a stake, and the better player wins the pot — no middleman, no house.',
+        a: 'GameGambit is a peer-to-peer skill-based wagering platform built on the Solana blockchain. You challenge another player, agree on a stake, and the better player wins the pot. No middleman, no house.',
     },
     {
         q: 'How do wagers work?',
@@ -19,19 +19,19 @@ const faqs = [
     },
     {
         q: 'What is the platform fee?',
-        a: 'GameGambit takes 10% of the total pot. The winner always receives 90%. This is deducted automatically at settlement.',
+        a: 'GameGambit uses tiered fees: 10% on micro stakes (under 0.5 SOL), 7% on mid stakes (0.5–5 SOL), and 5% on larger stakes. The winner receives the rest automatically at settlement.',
     },
     {
         q: 'What games are supported right now?',
-        a: 'Chess via Lichess is fully live — winner verification is automatic through the Lichess API with no human involvement. Call of Duty Mobile and PUBG Mobile are coming soon; result verification for those games is still in development.',
+        a: 'All four games are live: Chess, Call of Duty Mobile, PUBG Mobile, and Free Fire. Chess winner verification is fully automatic via the Lichess API. For CODM, PUBG, and Free Fire, both players vote on the result after the match. Disputes go to community moderators.',
     },
     {
         q: 'How is the Chess winner verified?',
-        a: 'Automatically. When the Lichess game ends, our backend polls the Lichess API, matches the players, and releases funds to the winner — all without any manual step.',
+        a: 'Automatically. When the Lichess game ends, our backend polls the Lichess API, matches the players, and releases funds to the winner, all without any manual step.',
     },
     {
         q: 'Can I wager on CODM or PUBG right now?',
-        a: 'Not yet. CODM and PUBG Mobile support is in development. You can see them listed in the Arena but wagering is only active for Chess at this time.',
+        a: 'Yes. CODM, PUBG Mobile, and Free Fire are all live. After your match, both players confirm the result and vote on the winner. If votes disagree, community moderators review and decide.',
     },
     {
         q: "What happens if there's a dispute?",
@@ -55,7 +55,7 @@ const faqs = [
     },
     {
         q: 'How do I get started?',
-        a: "Connect your Solana wallet, link your Lichess account in your profile, then create or accept a Chess wager. That's it.",
+        a: "Connect your wallet and head to the Arena. For Chess, link your Lichess account first. Takes about 30 seconds. For CODM, PUBG, or Free Fire, link your game username in your profile, then create or join a wager.",
     },
 ]
 

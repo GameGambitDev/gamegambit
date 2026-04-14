@@ -356,7 +356,7 @@ export default function DashboardPage() {
                 Welcome to <span className="text-primary">Game Gambit</span>
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground mb-6">
-                Connect your Solana wallet to access your dashboard and start playing.
+                Connect wallet to see your stats, track active wagers, and jump into a match.
               </p>
             </motion.div>
             <motion.div
@@ -438,7 +438,7 @@ export default function DashboardPage() {
                   ? `+${(balanceDelta.value / 1e9).toFixed(3)} SOL won! 🏆`
                   : balanceDelta.type === 'lose'
                     ? `-${(Math.abs(balanceDelta.value) / 1e9).toFixed(3)} SOL lost`
-                    : 'Draw — refunded'
+                    : 'Draw, refunded'
                 : 'Available',
               highlight: showDeltaBadge && balanceDelta
                 ? balanceDelta.type === 'win' ? 'border-green-500/50' : balanceDelta.type === 'lose' ? 'border-red-500/50' : ''
@@ -529,7 +529,7 @@ export default function DashboardPage() {
                   ) : (
                     <div className="text-center py-10">
                       <div className="text-4xl mb-3">♟️</div>
-                      <p className="text-muted-foreground text-sm mb-4">No matches yet</p>
+                      <p className="text-muted-foreground text-sm mb-4">No matches yet. Your record starts here.</p>
                       <Link href="/arena">
                         <Button variant="neon" size="sm">
                           <Swords className="h-4 w-4 mr-2" />
@@ -682,7 +682,7 @@ export default function DashboardPage() {
                       )}
                     </>
                   ) : (
-                    <p className="text-center text-muted-foreground text-sm py-4">No active wagers</p>
+                    <p className="text-center text-muted-foreground text-sm py-4">Nothing in play right now.</p>
                   )}
                   <Link href="/arena" className="block pt-1">
                     <Button variant="neon" className="w-full" size="sm">

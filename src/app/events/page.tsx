@@ -137,16 +137,13 @@ function EventsPageInner() {
                                                 Active
                                             </Badge>
                                         </div>
-                                        <p className="text-sm text-muted-foreground">GameGambit Early Adopter Rewards Program</p>
+                                        <p className="text-sm text-muted-foreground">For the players who showed up first.</p>
                                     </div>
                                 </div>
                             </div>
 
                             <p className="text-base text-muted-foreground leading-relaxed mb-6 max-w-2xl">
-                                GameGambit is rewarding its earliest and most active players. We're tracking
-                                on-chain activity, platform engagement, and community contribution across every
-                                wallet on the platform. The players who show up, compete hard, and bring others
-                                into the arena are exactly who this program is designed for.
+                                GameGambit is rewarding the players who were here early and stayed. We track every wager, every win, every referral. All on-chain, all verifiable. If you compete hard and bring others into the arena, this is built for you.
                             </p>
 
                             <div className="flex flex-wrap gap-3">
@@ -167,7 +164,7 @@ function EventsPageInner() {
                     </Card>
                 </motion.div>
 
-                {/* ── How to Qualify ───────────────────────────────────────────────── */}
+                {/* ── How to Earn Your Spot ───────────────────────────────────────────────── */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -175,14 +172,14 @@ function EventsPageInner() {
                 >
                     <div className="flex items-center gap-3 mb-5">
                         <Target className="h-5 w-5 text-primary" />
-                        <h2 className="font-gaming text-xl text-foreground">How to Qualify</h2>
+                        <h2 className="font-gaming text-xl text-foreground">How to Earn Your Spot</h2>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <PillarCard
                             icon={Swords}
                             title="Wager Consistently"
-                            body="Volume matters. Players who wager regularly across multiple games demonstrate genuine platform engagement. The more consistently you compete, the stronger your eligibility signal. Single wagers don't move the needle — sustained activity does."
+                            body="One wager won't cut it. Players who show up regularly across different games build a real footprint. Sustained activity counts far more than a single big bet."
                             delay={0.15}
                             color="text-primary"
                             bg="bg-primary/10"
@@ -190,7 +187,7 @@ function EventsPageInner() {
                         <PillarCard
                             icon={Trophy}
                             title="Win Your Matches"
-                            body="Winning isn't just about bragging rights — it's a core signal in our activity model. Players with a strong win record demonstrate skill and commitment to the platform. Consistent wins across different games and opponents carry significant weight."
+                            body="Winning isn't just bragging rights. It's a core signal in our activity model. Players with a strong win record demonstrate skill and commitment to the platform. Consistent wins across different games and opponents carry significant weight."
                             delay={0.2}
                             color="text-yellow-400"
                             bg="bg-yellow-400/10"
@@ -198,7 +195,7 @@ function EventsPageInner() {
                         <PillarCard
                             icon={Users}
                             title="Grow the Arena"
-                            body="The platform only gets better as more players join. Referring friends, teammates, and gaming communities directly contributes to ecosystem growth — something we value deeply. Players who actively bring others into the arena are recognized for it."
+                            body="Bring your squad. Refer friends, teammates, rivals. Anyone who will actually play. Every person you bring in makes the arena bigger and your standing stronger."
                             delay={0.25}
                             color="text-secondary"
                             bg="bg-secondary/10"
@@ -206,7 +203,7 @@ function EventsPageInner() {
                         <PillarCard
                             icon={GamepadIcon}
                             title="Link Your Game Accounts"
-                            body="Verified game accounts tell us you're a real competitive gamer, not just a speculator. Linking your PUBG, CODM, Free Fire, or Chess accounts strengthens your profile and signals long-term intent on the platform."
+                            body="Linking your game accounts proves you actually play. It strengthens your profile and shows you're here to compete, not just spectate."
                             delay={0.3}
                             color="text-blue-400"
                             bg="bg-blue-400/10"
@@ -214,7 +211,7 @@ function EventsPageInner() {
                         <PillarCard
                             icon={Flame}
                             title="Stay Active Over Time"
-                            body="Recency and longevity both matter. A wallet that joined early and keeps showing up signals something different than one that appeared last week. We're not just looking at a single snapshot — sustained activity across time is the real qualifier."
+                            body="Recency and longevity both matter. A wallet that joined early and keeps showing up signals something different than one that appeared last week. We're not looking at a single snapshot. Sustained activity across time is the real qualifier."
                             delay={0.35}
                             color="text-orange-400"
                             bg="bg-orange-400/10"
@@ -244,7 +241,7 @@ function EventsPageInner() {
                                     <h3 className="font-gaming text-sm text-yellow-400 mb-2">What We Don't Disclose</h3>
                                     <p className="text-sm text-muted-foreground leading-relaxed">
                                         Specific thresholds, reward amounts, distribution timelines, and eligibility
-                                        criteria are intentionally kept internal. This is by design — it keeps the
+                                        criteria are intentionally kept internal. This is by design. It keeps the
                                         focus on genuine platform engagement rather than farming for a number. If
                                         you're playing real matches, wagering real SOL, and bringing real players in,
                                         you're doing exactly what this program rewards. The rest will be announced
@@ -349,9 +346,9 @@ function EventsPageInner() {
                         <Card className="border-border/50 bg-muted/20">
                             <CardContent className="p-8 text-center">
                                 <Zap className="h-8 w-8 text-primary mx-auto mb-3" />
-                                <h3 className="font-gaming text-lg mb-2">Connect Your Wallet</h3>
+                                <h3 className="font-gaming text-lg mb-2">See Your Standing</h3>
                                 <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                                    Connect your Solana wallet to see your personal activity snapshot and track your standing in the campaign.
+                                    Connect wallet to see how your wagers, wins, and referrals stack up in the airdrop.
                                 </p>
                             </CardContent>
                         </Card>

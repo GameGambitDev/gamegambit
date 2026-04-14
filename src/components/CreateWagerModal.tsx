@@ -51,15 +51,15 @@ export const TIME_CONTROLS: TimeControl[] = [
   { label: '5+0', limit: 300, increment: 0, category: 'Blitz', description: '5 min each, no increment' },
   { label: '5+3', limit: 300, increment: 3, category: 'Blitz', description: '5 min + 3 sec/move' },
   // Rapid
-  { label: '10+0', limit: 600, increment: 0, category: 'Rapid', description: '10 min each — popular choice' },
+  { label: '10+0', limit: 600, increment: 0, category: 'Rapid', description: '10 min each, a popular choice' },
   { label: '15+10', limit: 900, increment: 10, category: 'Rapid', description: '15 min + 10 sec/move' },
   { label: '20+0', limit: 1200, increment: 0, category: 'Rapid', description: '20 min each' },
   { label: '25+0', limit: 1500, increment: 0, category: 'Rapid', description: '25 min each' },
   { label: '30+0', limit: 1800, increment: 0, category: 'Rapid', description: '30 min each' },
   // Classical
   { label: '45+45', limit: 2700, increment: 45, category: 'Classical', description: '45 min + 45 sec/move' },
-  { label: '60+0', limit: 3600, increment: 0, category: 'Classical', description: '1 hour each — ⚠ long game' },
-  { label: '90+30', limit: 5400, increment: 30, category: 'Classical', description: '90 min + 30 sec/move — ⚠ 2–4 hrs' },
+  { label: '60+0', limit: 3600, increment: 0, category: 'Classical', description: '1 hour each. Long game, plan ahead.' },
+  { label: '90+30', limit: 5400, increment: 30, category: 'Classical', description: '90 min + 30 sec/move. Expect 2 to 4 hours.' },
 ];
 
 const CATEGORY_STYLES: Record<TimeControlCategory, { dot: string; label: string; border: string; activeBg: string; activeText: string }> = {
@@ -223,7 +223,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
               >
                 <Users className="h-5 w-5 text-primary" />
                 <div className="text-left">
-                  <p className="font-medium">Open Wager</p>
+                  <p className="font-medium">Open to Anyone</p>
                   <p className="text-xs text-muted-foreground">Anyone can accept</p>
                 </div>
               </button>
@@ -550,7 +550,7 @@ export function CreateWagerModal({ open, onOpenChange, onSuccess }: CreateWagerM
           {/* ── Stream URL ───────────────────────────────────────────────── */}
           <div className="space-y-2">
             <Label htmlFor="streamUrl">
-              Stream URL <span className="text-muted-foreground">(optional)</span>
+              Stream Link <span className="text-muted-foreground">(optional, lets spectators watch live)</span>
             </Label>
             <Input
               id="streamUrl"

@@ -127,8 +127,8 @@ export function Hero() {
             transition={{ delay: 0.3 }}
             className="text-lg md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto text-balance px-2 sm:px-0"
           >
-            The first trustless P2P gaming wager platform on Solana.
-            Challenge anyone. Stake real SOL. Winner takes 93%.
+            Challenge anyone. Wager SOL. Winner keeps 93% or more.
+            No house, no middlemen. Connect and play.
           </motion.p>
 
           <motion.div
@@ -178,8 +178,8 @@ export function Hero() {
                   <div className="flex items-center gap-3">
                     <Download className="h-4 w-4 text-primary flex-shrink-0" />
                     <p className="text-sm text-left">
-                      <span className="font-semibold text-foreground">Install GameGambit</span>
-                      <span className="text-muted-foreground"> — get match alerts instantly</span>
+                      <span className="font-semibold text-foreground">Join GameGambit</span>
+                      <span className="text-muted-foreground"> and get match alerts instantly</span>
                     </p>
                   </div>
                   <Button
@@ -198,8 +198,8 @@ export function Hero() {
           <style>{SHAKE_CSS}</style>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <FeatureCard icon={Zap} label="Instant Payouts" desc="Winner gets 93% of the pot" delay={0.6} shakeDelay={1200} />
-            <FeatureCard icon={Shield} label="Trustless" desc="Smart contract secured" delay={0.7} shakeDelay={1550} />
-            <FeatureCard icon={Users} label="P2P Moderation" desc="Community-driven disputes" delay={0.8} shakeDelay={1900} />
+            <FeatureCard icon={Shield} label="No Middlemen" desc="Your stake is held by code, not us. Nobody can touch it." delay={0.7} shakeDelay={1550} />
+            <FeatureCard icon={Users} label="Fair Disputes" desc="Disputed results go to real players, not bots, not us." delay={0.8} shakeDelay={1900} />
           </div>
         </div>
       </div>
