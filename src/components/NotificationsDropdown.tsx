@@ -14,8 +14,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { AppNotification } from '@/hooks/useNotifications';
+import { useDeclineChallenge } from '@/hooks/useWagers';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
 
 export function NotificationsDropdown() {
   const {
@@ -30,6 +32,36 @@ export function NotificationsDropdown() {
   } = useNotifications();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [decliningId, setDecliningId] = useState<string | null>(null);
+  const declineChallenge = useDeclineChallenge();
+
+  const handleAccept = useCallback(
+    (notification: AppNotification) => {
+      if (!notification.read) markRead(notification.id);
+      setOpen(false);
+      if (!notification.wager_id) return;
+      const params = new URLSearchParams({ wager: notification.wager_id, modal: 'ready-room' });
+      router.push(`/arena?${params.toString()}`);
+    },
+    [markRead, router],
+  );
+
+  const handleDecline = useCallback(
+    async (notification: AppNotification) => {
+      if (!notification.wager_id) return;
+      setDecliningId(notification.id);
+      try {
+        await declineChallenge.mutateAsync({ wagerId: notification.wager_id });
+        markRead(notification.id);
+        toast.success('Challenge declined');
+      } catch {
+        toast.error('Failed to decline challenge');
+      } finally {
+        setDecliningId(null);
+      }
+    },
+    [declineChallenge, markRead],
+  );
 
   const getNotificationIcon = (type: AppNotification['type']) => {
     switch (type) {
@@ -218,6 +250,21 @@ export function NotificationsDropdown() {
                             </span>
                           )}
                         </div>
+                        {(notification.type === 'wager_proposal' || notification.type === 'rematch_challenge') && notification.wager_id && (
+                          <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                            <Button size="sm" variant="outline" className="h-6 text-xs"
+                              onClick={() => handleAccept(notification)}
+                            >
+                              Accept
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-6 text-xs text-destructive"
+                              disabled={decliningId === notification.id}
+                              onClick={() => handleDecline(notification)}
+                            >
+                              {decliningId === notification.id ? 'Declining…' : 'Decline'}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                       {!notification.read && (
                         <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />
