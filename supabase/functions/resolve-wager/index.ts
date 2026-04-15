@@ -1,15 +1,6 @@
 // supabase/functions/resolve-wager/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.86.2";
-import {
-    Connection,
-    Keypair,
-    PublicKey,
-    Transaction,
-    TransactionInstruction,
-    SystemProgram,
-    LAMPORTS_PER_SOL,
-} from "https://esm.sh/@solana/web3.js@1.98.0";
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -20,9 +11,10 @@ const corsHeaders = {
 // ── Constants (must match lib.rs) ─────────────────────────────────────────────
 const PROGRAM_ID = "E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR";
 const PLATFORM_WALLET = "3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY";
+
 // ── Fee helpers (must match calculate_platform_fee() in lib.rs) ───────────────
-const MICRO_THRESHOLD = 500_000_000;    // 0.5 SOL in lamports
-const WHALE_THRESHOLD = 5_000_000_000;  // 5.0 SOL in lamports
+const MICRO_THRESHOLD = 500_000_000;   // 0.5 SOL
+const WHALE_THRESHOLD = 5_000_000_000; // 5.0 SOL
 const MODERATOR_FEE_SHARE = 0.30;
 const MOD_FEE_CAP_USD = 10;
 
@@ -36,9 +28,7 @@ function calculatePlatformFee(stakeLamports: number): number {
 
 async function getSolPriceUsd(): Promise<number> {
     try {
-        const r = await fetch(
-            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'
-        );
+        const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
         const d = await r.json();
         return d.solana.usd as number;
     } catch {
@@ -52,41 +42,54 @@ function calculateModFee(platformFeeLamports: number, solPriceUsd: number): numb
     return Math.floor((modUsd / solPriceUsd) * 1_000_000_000);
 }
 
-// Discriminators from IDL
 const DISCRIMINATORS = {
     resolve_wager: [31, 179, 1, 228, 83, 224, 1, 123],
     close_wager: [167, 240, 85, 147, 127, 50, 69, 203],
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function loadAuthorityKeypair(secret: string): Keypair {
-    const arr = JSON.parse(secret);
-    return Keypair.fromSecretKey(Uint8Array.from(arr));
+// ── Lazy Solana import ────────────────────────────────────────────────────────
+// Top-level @solana/web3.js import was loading a 2MB bundle at cold-boot and
+// blowing Supabase's CPU budget before the handler even ran. Lazy import defers
+// that cost until the first actual request.
+// deno-lint-ignore no-explicit-any
+let _solana: any = null;
+async function getSolana() {
+    if (!_solana) _solana = await import("https://esm.sh/@solana/web3.js@1.98.0");
+    return _solana;
 }
 
-function deriveWagerPda(playerA: PublicKey, matchId: bigint): PublicKey {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function loadAuthorityKeypair(secret: string) {
+    const { Keypair } = await getSolana();
+    return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret)));
+}
+
+async function deriveWagerPda(playerAWallet: string, matchId: bigint) {
+    const { PublicKey } = await getSolana();
+    const playerA = new PublicKey(playerAWallet);
     const matchIdBytes = new Uint8Array(8);
-    const view = new DataView(matchIdBytes.buffer);
-    view.setBigUint64(0, matchId, true); // little-endian
+    new DataView(matchIdBytes.buffer).setBigUint64(0, matchId, true);
     const [pda] = PublicKey.findProgramAddressSync(
         [new TextEncoder().encode("wager"), playerA.toBytes(), matchIdBytes],
-        new PublicKey(PROGRAM_ID)
+        new PublicKey(PROGRAM_ID),
     );
     return pda;
 }
 
-function buildResolveWagerIx(
-    wagerPda: PublicKey,
-    authority: PublicKey,
-    winner: PublicKey,
-    platformWallet: PublicKey,
-): TransactionInstruction {
+async function buildResolveWagerIx(
+    wagerPda: unknown,
+    authority: unknown,
+    winner: unknown,
+    platformWallet: unknown,
+) {
+    const { TransactionInstruction, SystemProgram, PublicKey } = await getSolana();
     const disc = new Uint8Array(DISCRIMINATORS.resolve_wager);
-    const winnerBytes = winner.toBytes();
-    const resolveData = new Uint8Array(disc.length + winnerBytes.length);
-    resolveData.set(disc, 0);
-    resolveData.set(winnerBytes, disc.length);
+    // deno-lint-ignore no-explicit-any
+    const winnerBytes = (winner as any).toBytes();
+    const data = new Uint8Array(disc.length + winnerBytes.length);
+    data.set(disc, 0);
+    data.set(winnerBytes, disc.length);
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -96,17 +99,18 @@ function buildResolveWagerIx(
             { pubkey: platformWallet, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: resolveData,
+        data,
     });
 }
 
-function buildCloseWagerIx(
-    wagerPda: PublicKey,
-    authority: PublicKey,
-    playerA: PublicKey,
-    playerB: PublicKey,
-    platformWallet: PublicKey,
-): TransactionInstruction {
+async function buildCloseWagerIx(
+    wagerPda: unknown,
+    authority: unknown,
+    playerA: unknown,
+    playerB: unknown,
+    platformWallet: unknown,
+) {
+    const { TransactionInstruction, SystemProgram, PublicKey } = await getSolana();
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -120,33 +124,37 @@ function buildCloseWagerIx(
     });
 }
 
-// ── FIX: Use 'processed' commitment + maxRetries to avoid CPU time exceeded ───
-// Supabase edge functions have a tight CPU budget. The old 'confirmed' polling
-// loop on public devnet RPC was taking 5-15s and killing the function mid-run.
-// 'processed' returns as soon as the tx lands on one node — fast enough for
-// a payout, and the tx is already signed + submitted so it will go through.
 async function sendAndConfirm(
-    connection: Connection,
-    authority: Keypair,
-    instruction: TransactionInstruction,
+    connection: unknown,
+    authority: unknown,
+    instruction: unknown,
 ): Promise<string> {
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    const { Transaction } = await getSolana();
+    // deno-lint-ignore no-explicit-any
+    const conn = connection as any;
+    // deno-lint-ignore no-explicit-any
+    const auth = authority as any;
+
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
     const tx = new Transaction();
     tx.add(instruction);
     tx.recentBlockhash = blockhash;
-    tx.feePayer = authority.publicKey;
-    tx.sign(authority);
+    tx.feePayer = auth.publicKey;
+    tx.sign(auth);
 
     console.log(`[sendAndConfirm] sending raw tx...`);
-    const signature = await connection.sendRawTransaction(tx.serialize(), {
+    const signature = await conn.sendRawTransaction(tx.serialize(), {
         skipPreflight: false,
         maxRetries: 3,
     });
     console.log(`[sendAndConfirm] tx sent: ${signature} — awaiting 'processed' confirmation...`);
 
-    await connection.confirmTransaction(
+    // 'processed' instead of 'confirmed' — public devnet RPC was taking 5–15s
+    // to confirm, blowing the Supabase CPU budget. 'processed' returns as soon
+    // as one node accepts the tx.
+    await conn.confirmTransaction(
         { signature, blockhash, lastValidBlockHeight },
-        'processed' // was 'confirmed' — dropped to avoid CPU timeout on devnet
+        'processed',
     );
 
     console.log(`[sendAndConfirm] ✅ confirmed (processed): ${signature}`);
@@ -215,8 +223,12 @@ serve(async (req) => {
         if (!authoritySecret) throw new Error('AUTHORITY_WALLET_SECRET not configured');
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Solana Connection + Keypair are lazy too — getSolana() is already
+        // deferred, and Connection construction is cheap, so this is fine.
+        const { Connection, PublicKey, LAMPORTS_PER_SOL } = await getSolana();
         const connection = new Connection(rpcUrl, 'confirmed');
-        const authority = loadAuthorityKeypair(authoritySecret);
+        const authority = await loadAuthorityKeypair(authoritySecret);
 
         console.log(`[resolve-wager] authority pubkey: ${authority.publicKey.toBase58()} rpcUrl: ${rpcUrl}`);
 
@@ -236,13 +248,13 @@ serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const winnerPubkey = new PublicKey(winnerWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
+                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
 
                 console.log(`[resolve-wager] wagerPda: ${wagerPda.toBase58()}`);
                 const pdaBalance = await connection.getBalance(wagerPda).catch(() => -1);
                 console.log(`[resolve-wager] PDA balance: ${pdaBalance} lamports (${pdaBalance / 1_000_000_000} SOL)`);
 
-                const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
+                const ix = await buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
                 let txSig: string | null = null;
                 let onChainError: string | null = null;
 
@@ -318,11 +330,11 @@ serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const playerBPubkey = new PublicKey(playerBWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
+                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
 
                 console.log(`🤝 Draw refund PDA: ${wagerPda.toBase58()}`);
 
-                const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                 let txSig: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
@@ -388,7 +400,7 @@ serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const playerBPubkey = playerBWallet ? new PublicKey(playerBWallet) : null;
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
+                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
 
                 console.log(`Cancelled wager refund PDA: ${wagerPda.toBase58()} | Reason: ${reason}`);
 
@@ -397,7 +409,7 @@ serve(async (req) => {
 
                 if (pdaBalance > 0 && playerBPubkey) {
                     console.log(`PDA has ${pdaBalance} lamports - initiating on-chain refund`);
-                    const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                    const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                     try {
                         txSig = await sendAndConfirm(connection, authority, ix);
                         console.log(`close_wager (cancelled) tx success: ${txSig}`);
