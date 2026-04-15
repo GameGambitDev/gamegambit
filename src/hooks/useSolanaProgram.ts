@@ -347,22 +347,28 @@ export function useCreateWagerOnChain() {
         console.log('[createWager] PDA exists — skipping tx, notifying DB');
         signature = 'already_deposited';
       } else {
-        // ── ATOMIC BATCH: initialize_player + create_wager in ONE tx ──────────
+        // ── CONDITIONAL BATCH: only include initialize_player if profile doesn't exist ──
         //
-        // ROOT CAUSE OF PHANTOM "reverted during simulation":
-        // Phantom uses its own internal RPC node to simulate the transaction
-        // independently of the dApp's RPC. When initialize_player is sent as a
-        // SEPARATE prior transaction, Phantom's RPC may not have indexed that
-        // account yet (devnet RPC lag / different node), so when it simulates
-        // create_wager it fails with ConstraintSeeds / AccountNotInitialized on
-        // player_a_profile — and shows the red "reverted" warning.
+        // ROOT CAUSE OF PHANTOM "reverted during simulation" + wrong fee display:
+        // The previous approach always bundled initialize_player + create_wager in
+        // one tx, assuming init_if_needed made it a safe no-op when profile exists.
+        // But Phantom runs its own independent simulation on its own RPC node.
+        // When the profile account already exists, Phantom's sim sees initialize_player
+        // trying to re-init an existing account and throws — causing the red "reverted"
+        // banner. Because Phantom's sim failed, it can't model the SOL movement, so it
+        // only shows the network fee (0.00008 SOL) instead of the actual 1 SOL stake.
+        // The dApp's own simulation passed fine (different RPC node, correct state).
         //
-        // FIX: Always include initialize_player as the FIRST instruction in the
-        // SAME transaction as create_wager. The contract uses `init_if_needed`,
-        // so it's a no-op if the profile already exists — completely safe.
-        // Phantom simulates both instructions together as one atomic unit,
-        // so the profile is guaranteed to exist when create_wager runs,
-        // regardless of which RPC node Phantom uses.
+        // FIX: Check if the profile account exists on-chain before building the tx.
+        // Only include initialize_player if it doesn't. When profile already exists,
+        // Phantom simulates a single clean create_wager ix and correctly shows the
+        // full stake amount. New users still get both instructions atomically.
+
+        let profileExists = false;
+        try {
+          const profileInfo = await connection.getAccountInfo(playerProfilePda);
+          profileExists = profileInfo !== null;
+        } catch { /* ok — assume doesn't exist */ }
 
         const initProfileIx = new TransactionInstruction({
           programId: new PublicKey(PROGRAM_ID),
@@ -392,10 +398,12 @@ export function useCreateWagerOnChain() {
           ),
         });
 
+        const instructions = profileExists ? [createIx] : [initProfileIx, createIx];
+
         // ── DIAGNOSTIC: simulate before sending to surface real Anchor errors ──
         {
           const simTx = new Transaction();
-          simTx.add(initProfileIx, createIx);
+          simTx.add(...instructions);
           simTx.feePayer = publicKey;
           simTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
           const simResult = await connection.simulateTransaction(simTx);
@@ -410,9 +418,14 @@ export function useCreateWagerOnChain() {
         }
         // ── END DIAGNOSTIC ────────────────────────────────────────────────────
 
-        console.log('[createWager] sending batched init_profile + create_wager tx with stake:', stakeAmount.toString(), 'lamports');
+        console.log(
+          profileExists
+            ? '[createWager] sending create_wager only (profile exists), stake:'
+            : '[createWager] sending batched init_profile + create_wager, stake:',
+          stakeAmount.toString(), 'lamports'
+        );
         signature = await sendAndConfirmViaAdapter(
-          [initProfileIx, createIx], publicKey, sendTransaction, connection
+          instructions, publicKey, sendTransaction, connection
         );
       }
 
