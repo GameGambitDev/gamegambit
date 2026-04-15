@@ -82,9 +82,6 @@ function buildResolveWagerIx(
     winner: PublicKey,
     platformWallet: PublicKey,
 ): TransactionInstruction {
-    // resolve_wager accounts — matches ResolveWager struct in lib.rs:
-    //   wager, winner, authorizer (signer), platform_wallet, system_program
-    // Args: winner pubkey (32 bytes)
     const disc = new Uint8Array(DISCRIMINATORS.resolve_wager);
     const winnerBytes = winner.toBytes();
     const resolveData = new Uint8Array(disc.length + winnerBytes.length);
@@ -110,10 +107,6 @@ function buildCloseWagerIx(
     playerB: PublicKey,
     platformWallet: PublicKey,
 ): TransactionInstruction {
-    // close_wager accounts (draw refund):
-    // close_wager accounts — matches CloseWager struct in lib.rs:
-    //   wager (writable, closes to authorizer), player_a (writable), player_b (writable), authorizer (signer, writable), system_program
-    // No args needed
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -127,6 +120,11 @@ function buildCloseWagerIx(
     });
 }
 
+// ── FIX: Use 'processed' commitment + maxRetries to avoid CPU time exceeded ───
+// Supabase edge functions have a tight CPU budget. The old 'confirmed' polling
+// loop on public devnet RPC was taking 5-15s and killing the function mid-run.
+// 'processed' returns as soon as the tx lands on one node — fast enough for
+// a payout, and the tx is already signed + submitted so it will go through.
 async function sendAndConfirm(
     connection: Connection,
     authority: Keypair,
@@ -139,8 +137,19 @@ async function sendAndConfirm(
     tx.feePayer = authority.publicKey;
     tx.sign(authority);
 
-    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    console.log(`[sendAndConfirm] sending raw tx...`);
+    const signature = await connection.sendRawTransaction(tx.serialize(), {
+        skipPreflight: false,
+        maxRetries: 3,
+    });
+    console.log(`[sendAndConfirm] tx sent: ${signature} — awaiting 'processed' confirmation...`);
+
+    await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        'processed' // was 'confirmed' — dropped to avoid CPU timeout on devnet
+    );
+
+    console.log(`[sendAndConfirm] ✅ confirmed (processed): ${signature}`);
     return signature;
 }
 
@@ -200,7 +209,6 @@ serve(async (req) => {
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        // Secret name matches what you set in Supabase dashboard
         const authoritySecret = Deno.env.get('AUTHORITY_WALLET_SECRET')!;
         const rpcUrl = Deno.env.get('SOLANA_RPC_URL') || 'https://api.devnet.solana.com';
 
@@ -210,37 +218,41 @@ serve(async (req) => {
         const connection = new Connection(rpcUrl, 'confirmed');
         const authority = loadAuthorityKeypair(authoritySecret);
 
-        console.log(`📥 resolve-wager — authority: ${authority.publicKey.toBase58()}`);
+        console.log(`[resolve-wager] authority pubkey: ${authority.publicKey.toBase58()} rpcUrl: ${rpcUrl}`);
 
         const body = await req.json();
-        console.log('Action:', body.action);
+        console.log(`[resolve-wager] ▶ ENTER action=${body.action} wagerId=${body.wagerId ?? 'N/A'} matchId=${body.matchId ?? 'N/A'} playerA=${body.playerAWallet ?? 'N/A'} winner=${body.winnerWallet ?? 'N/A'} stake=${body.stakeLamports ?? 'N/A'}`);
 
         switch (body.action) {
 
-            // ── resolve_wager: winner takes 90%, platform takes 10% ──────────────
+            // ── resolve_wager ─────────────────────────────────────────────────
             case 'resolve_wager': {
                 const { matchId, playerAWallet, playerBWallet, winnerWallet, wagerId, stakeLamports, moderatorWallet } = body;
                 if (!matchId || !playerAWallet || !winnerWallet)
                     throw new Error('Missing: matchId, playerAWallet, winnerWallet');
+
+                console.log(`[resolve-wager] 🎮 resolve_wager: wagerId=${wagerId} matchId=${matchId} playerA=${playerAWallet} winner=${winnerWallet} stake=${stakeLamports}`);
 
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const winnerPubkey = new PublicKey(winnerWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
                 const wagerPda = deriveWagerPda(playerAPubkey, BigInt(matchId));
 
-                console.log(`🎮 Resolving wager PDA: ${wagerPda.toBase58()} → winner: ${winnerWallet}`);
+                console.log(`[resolve-wager] wagerPda: ${wagerPda.toBase58()}`);
+                const pdaBalance = await connection.getBalance(wagerPda).catch(() => -1);
+                console.log(`[resolve-wager] PDA balance: ${pdaBalance} lamports (${pdaBalance / 1_000_000_000} SOL)`);
 
-                // Build + sign + send on-chain resolve_wager instruction
                 const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
                 let txSig: string | null = null;
                 let onChainError: string | null = null;
+
+                console.log(`[resolve-wager] sending resolve_wager tx...`);
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
-                    console.log(`resolve_wager tx success: ${txSig}`);
+                    console.log(`[resolve-wager] resolve_wager tx ✅ confirmed: ${txSig}`);
                 } catch (onChainErr: any) {
                     onChainError = onChainErr?.message || String(onChainErr);
-                    console.error('On-chain resolve_wager failed:', onChainError);
-
+                    console.error(`[resolve-wager] ❌ resolve_wager on-chain FAILED: ${onChainError}`);
                     if (wagerId) {
                         await logError(supabase, wagerId, 'on_chain_resolve', onChainError, {
                             walletAddress: winnerWallet,
@@ -248,11 +260,9 @@ serve(async (req) => {
                             matchId,
                         });
                     }
-                    // Return failure immediately so dispatchResolveOnChain can log it
                     return respond({ success: false, error: onChainError, wagerPda: wagerPda.toBase58() }, 500);
                 }
 
-                // Update DB
                 if (wagerId) {
                     const { data: wager } = await supabase.from('wagers')
                         .select('status,stake_lamports,player_a_wallet,player_b_wallet').eq('id', wagerId).single();
@@ -272,7 +282,6 @@ serve(async (req) => {
                         }).eq('id', wagerId);
                     }
 
-                    // Update player stats
                     await supabase.rpc('update_winner_stats', { p_wallet: winnerWallet, p_stake: stake, p_earnings: winnerPayout })
                         .then(({ error }) => error && console.log('⚠️ winner stats:', error.message));
                     if (loserWallet) {
@@ -300,7 +309,7 @@ serve(async (req) => {
                 return respond({ success: true, txSignature: txSig });
             }
 
-            // ── refund_draw: close_wager returns funds to both players ────────────
+            // ── refund_draw ───────────────────────────────────────────────────
             case 'refund_draw': {
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports } = body;
                 if (!matchId || !playerAWallet || !playerBWallet)
@@ -321,7 +330,6 @@ serve(async (req) => {
                 } catch (onChainErr: any) {
                     const errorMsg = onChainErr?.message || String(onChainErr);
                     console.error('On-chain close_wager (draw) failed:', errorMsg);
-
                     if (wagerId) {
                         await logError(supabase, wagerId, 'on_chain_draw_refund', errorMsg, {
                             walletAddress: playerAWallet,
@@ -329,7 +337,6 @@ serve(async (req) => {
                             matchId,
                         });
                     }
-                    // Surface the error instead of silently continuing
                     return respond({ success: false, error: errorMsg, wagerPda: wagerPda.toBase58() }, 500);
                 }
 
@@ -352,7 +359,7 @@ serve(async (req) => {
                 });
             }
 
-            // ── get_balance: check authority wallet balance ───────────────────────
+            // ── get_balance ───────────────────────────────────────────────────
             case 'get_balance': {
                 const lamports = await connection.getBalance(authority.publicKey);
                 return respond({
@@ -364,7 +371,7 @@ serve(async (req) => {
                 });
             }
 
-            // ── record_escrow: log deposit txs ────────────────────────────────────
+            // ── record_escrow ─────────────────────────────────────────────────
             case 'record_escrow': {
                 const { wagerId, playerAWallet, playerBWallet, stakeLamports, txSignature } = body;
                 if (!wagerId || !stakeLamports) throw new Error('Missing wagerId or stakeLamports');
@@ -373,7 +380,7 @@ serve(async (req) => {
                 return respond({ success: true });
             }
 
-            // ── refund_cancelled: refund both players when wager is cancelled ─────
+            // ── refund_cancelled ──────────────────────────────────────────────
             case 'refund_cancelled': {
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports, cancelledBy, reason } = body;
                 if (!matchId || !playerAWallet) throw new Error('Missing: matchId, playerAWallet');
@@ -385,12 +392,10 @@ serve(async (req) => {
 
                 console.log(`Cancelled wager refund PDA: ${wagerPda.toBase58()} | Reason: ${reason}`);
 
-                // Check if PDA has funds (only if on-chain deposits were made)
                 const pdaBalance = await connection.getBalance(wagerPda);
                 let txSig: string | null = null;
 
                 if (pdaBalance > 0 && playerBPubkey) {
-                    // Funds exist on-chain, use close_wager to refund both players
                     console.log(`PDA has ${pdaBalance} lamports - initiating on-chain refund`);
                     const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                     try {
@@ -399,7 +404,6 @@ serve(async (req) => {
                     } catch (onChainErr: any) {
                         const errorMsg = onChainErr?.message || String(onChainErr);
                         console.error('On-chain close_wager (cancelled) failed:', errorMsg);
-
                         if (wagerId) {
                             await logError(supabase, wagerId, 'on_chain_cancel_refund', errorMsg, {
                                 walletAddress: cancelledBy,
@@ -413,7 +417,6 @@ serve(async (req) => {
                     console.log(`No on-chain funds to refund (PDA balance: ${pdaBalance})`);
                 }
 
-                // Update wager status in DB if not already done
                 if (wagerId) {
                     const { data: wager } = await supabase.from('wagers').select('status').eq('id', wagerId).single();
                     if (wager?.status !== 'cancelled') {
@@ -425,7 +428,6 @@ serve(async (req) => {
                         }).eq('id', wagerId);
                     }
 
-                    // Log refund transactions
                     const stake = stakeLamports || 0;
                     if (pdaBalance > 0) {
                         await logTransaction(supabase, wagerId, 'cancel_refund', playerAWallet, stake, txSig);
@@ -444,7 +446,7 @@ serve(async (req) => {
                 });
             }
 
-            // ── ban_player ────────────────────────────────────────────────────────
+            // ── ban_player ────────────────────────────────────────────────────
             case 'ban_player': {
                 const { playerPubkey, banDurationSeconds } = body;
                 if (!playerPubkey || !banDurationSeconds) throw new Error('Missing playerPubkey or banDurationSeconds');
