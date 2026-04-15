@@ -48,9 +48,9 @@ const DISCRIMINATORS = {
 };
 
 // ── Lazy Solana import ────────────────────────────────────────────────────────
-// Top-level @solana/web3.js import was loading a 2MB bundle at cold-boot and
-// blowing Supabase's CPU budget before the handler even ran. Lazy import defers
-// that cost until the first actual request.
+// Deferred until first use inside each action case — avoids paying the 2MB
+// cold-start cost for lightweight actions (record_escrow, ban_player, etc.)
+// and prevents the Supabase CPU budget from being blown before the handler runs.
 // deno-lint-ignore no-explicit-any
 let _solana: any = null;
 async function getSolana() {
@@ -96,7 +96,7 @@ async function buildResolveWagerIx(
             { pubkey: wagerPda, isSigner: false, isWritable: true },
             { pubkey: winner, isSigner: false, isWritable: true },
             { pubkey: authority, isSigner: true, isWritable: true },
-            { pubkey: platformWallet, isSigner: false, isWritable: true },
+            { pubkey: platformWallet, isSigner: false, isWritable: false },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
         data,
@@ -224,28 +224,31 @@ serve(async (req) => {
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-        // Solana Connection + Keypair are lazy too — getSolana() is already
-        // deferred, and Connection construction is cheap, so this is fine.
-        const { Connection, PublicKey, LAMPORTS_PER_SOL } = await getSolana();
-        const connection = new Connection(rpcUrl, 'confirmed');
-        const authority = await loadAuthorityKeypair(authoritySecret);
-
-        console.log(`[resolve-wager] authority pubkey: ${authority.publicKey.toBase58()} rpcUrl: ${rpcUrl}`);
-
+        // ── Read body FIRST before any Solana import ──────────────────────────
+        // getSolana() loads a 2MB bundle. We defer it until we know which action
+        // is needed. Lightweight actions (record_escrow, ban_player) never load
+        // Solana at all, avoiding the cold-start CPU timeout (status 546).
         const body = await req.json();
+
         console.log(`[resolve-wager] ▶ ENTER action=${body.action} wagerId=${body.wagerId ?? 'N/A'} matchId=${body.matchId ?? 'N/A'} playerA=${body.playerAWallet ?? 'N/A'} winner=${body.winnerWallet ?? 'N/A'} stake=${body.stakeLamports ?? 'N/A'}`);
 
         switch (body.action) {
 
             // ── resolve_wager ─────────────────────────────────────────────────
             case 'resolve_wager': {
+                // Solana loaded here — only paid when actually resolving on-chain
+                const { Connection, PublicKey } = await getSolana();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const authority = await loadAuthorityKeypair(authoritySecret);
+
+                console.log(`[resolve-wager] authority pubkey: ${authority.publicKey.toBase58()} rpcUrl: ${rpcUrl}`);
+
                 const { matchId, playerAWallet, playerBWallet, winnerWallet, wagerId, stakeLamports, moderatorWallet } = body;
                 if (!matchId || !playerAWallet || !winnerWallet)
                     throw new Error('Missing: matchId, playerAWallet, winnerWallet');
 
                 console.log(`[resolve-wager] 🎮 resolve_wager: wagerId=${wagerId} matchId=${matchId} playerA=${playerAWallet} winner=${winnerWallet} stake=${stakeLamports}`);
 
-                const playerAPubkey = new PublicKey(playerAWallet);
                 const winnerPubkey = new PublicKey(winnerWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
                 const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
@@ -323,6 +326,11 @@ serve(async (req) => {
 
             // ── refund_draw ───────────────────────────────────────────────────
             case 'refund_draw': {
+                // Solana loaded here — only paid when actually closing on-chain
+                const { Connection, PublicKey } = await getSolana();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const authority = await loadAuthorityKeypair(authoritySecret);
+
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports } = body;
                 if (!matchId || !playerAWallet || !playerBWallet)
                     throw new Error('Missing: matchId, playerAWallet, playerBWallet');
@@ -373,6 +381,11 @@ serve(async (req) => {
 
             // ── get_balance ───────────────────────────────────────────────────
             case 'get_balance': {
+                // Solana loaded here — needed to query balance
+                const { Connection, PublicKey, LAMPORTS_PER_SOL } = await getSolana();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const authority = await loadAuthorityKeypair(authoritySecret);
+
                 const lamports = await connection.getBalance(authority.publicKey);
                 return respond({
                     success: true,
@@ -384,6 +397,7 @@ serve(async (req) => {
             }
 
             // ── record_escrow ─────────────────────────────────────────────────
+            // No Solana needed — pure DB write
             case 'record_escrow': {
                 const { wagerId, playerAWallet, playerBWallet, stakeLamports, txSignature } = body;
                 if (!wagerId || !stakeLamports) throw new Error('Missing wagerId or stakeLamports');
@@ -394,6 +408,11 @@ serve(async (req) => {
 
             // ── refund_cancelled ──────────────────────────────────────────────
             case 'refund_cancelled': {
+                // Solana loaded here — may need on-chain close if PDA has funds
+                const { Connection, PublicKey } = await getSolana();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const authority = await loadAuthorityKeypair(authoritySecret);
+
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports, cancelledBy, reason } = body;
                 if (!matchId || !playerAWallet) throw new Error('Missing: matchId, playerAWallet');
 
@@ -459,6 +478,7 @@ serve(async (req) => {
             }
 
             // ── ban_player ────────────────────────────────────────────────────
+            // No Solana needed — pure DB write
             case 'ban_player': {
                 const { playerPubkey, banDurationSeconds } = body;
                 if (!playerPubkey || !banDurationSeconds) throw new Error('Missing playerPubkey or banDurationSeconds');
