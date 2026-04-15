@@ -27,29 +27,29 @@ const MODERATOR_FEE_SHARE = 0.30;
 const MOD_FEE_CAP_USD = 10;
 
 function calculatePlatformFee(stakeLamports: number): number {
-  let bps: number;
-  if (stakeLamports < MICRO_THRESHOLD)       bps = 1000;
-  else if (stakeLamports <= WHALE_THRESHOLD) bps = 700;
-  else                                        bps = 500;
-  return Math.floor((stakeLamports * 2 * bps) / 10_000);
+    let bps: number;
+    if (stakeLamports < MICRO_THRESHOLD) bps = 1000;
+    else if (stakeLamports <= WHALE_THRESHOLD) bps = 700;
+    else bps = 500;
+    return Math.floor((stakeLamports * 2 * bps) / 10_000);
 }
 
 async function getSolPriceUsd(): Promise<number> {
-  try {
-    const r = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'
-    );
-    const d = await r.json();
-    return d.solana.usd as number;
-  } catch {
-    return 150;
-  }
+    try {
+        const r = await fetch(
+            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'
+        );
+        const d = await r.json();
+        return d.solana.usd as number;
+    } catch {
+        return 150;
+    }
 }
 
 function calculateModFee(platformFeeLamports: number, solPriceUsd: number): number {
-  const feeUsd = (platformFeeLamports / 1_000_000_000) * solPriceUsd;
-  const modUsd = Math.min(feeUsd * MODERATOR_FEE_SHARE, MOD_FEE_CAP_USD);
-  return Math.floor((modUsd / solPriceUsd) * 1_000_000_000);
+    const feeUsd = (platformFeeLamports / 1_000_000_000) * solPriceUsd;
+    const modUsd = Math.min(feeUsd * MODERATOR_FEE_SHARE, MOD_FEE_CAP_USD);
+    return Math.floor((modUsd / solPriceUsd) * 1_000_000_000);
 }
 
 // Discriminators from IDL
@@ -233,22 +233,23 @@ serve(async (req) => {
                 // Build + sign + send on-chain resolve_wager instruction
                 const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
                 let txSig: string | null = null;
+                let onChainError: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
                     console.log(`resolve_wager tx success: ${txSig}`);
                 } catch (onChainErr: any) {
-                    // Log error with full context for debugging
-                    const errorMsg = onChainErr?.message || String(onChainErr);
-                    console.error('On-chain resolve_wager failed:', errorMsg);
+                    onChainError = onChainErr?.message || String(onChainErr);
+                    console.error('On-chain resolve_wager failed:', onChainError);
 
-                    // Log the failure to transactions table
                     if (wagerId) {
-                        await logError(supabase, wagerId, 'on_chain_resolve', errorMsg, {
+                        await logError(supabase, wagerId, 'on_chain_resolve', onChainError, {
                             walletAddress: winnerWallet,
                             wagerPda: wagerPda.toBase58(),
                             matchId,
                         });
                     }
+                    // Return failure immediately so dispatchResolveOnChain can log it
+                    return respond({ success: false, error: onChainError, wagerPda: wagerPda.toBase58() }, 500);
                 }
 
                 // Update DB
@@ -328,6 +329,8 @@ serve(async (req) => {
                             matchId,
                         });
                     }
+                    // Surface the error instead of silently continuing
+                    return respond({ success: false, error: errorMsg, wagerPda: wagerPda.toBase58() }, 500);
                 }
 
                 if (wagerId) {
