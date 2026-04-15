@@ -7,10 +7,20 @@
 //   - respond: the HTTP response helper
 //
 // Imports Solana helpers from ./solana.ts and notification helpers from ./notifications.ts
+//
+// FIX (April 2026): All resolveOnChain() calls are now wrapped in
+// EdgeRuntime.waitUntil() instead of being awaited directly.
+// Awaiting resolveOnChain() inside the request handler caused "CPU Time exceeded"
+// shutdowns because devnet tx confirmation can take 5–30 s, which blows the
+// Supabase Edge Runtime CPU budget. EdgeRuntime.waitUntil() keeps the isolate
+// alive after the HTTP response is sent so the Solana tx can settle without
+// blocking the caller. The wager DB row is marked 'resolved' before we respond,
+// so the client always sees the correct status immediately.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-    getSolana,
+    Connection,
+    PublicKey,
     loadAuthorityKeypair,
     deriveWagerPda,
     buildCloseWagerIx,
@@ -19,6 +29,9 @@ import {
     sendAndConfirm,
 } from "./solana.ts";
 import { getDisplayName, insertNotifications } from "./notifications.ts";
+
+// deno-lint-ignore no-explicit-any
+declare const EdgeRuntime: { waitUntil(promise: Promise<any>): void };
 
 type Supabase = ReturnType<typeof createClient>;
 type Respond = (body: unknown, status?: number) => Response;
@@ -424,8 +437,30 @@ export async function handleCheckGameComplete(supabase: Supabase, _walletAddress
             ]);
         }
 
-        const txSig = await resolveOnChain(supabase, wager, winnerWallet, resultType as 'playerA' | 'playerB' | 'draw');
-        return respond({ gameComplete: true, status: game.status, winner: game.winner, resultType, winnerWallet: resultType === 'draw' ? null : winnerWallet, isDraw: resultType === 'draw', wager: updatedWager, txSignature: txSig, explorerUrl: txSig ? `https://explorer.solana.com/tx/${txSig}?cluster=devnet` : null });
+        // FIX: resolveOnChain can take 5–30 s waiting for devnet tx confirmation,
+        // which exceeds the Supabase Edge Runtime CPU budget and causes a
+        // "CPU Time exceeded" shutdown. Wrap in EdgeRuntime.waitUntil() so the
+        // HTTP response returns immediately while the tx settles in the background.
+        // The wager is already marked 'resolved' in the DB, so clients see the
+        // correct status right away. txSignature is intentionally null in the
+        // response — poll wager_transactions if you need the sig later.
+        EdgeRuntime.waitUntil(
+            resolveOnChain(supabase, wager, winnerWallet, resultType as 'playerA' | 'playerB' | 'draw')
+                .then((txSig) => console.log(`[actions] checkGameComplete resolveOnChain settled: ${txSig ?? 'null'}`))
+                .catch((err: unknown) => console.error('[actions] checkGameComplete resolveOnChain background error:', err instanceof Error ? err.message : String(err)))
+        );
+
+        return respond({
+            gameComplete: true,
+            status: game.status,
+            winner: game.winner,
+            resultType,
+            winnerWallet: resultType === 'draw' ? null : winnerWallet,
+            isDraw: resultType === 'draw',
+            wager: updatedWager,
+            txSignature: null,      // settling in background; check wager_transactions for final sig
+            explorerUrl: null,
+        });
     } catch (lichessError) {
         console.error('[actions] Lichess API error:', lichessError);
         return respond({ gameComplete: false, message: 'Error checking Lichess game' });
@@ -452,16 +487,15 @@ export async function handleCancelWager(supabase: Supabase, walletAddress: strin
 
     if (wager.player_b_wallet) {
         try {
-            const { Connection, PublicKey } = await getSolana();
             const rpcUrl = Deno.env.get('SOLANA_RPC_URL') || 'https://api.devnet.solana.com';
             const connection = new Connection(rpcUrl, 'confirmed');
-            const authority = await loadAuthorityKeypair();
+            const authority = loadAuthorityKeypair();
             const playerAPubkey = new PublicKey(wager.player_a_wallet);
             const playerBPubkey = new PublicKey(wager.player_b_wallet);
-            const wagerPda = await deriveWagerPda(wager.player_a_wallet, BigInt(wager.match_id));
+            const wagerPda = deriveWagerPda(wager.player_a_wallet, BigInt(wager.match_id));
             const pdaBalance = await connection.getBalance(wagerPda);
             if (pdaBalance > 0) {
-                const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey);
+                const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey);
                 const txSig = await sendAndConfirm(connection, authority, ix);
                 console.log(`[actions] Cancel refund tx: ${txSig}`);
                 await supabase.from('wager_transactions').upsert([
@@ -616,7 +650,6 @@ export async function handleSubmitVote(supabase: Supabase, walletAddress: string
 
 // ── retractVote ───────────────────────────────────────────────────────────────
 
-
 // ── concedeDispute ─────────────────────────────────────────────────────────────────────────────
 //
 // Step 4 grace period: player admits they voted wrong.
@@ -688,11 +721,12 @@ export async function handleConcedeDispute(supabase: Supabase, walletAddress: st
         });
     } catch { /* non-critical */ }
 
-    try {
-        await resolveOnChain(supabase, wager, winnerWallet, resultType);
-    } catch (err) {
-        console.error('[actions] concedeDispute resolveOnChain failed:', err instanceof Error ? err.message : String(err));
-    }
+    // FIX: use waitUntil so CPU time budget is not blown waiting for tx confirmation
+    EdgeRuntime.waitUntil(
+        resolveOnChain(supabase, wager, winnerWallet, resultType)
+            .then((txSig) => console.log(`[actions] concedeDispute resolveOnChain settled: ${txSig ?? 'null'}`))
+            .catch((err: unknown) => console.error('[actions] concedeDispute resolveOnChain background error:', err instanceof Error ? err.message : String(err)))
+    );
 
     const { data: final } = await supabase.from('wagers').select('*').eq('id', wagerId).single();
     return respond({ wager: final ?? updated });
@@ -752,11 +786,12 @@ export async function handleFinalizeVote(supabase: Supabase, walletAddress: stri
         ]);
     }
 
-    try {
-        await resolveOnChain(supabase, wager, winnerWallet, resultType);
-    } catch (err) {
-        console.error('[actions] finalizeVote resolveOnChain failed:', err instanceof Error ? err.message : String(err));
-    }
+    // FIX: use waitUntil so CPU time budget is not blown waiting for tx confirmation
+    EdgeRuntime.waitUntil(
+        resolveOnChain(supabase, wager, winnerWallet, resultType)
+            .then((txSig) => console.log(`[actions] finalizeVote resolveOnChain settled: ${txSig ?? 'null'}`))
+            .catch((err: unknown) => console.error('[actions] finalizeVote resolveOnChain background error:', err instanceof Error ? err.message : String(err)))
+    );
 
     const { data: final } = await supabase.from('wagers').select('*').eq('id', wagerId).single();
     return respond({ wager: final ?? updated });
