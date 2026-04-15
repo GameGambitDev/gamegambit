@@ -83,9 +83,18 @@ async function dispatchResolveOnChain(
     console.log(`[actions] dispatchResolveOnChain success: txSig=${result.txSignature}`);
 }
 
-// Inline fee helper — calculatePlatformFee is not exported from solana.ts
+// Tiered fee — must stay in sync with:
+//   • resolve-wager/index.ts  calculatePlatformFee()
+//   • the on-chain program's  calculate_platform_fee() in lib.rs
+//   • secure-wager/solana.ts  calculatePlatformFee()
+const MICRO_THRESHOLD = 500_000_000;   // 0.5 SOL
+const WHALE_THRESHOLD = 5_000_000_000; // 5.0 SOL
 function calculatePlatformFee(stakeLamports: number): number {
-    return Math.floor(stakeLamports * 2 * 1000 / 10_000); // PLATFORM_FEE_BPS = 1000
+    let bps: number;
+    if (stakeLamports < MICRO_THRESHOLD) bps = 1000; // 10%
+    else if (stakeLamports <= WHALE_THRESHOLD) bps = 700;  //  7%
+    else bps = 500;  //  5%
+    return Math.floor(stakeLamports * 2 * bps / 10_000);
 }
 
 type Supabase = ReturnType<typeof createClient>;
