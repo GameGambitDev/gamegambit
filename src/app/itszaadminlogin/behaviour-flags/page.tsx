@@ -7,7 +7,7 @@ import { ProtectedRoute } from '@/components/admin';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Flag, Search, Loader2, RefreshCcw, AlertTriangle,
-    Copy, Check, ChevronRight, ExternalLink, TrendingUp, Users, Shield,
+    Copy, Check, ChevronRight, ChevronLeft, ExternalLink, TrendingUp, Users, Shield,
 } from 'lucide-react';
 import { getSupabaseClient } from '@/integrations/supabase/client';
 
@@ -251,6 +251,10 @@ function BehaviourFlagsContent() {
     const [searchTerm, setSearchTerm] = useState('');
     const [riskFilter, setRiskFilter] = useState<RiskFilter>('all');
     const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
+    const [page, setPage] = useState(1);
+
+    // Reset page when filters change
+    useEffect(() => { setPage(1); }, [searchTerm, riskFilter]);
 
     const fetchEvents = async () => {
         try {
@@ -260,7 +264,7 @@ function BehaviourFlagsContent() {
                 .from('player_behaviour_log')
                 .select('id, player_wallet, event_type, notes, related_id, created_at')
                 .order('created_at', { ascending: false })
-                .limit(500);
+                .limit(1000);
             if (fetchError) throw fetchError;
             setEvents((data ?? []) as BehaviourEvent[]);
         } catch (err) {
@@ -302,6 +306,10 @@ function BehaviourFlagsContent() {
             || (riskFilter === 'low' && f.riskScore < 4);
         return matchesSearch && matchesRisk;
     });
+
+    const PAGE_SIZE = 25;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const pageFlags = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
     const highRiskCount = playerFlags.filter(f => f.riskScore >= 8).length;
     const mediumRiskCount = playerFlags.filter(f => f.riskScore >= 4 && f.riskScore < 8).length;
@@ -421,7 +429,7 @@ function BehaviourFlagsContent() {
                         transition={{ delay: 0.2 }}
                         className="space-y-3"
                     >
-                        {filtered.map(flag => (
+                        {pageFlags.map(flag => (
                             <PlayerFlagCard
                                 key={flag.wallet}
                                 flag={flag}
@@ -429,6 +437,15 @@ function BehaviourFlagsContent() {
                                 onToggle={() => setExpandedWallet(expandedWallet === flag.wallet ? null : flag.wallet)}
                             />
                         ))}
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-between pt-2">
+                                <span className="text-xs text-muted-foreground">Page <span className="font-semibold text-foreground">{page}</span> of <span className="font-semibold text-foreground">{totalPages}</span></span>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setPage(p => p - 1)} disabled={page <= 1} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-card border border-border/50 hover:border-primary/40 rounded-lg text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft className="h-3.5 w-3.5" />Prev</button>
+                                    <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-card border border-border/50 hover:border-primary/40 rounded-lg text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Next<ChevronRight className="h-3.5 w-3.5" /></button>
+                                </div>
+                            </div>
+                        )}
                     </motion.div>
                 )}
             </div>
