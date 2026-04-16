@@ -2,6 +2,20 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.86.2";
 
+// ── Solana import via npm: specifier ─────────────────────────────────────────
+// esm.sh?bundle fails at Supabase deploy time (uuid sub-dep resolution error).
+// Dynamic import() is killed mid-flight by the Deno runtime (546 cold-start).
+// npm: specifiers are resolved and bundled correctly by Supabase's deploy pipeline.
+import {
+    Connection,
+    Keypair,
+    PublicKey,
+    Transaction,
+    TransactionInstruction,
+    SystemProgram,
+    LAMPORTS_PER_SOL,
+} from "npm:@solana/web3.js@1.98.0";
+
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -47,26 +61,13 @@ const DISCRIMINATORS = {
     close_wager: [167, 240, 85, 147, 127, 50, 69, 203],
 };
 
-// ── Lazy Solana import ────────────────────────────────────────────────────────
-// Deferred until first use inside each action case — avoids paying the 2MB
-// cold-start cost for lightweight actions (record_escrow, ban_player, etc.)
-// and prevents the Supabase CPU budget from being blown before the handler runs.
-// deno-lint-ignore no-explicit-any
-let _solana: any = null;
-async function getSolana() {
-    if (!_solana) _solana = await import("https://esm.sh/@solana/web3.js@1.98.0");
-    return _solana;
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function loadAuthorityKeypair(secret: string) {
-    const { Keypair } = await getSolana();
+function loadAuthorityKeypair(secret: string): Keypair {
     return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret)));
 }
 
-async function deriveWagerPda(playerAWallet: string, matchId: bigint) {
-    const { PublicKey } = await getSolana();
+function deriveWagerPda(playerAWallet: string, matchId: bigint): PublicKey {
     const playerA = new PublicKey(playerAWallet);
     const matchIdBytes = new Uint8Array(8);
     new DataView(matchIdBytes.buffer).setBigUint64(0, matchId, true);
@@ -77,16 +78,14 @@ async function deriveWagerPda(playerAWallet: string, matchId: bigint) {
     return pda;
 }
 
-async function buildResolveWagerIx(
-    wagerPda: unknown,
-    authority: unknown,
-    winner: unknown,
-    platformWallet: unknown,
-) {
-    const { TransactionInstruction, SystemProgram, PublicKey } = await getSolana();
+function buildResolveWagerIx(
+    wagerPda: PublicKey,
+    authority: PublicKey,
+    winner: PublicKey,
+    platformWallet: PublicKey,
+): TransactionInstruction {
     const disc = new Uint8Array(DISCRIMINATORS.resolve_wager);
-    // deno-lint-ignore no-explicit-any
-    const winnerBytes = (winner as any).toBytes();
+    const winnerBytes = winner.toBytes();
     const data = new Uint8Array(disc.length + winnerBytes.length);
     data.set(disc, 0);
     data.set(winnerBytes, disc.length);
@@ -96,21 +95,20 @@ async function buildResolveWagerIx(
             { pubkey: wagerPda, isSigner: false, isWritable: true },
             { pubkey: winner, isSigner: false, isWritable: true },
             { pubkey: authority, isSigner: true, isWritable: true },
-            { pubkey: platformWallet, isSigner: false, isWritable: false },
+            { pubkey: platformWallet, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
         data,
     });
 }
 
-async function buildCloseWagerIx(
-    wagerPda: unknown,
-    authority: unknown,
-    playerA: unknown,
-    playerB: unknown,
-    platformWallet: unknown,
-) {
-    const { TransactionInstruction, SystemProgram, PublicKey } = await getSolana();
+function buildCloseWagerIx(
+    wagerPda: PublicKey,
+    authority: PublicKey,
+    playerA: PublicKey,
+    playerB: PublicKey,
+    platformWallet: PublicKey,
+): TransactionInstruction {
     return new TransactionInstruction({
         programId: new PublicKey(PROGRAM_ID),
         keys: [
@@ -125,34 +123,25 @@ async function buildCloseWagerIx(
 }
 
 async function sendAndConfirm(
-    connection: unknown,
-    authority: unknown,
-    instruction: unknown,
+    connection: Connection,
+    authority: Keypair,
+    instruction: TransactionInstruction,
 ): Promise<string> {
-    const { Transaction } = await getSolana();
-    // deno-lint-ignore no-explicit-any
-    const conn = connection as any;
-    // deno-lint-ignore no-explicit-any
-    const auth = authority as any;
-
-    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     const tx = new Transaction();
     tx.add(instruction);
     tx.recentBlockhash = blockhash;
-    tx.feePayer = auth.publicKey;
-    tx.sign(auth);
+    tx.feePayer = authority.publicKey;
+    tx.sign(authority);
 
     console.log(`[sendAndConfirm] sending raw tx...`);
-    const signature = await conn.sendRawTransaction(tx.serialize(), {
+    const signature = await connection.sendRawTransaction(tx.serialize(), {
         skipPreflight: false,
         maxRetries: 3,
     });
     console.log(`[sendAndConfirm] tx sent: ${signature} — awaiting 'processed' confirmation...`);
 
-    // 'processed' instead of 'confirmed' — public devnet RPC was taking 5–15s
-    // to confirm, blowing the Supabase CPU budget. 'processed' returns as soon
-    // as one node accepts the tx.
-    await conn.confirmTransaction(
+    await connection.confirmTransaction(
         { signature, blockhash, lastValidBlockHeight },
         'processed',
     );
@@ -223,11 +212,6 @@ serve(async (req) => {
         if (!authoritySecret) throw new Error('AUTHORITY_WALLET_SECRET not configured');
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-        // ── Read body FIRST before any Solana import ──────────────────────────
-        // getSolana() loads a 2MB bundle. We defer it until we know which action
-        // is needed. Lightweight actions (record_escrow, ban_player) never load
-        // Solana at all, avoiding the cold-start CPU timeout (status 546).
         const body = await req.json();
 
         console.log(`[resolve-wager] ▶ ENTER action=${body.action} wagerId=${body.wagerId ?? 'N/A'} matchId=${body.matchId ?? 'N/A'} playerA=${body.playerAWallet ?? 'N/A'} winner=${body.winnerWallet ?? 'N/A'} stake=${body.stakeLamports ?? 'N/A'}`);
@@ -236,10 +220,8 @@ serve(async (req) => {
 
             // ── resolve_wager ─────────────────────────────────────────────────
             case 'resolve_wager': {
-                // Solana loaded here — only paid when actually resolving on-chain
-                const { Connection, PublicKey } = await getSolana();
                 const connection = new Connection(rpcUrl, 'confirmed');
-                const authority = await loadAuthorityKeypair(authoritySecret);
+                const authority = loadAuthorityKeypair(authoritySecret);
 
                 console.log(`[resolve-wager] authority pubkey: ${authority.publicKey.toBase58()} rpcUrl: ${rpcUrl}`);
 
@@ -251,22 +233,21 @@ serve(async (req) => {
 
                 const winnerPubkey = new PublicKey(winnerWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
+                const wagerPda = deriveWagerPda(playerAWallet, BigInt(matchId));
 
                 console.log(`[resolve-wager] wagerPda: ${wagerPda.toBase58()}`);
                 const pdaBalance = await connection.getBalance(wagerPda).catch(() => -1);
                 console.log(`[resolve-wager] PDA balance: ${pdaBalance} lamports (${pdaBalance / 1_000_000_000} SOL)`);
 
-                const ix = await buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
+                const ix = buildResolveWagerIx(wagerPda, authority.publicKey, winnerPubkey, platformPubkey);
                 let txSig: string | null = null;
-                let onChainError: string | null = null;
 
                 console.log(`[resolve-wager] sending resolve_wager tx...`);
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
                     console.log(`[resolve-wager] resolve_wager tx ✅ confirmed: ${txSig}`);
-                } catch (onChainErr: any) {
-                    onChainError = onChainErr?.message || String(onChainErr);
+                } catch (onChainErr: unknown) {
+                    const onChainError = onChainErr instanceof Error ? onChainErr.message : String(onChainErr);
                     console.error(`[resolve-wager] ❌ resolve_wager on-chain FAILED: ${onChainError}`);
                     if (wagerId) {
                         await logError(supabase, wagerId, 'on_chain_resolve', onChainError, {
@@ -326,10 +307,8 @@ serve(async (req) => {
 
             // ── refund_draw ───────────────────────────────────────────────────
             case 'refund_draw': {
-                // Solana loaded here — only paid when actually closing on-chain
-                const { Connection, PublicKey } = await getSolana();
                 const connection = new Connection(rpcUrl, 'confirmed');
-                const authority = await loadAuthorityKeypair(authoritySecret);
+                const authority = loadAuthorityKeypair(authoritySecret);
 
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports } = body;
                 if (!matchId || !playerAWallet || !playerBWallet)
@@ -338,17 +317,17 @@ serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const playerBPubkey = new PublicKey(playerBWallet);
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
+                const wagerPda = deriveWagerPda(playerAWallet, BigInt(matchId));
 
                 console.log(`🤝 Draw refund PDA: ${wagerPda.toBase58()}`);
 
-                const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                 let txSig: string | null = null;
                 try {
                     txSig = await sendAndConfirm(connection, authority, ix);
                     console.log(`close_wager (draw) tx success: ${txSig}`);
-                } catch (onChainErr: any) {
-                    const errorMsg = onChainErr?.message || String(onChainErr);
+                } catch (onChainErr: unknown) {
+                    const errorMsg = onChainErr instanceof Error ? onChainErr.message : String(onChainErr);
                     console.error('On-chain close_wager (draw) failed:', errorMsg);
                     if (wagerId) {
                         await logError(supabase, wagerId, 'on_chain_draw_refund', errorMsg, {
@@ -381,10 +360,8 @@ serve(async (req) => {
 
             // ── get_balance ───────────────────────────────────────────────────
             case 'get_balance': {
-                // Solana loaded here — needed to query balance
-                const { Connection, PublicKey, LAMPORTS_PER_SOL } = await getSolana();
                 const connection = new Connection(rpcUrl, 'confirmed');
-                const authority = await loadAuthorityKeypair(authoritySecret);
+                const authority = loadAuthorityKeypair(authoritySecret);
 
                 const lamports = await connection.getBalance(authority.publicKey);
                 return respond({
@@ -408,10 +385,8 @@ serve(async (req) => {
 
             // ── refund_cancelled ──────────────────────────────────────────────
             case 'refund_cancelled': {
-                // Solana loaded here — may need on-chain close if PDA has funds
-                const { Connection, PublicKey } = await getSolana();
                 const connection = new Connection(rpcUrl, 'confirmed');
-                const authority = await loadAuthorityKeypair(authoritySecret);
+                const authority = loadAuthorityKeypair(authoritySecret);
 
                 const { matchId, playerAWallet, playerBWallet, wagerId, stakeLamports, cancelledBy, reason } = body;
                 if (!matchId || !playerAWallet) throw new Error('Missing: matchId, playerAWallet');
@@ -419,7 +394,7 @@ serve(async (req) => {
                 const playerAPubkey = new PublicKey(playerAWallet);
                 const playerBPubkey = playerBWallet ? new PublicKey(playerBWallet) : null;
                 const platformPubkey = new PublicKey(PLATFORM_WALLET);
-                const wagerPda = await deriveWagerPda(playerAWallet, BigInt(matchId));
+                const wagerPda = deriveWagerPda(playerAWallet, BigInt(matchId));
 
                 console.log(`Cancelled wager refund PDA: ${wagerPda.toBase58()} | Reason: ${reason}`);
 
@@ -428,12 +403,12 @@ serve(async (req) => {
 
                 if (pdaBalance > 0 && playerBPubkey) {
                     console.log(`PDA has ${pdaBalance} lamports - initiating on-chain refund`);
-                    const ix = await buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
+                    const ix = buildCloseWagerIx(wagerPda, authority.publicKey, playerAPubkey, playerBPubkey, platformPubkey);
                     try {
                         txSig = await sendAndConfirm(connection, authority, ix);
                         console.log(`close_wager (cancelled) tx success: ${txSig}`);
-                    } catch (onChainErr: any) {
-                        const errorMsg = onChainErr?.message || String(onChainErr);
+                    } catch (onChainErr: unknown) {
+                        const errorMsg = onChainErr instanceof Error ? onChainErr.message : String(onChainErr);
                         console.error('On-chain close_wager (cancelled) failed:', errorMsg);
                         if (wagerId) {
                             await logError(supabase, wagerId, 'on_chain_cancel_refund', errorMsg, {
