@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   try {
     // Get token from cookie or header
     let token = request.cookies.get('admin_token')?.value;
-    
+
     if (!token) {
       const authHeader = request.headers.get('authorization');
       token = extractTokenFromHeader(authHeader);
@@ -43,7 +43,14 @@ export async function POST(request: NextRequest) {
     const adminId = sessionResult.session.admin_id;
 
     // Parse body
-    const body = await request.json() as { wallet_address: string };
+    const body = await request.json() as { wallet_address?: string };
+
+    if (!body.wallet_address) {
+      return NextResponse.json(
+        { success: false, error: 'wallet_address is required' },
+        { status: 400 }
+      );
+    }
 
     // Validate wallet address
     const validation = validateWalletAddress(body.wallet_address);

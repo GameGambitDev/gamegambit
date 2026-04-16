@@ -30,9 +30,10 @@ const ACTION_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 25;
 
-function ActionBadge({ action }: { action: string }) {
-  const classes = ACTION_COLORS[action] || 'text-muted-foreground bg-muted/20 border-border/40';
-  const label = action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+function ActionBadge({ action }: { action: string | undefined | null }) {
+  const safeAction = action ?? '';
+  const classes = ACTION_COLORS[safeAction] || 'text-muted-foreground bg-muted/20 border-border/40';
+  const label = safeAction.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Unknown';
   return (
     <span className={`inline-flex text-xs font-semibold px-2 py-0.5 rounded-full border ${classes}`}>
       {label}
@@ -103,7 +104,7 @@ function AuditLogsContent() {
   useEffect(() => { setPage(1); }, [filter]);
 
   const filteredLogs = filter === 'all' ? allLogs : allLogs.filter((l) => l.action === filter);
-  const actions = [...new Set(allLogs.map((l) => l.action))];
+  const actions = [...new Set(allLogs.map((l) => l.action).filter(Boolean))] as string[];
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
   const pageLogs = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
