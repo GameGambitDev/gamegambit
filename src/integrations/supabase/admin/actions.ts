@@ -1,9 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabase = getSupabaseClient();
 
 /**
  * Call edge function for admin actions
@@ -85,7 +82,7 @@ export async function getAllWagers(status?: string, limit = 50, offset = 0) {
             .from('wagers')
             .select('*', { count: 'exact' });
 
-        if (status && status !== 'all') query = query.eq('status', status);
+        if (status && status !== 'all') query = query.eq('status', status as 'cancelled' | 'created' | 'joined' | 'voting' | 'retractable' | 'disputed' | 'resolved');
 
         const { data, error, count } = await query
             .range(offset, offset + limit - 1)

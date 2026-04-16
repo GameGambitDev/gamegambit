@@ -1,13 +1,10 @@
 // Supabase admin authentication operations
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '@/integrations/supabase/client';
 import { AdminUser, AdminSignupRequest, AdminLoginRequest } from '@/types/admin';
 import { hashPassword, verifyPassword } from '@/lib/admin/password';
 import { hashToken, generateToken, getTokenExpiry } from '@/lib/admin/auth';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+const supabase = getSupabaseClient();
 
 /**
  * Create a new admin user (signup)
@@ -61,7 +58,7 @@ export async function createAdminUser(
 
     return {
       success: true,
-      admin: admin as AdminUser,
+      admin: admin as unknown as AdminUser,
       token,
     };
   } catch (e) {
@@ -128,7 +125,7 @@ export async function authenticateAdminUser(
 
     return {
       success: true,
-      admin: admin as AdminUser,
+      admin: admin as unknown as AdminUser,
       token,
     };
   } catch (e) {
@@ -167,7 +164,7 @@ export async function verifyAdminSession(tokenHash: string): Promise<{
       return { valid: false, error: 'Session expired' };
     }
 
-    const admin = session.admin_users as AdminUser;
+    const admin = session.admin_users as unknown as AdminUser;
 
     // Check if admin is still active
     if (!admin.is_active) {
@@ -285,7 +282,7 @@ export async function getAdminById(adminId: string): Promise<{
       return { success: false, error: 'Admin not found' };
     }
 
-    return { success: true, admin: admin as AdminUser };
+    return { success: true, admin: admin as unknown as AdminUser };
   } catch (e) {
     console.error('Error getting admin:', e);
     return { success: false, error: 'Failed to fetch admin' };

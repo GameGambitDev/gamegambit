@@ -53,7 +53,7 @@ export function deriveWagerPDA(playerAWallet: string, matchId: bigint) {
     return pda;
 }
 
-// ── Send + poll confirm (no WebSocket) ───────────────────────────────────────
+// ── Send + confirm via SDK (no manual polling loop) ───────────────────────────
 export async function sendAndConfirm(
     // deno-lint-ignore no-explicit-any
     authority: any,
@@ -75,35 +75,12 @@ export async function sendAndConfirm(
         preflightCommitment: "confirmed",
     });
 
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 2000));
+    // Use SDK confirmation — delegates to WebSocket subscription internally,
+    // avoiding the CPU-heavy manual polling loop that caused Edge Function timeouts.
+    await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed",
+    );
 
-        const res = await fetch(rpcUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                jsonrpc: "2.0", id: 1,
-                method: "getSignatureStatuses",
-                params: [[signature], { searchTransactionHistory: false }],
-            }),
-        });
-
-        const json = await res.json();
-        const status = json?.result?.value?.[0];
-
-        if (status) {
-            if (status.err) throw new Error(`Transaction failed on-chain: ${JSON.stringify(status.err)}`);
-            if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") {
-                return signature;
-            }
-        }
-
-        const blockHeight = await connection.getBlockHeight("confirmed");
-        if (blockHeight > lastValidBlockHeight) {
-            throw new Error("Transaction expired — blockhash no longer valid");
-        }
-    }
-
-    throw new Error("Transaction confirmation timed out after 30s");
+    return signature;
 }
