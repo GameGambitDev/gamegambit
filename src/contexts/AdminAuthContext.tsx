@@ -151,15 +151,15 @@ export function useAdminSession() {
 
   const session = admin
     ? {
-        token: '',
-        user: {
-          id: admin.id,
-          email: admin.email,
-          role: admin.role,
-          name: admin.full_name,
-        },
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000), // placeholder
-      }
+      token: '',
+      user: {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+        name: admin.full_name,
+      },
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // placeholder
+    }
     : null;
 
   return { session, isLoading, isAuthenticated, error: null, logout, refreshSession: async () => null };
@@ -168,6 +168,22 @@ export function useAdminSession() {
 // Drop-in replacement for useAdminAuth
 export function useAdminAuth() {
   const { admin, isLoading, isAuthenticated, error, login, logout, clearError } = useAdminAuthContext();
+
+  const signup = async (data: { email: string; password: string; full_name?: string }): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/admin/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+      const json = await res.json();
+      return res.ok && json.success === true;
+    } catch {
+      return false;
+    }
+  };
+
   return {
     admin,
     isLoading,
@@ -176,8 +192,7 @@ export function useAdminAuth() {
     login: (data: { email: string; password: string }) => login(data.email, data.password),
     logout,
     clearError,
-    // stub — signup doesn't need the verify loop
-    signup: async () => false,
+    signup,
     verify: async () => isAuthenticated,
   };
 }
