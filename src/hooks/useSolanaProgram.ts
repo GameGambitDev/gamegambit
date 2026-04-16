@@ -153,6 +153,27 @@ export function normalizeSolanaError(err: unknown): string {
 // Always use sendTransaction — Mobile Wallet Adapter handles Phantom opening
 // and signing internally. Never call signTransaction separately.
 
+// FIX 4: buildFullTransaction is extracted so that BOTH the pre-send simulation
+// AND the actual sendTransaction call use the EXACT same transaction structure
+// (including ComputeBudget instructions). Previously, simTx was built without
+// priorityFeeIx / computeLimitIx while the sent tx included them — Phantom's
+// own simulation saw a different tx than what was pre-simulated, which could
+// cause it to fall back to showing only the raw network fee (<0.00001 SOL).
+function buildFullTransaction(
+  instructions: TransactionInstruction[],
+  payer: PublicKey,
+  blockhash: string,
+): Transaction {
+  const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 });
+  const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 });
+  const tx = new Transaction();
+  tx.add(priorityFeeIx, computeLimitIx);
+  instructions.forEach(ix => tx.add(ix));
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = payer;
+  return tx;
+}
+
 async function sendAndConfirmViaAdapter(
   instructions: TransactionInstruction | TransactionInstruction[],
   payer: PublicKey,
@@ -163,17 +184,8 @@ async function sendAndConfirmViaAdapter(
   console.log('[sendAndConfirmViaAdapter] fetching latest blockhash…');
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
 
-  const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 });
-  // FIX 3: raised from 50_000 → 200_000. Batched initProfile + create/join can
-  // exceed 50k on congested devnet slots, and the low limit also makes Phantom's
-  // priority fee estimate look wrong.
-  const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 });
-
-  const tx = new Transaction();
-  tx.add(priorityFeeIx, computeLimitIx);
-  ixs.forEach(ix => tx.add(ix));
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = payer;
+  // FIX 4: uses buildFullTransaction so the sent tx matches the pre-simulated one.
+  const tx = buildFullTransaction(ixs, payer, blockhash);
 
   console.log('[sendAndConfirmViaAdapter] sending tx, payer:', payer.toBase58(), 'blockhash:', blockhash);
 
@@ -342,12 +354,15 @@ export function useCreateWagerOnChain() {
 
         const instructions = profileExists ? [createIx] : [initProfileIx, createIx];
 
-        // Simulate before sending to surface real Anchor errors early
+        // Simulate before sending to surface real Anchor errors early.
+        // FIX 4: use buildFullTransaction so the simulation includes the same
+        // ComputeBudget instructions that sendAndConfirmViaAdapter will send.
+        // Phantom's own simulation runs on the exact tx it receives — if our
+        // pre-sim used a stripped-down tx and Phantom's sim used the full one,
+        // they could diverge and cause Phantom to show only network fees.
         {
-          const simTx = new Transaction();
-          simTx.add(...instructions);
-          simTx.feePayer = publicKey;
-          simTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+          const simBlockhash = (await connection.getLatestBlockhash()).blockhash;
+          const simTx = buildFullTransaction(instructions, publicKey, simBlockhash);
           const simResult = await connection.simulateTransaction(simTx);
           console.log('[createWager] SIMULATION RESULT:', JSON.stringify(simResult.value, null, 2));
           if (simResult.value.err) {
@@ -517,12 +532,11 @@ export function useJoinWagerOnChain() {
 
         const instructions = profileExists ? [joinIx] : [initProfileIx, joinIx];
 
-        // Simulate before sending to surface real Anchor errors early
+        // Simulate before sending to surface real Anchor errors early.
+        // FIX 4: use buildFullTransaction — same reason as createWager above.
         {
-          const simTx = new Transaction();
-          simTx.add(...instructions);
-          simTx.feePayer = publicKey;
-          simTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+          const simBlockhash = (await connection.getLatestBlockhash()).blockhash;
+          const simTx = buildFullTransaction(instructions, publicKey, simBlockhash);
           const simResult = await connection.simulateTransaction(simTx);
           console.log('[joinWager] SIMULATION RESULT:', JSON.stringify(simResult.value, null, 2));
           if (simResult.value.err) {
