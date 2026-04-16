@@ -166,6 +166,37 @@ export async function getUserDetails(walletAddress: string) {
 }
 
 /**
+ * Get wagers that are potentially stuck:
+ * - Both players have deposited (funds are locked on-chain)
+ * - Status is NOT resolved or cancelled
+ * - Created before the given threshold (default: 2 hours ago)
+ *
+ * `thresholdHours` is configurable so the admin can widen the window
+ * (e.g. 1h, 6h, 24h, 72h, 168h = 7 days).
+ */
+export async function getStuckWagers(limit = 10, offset = 0, thresholdHours = 2) {
+    try {
+        const cutoff = new Date(Date.now() - thresholdHours * 60 * 60 * 1000).toISOString();
+
+        const { data, error, count } = await supabase
+            .from('wagers')
+            .select('*', { count: 'exact' })
+            .eq('deposit_player_a', true)
+            .eq('deposit_player_b', true)
+            .not('status', 'in', '("resolved","cancelled")')
+            .lt('created_at', cutoff)
+            .range(offset, offset + limit - 1)
+            .order('created_at', { ascending: true }); // oldest first — most urgent
+
+        if (error) throw error;
+        return { data: data || [], total: count || 0 };
+    } catch (error) {
+        console.error('[Admin Queries] Error fetching stuck wagers:', error);
+        throw error;
+    }
+}
+
+/**
  * Get all disputed wagers
  */
 export async function getAllDisputedWagers(limit = 50, offset = 0) {

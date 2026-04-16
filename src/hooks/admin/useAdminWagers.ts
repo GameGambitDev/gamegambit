@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useEffect } from 'react';
-import { getAllWagers, getAllDisputedWagers, getWagerDetails } from '@/integrations/supabase/admin/actions';
+import { getAllWagers, getAllDisputedWagers, getWagerDetails, getStuckWagers } from '@/integrations/supabase/admin/actions';
 
 export interface AdminWager {
     id: string;
@@ -146,5 +146,89 @@ export function useAdminDisputes() {
         refreshDisputes,
         hasNextPage: offset + limit < total,
         hasPrevPage: offset > 0,
+    };
+}
+// ── PAGE_SIZE options exposed to the UI ──────────────────────────────────────
+export const STUCK_PAGE_SIZE_OPTIONS = [5, 10, 25, 50] as const;
+export type StuckPageSize = typeof STUCK_PAGE_SIZE_OPTIONS[number];
+
+// ── THRESHOLD options (hours) ────────────────────────────────────────────────
+export const STUCK_THRESHOLD_OPTIONS: { label: string; hours: number }[] = [
+    { label: '1 hour', hours: 1 },
+    { label: '2 hours', hours: 2 },
+    { label: '6 hours', hours: 6 },
+    { label: '12 hours', hours: 12 },
+    { label: '24 hours', hours: 24 },
+    { label: '3 days', hours: 72 },
+    { label: '7 days', hours: 168 },
+    { label: '30 days', hours: 720 },
+];
+
+export function useStuckWagers(
+    initialPageSize: StuckPageSize = 10,
+    initialThresholdHours = 2
+) {
+    const [wagers, setWagers] = useState<AdminWager[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [total, setTotal] = useState(0);
+    const [offset, setOffset] = useState(0);
+    const [pageSize, setPageSize] = useState<StuckPageSize>(initialPageSize);
+    const [thresholdHours, setThresholdHours] = useState(initialThresholdHours);
+
+    const fetch = useCallback(
+        async (pageOffset = 0, size = pageSize, threshold = thresholdHours) => {
+            setLoading(true);
+            setError(null);
+            try {
+                const result = await getStuckWagers(size, pageOffset, threshold);
+                setWagers(result.data as AdminWager[]);
+                setTotal(result.total);
+                setOffset(pageOffset);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Failed to fetch stuck wagers');
+            } finally {
+                setLoading(false);
+            }
+        },
+        [pageSize, thresholdHours]
+    );
+
+    // Re-fetch whenever pageSize or threshold changes
+    useEffect(() => { fetch(0, pageSize, thresholdHours); }, [pageSize, thresholdHours]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const nextPage = useCallback(() => {
+        if (offset + pageSize < total) fetch(offset + pageSize);
+    }, [offset, pageSize, total, fetch]);
+
+    const prevPage = useCallback(() => {
+        if (offset >= pageSize) fetch(offset - pageSize);
+    }, [offset, pageSize, fetch]);
+
+    const refresh = useCallback(() => fetch(0), [fetch]);
+
+    const changePageSize = useCallback((size: StuckPageSize) => {
+        setPageSize(size);
+        setOffset(0);
+        // useEffect above will re-fetch
+    }, []);
+
+    const changeThreshold = useCallback((hours: number) => {
+        setThresholdHours(hours);
+        setOffset(0);
+        // useEffect above will re-fetch
+    }, []);
+
+    const currentPage = Math.floor(offset / pageSize) + 1;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    return {
+        wagers, loading, error,
+        total, offset, pageSize, thresholdHours,
+        currentPage, totalPages,
+        hasNextPage: offset + pageSize < total,
+        hasPrevPage: offset > 0,
+        nextPage, prevPage, refresh,
+        changePageSize, changeThreshold,
     };
 }

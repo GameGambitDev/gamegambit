@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ProtectedRoute, ProfileCard } from '@/components/admin';
 import { useAdminSession } from '@/hooks/admin';
 import { motion } from 'framer-motion';
-import { Users, Dices, Scale, Wallet, Settings, Shield } from 'lucide-react';
+import { Users, Dices, Scale, Wallet, Settings, Shield, AlertTriangle } from 'lucide-react';
 
 function DashboardContent() {
   const { session } = useAdminSession();
@@ -34,6 +34,14 @@ function DashboardContent() {
       icon: Scale,
       color: 'from-orange-500/20 to-orange-600/20',
       borderColor: 'border-orange-500/30',
+    },
+    {
+      title: 'Stuck Wagers',
+      description: 'Funds locked on-chain with no resolution',
+      href: '/itszaadminlogin/stuck-wagers',
+      icon: AlertTriangle,
+      color: 'from-amber-500/20 to-yellow-600/20',
+      borderColor: 'border-amber-500/30',
     },
     {
       title: 'Wallet',
