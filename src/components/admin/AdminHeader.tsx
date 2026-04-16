@@ -25,6 +25,7 @@ const navItems = [
     { label: 'Users', href: '/itszaadminlogin/users', icon: '👥' },
     { label: 'Wagers', href: '/itszaadminlogin/wagers', icon: '🎲' },
     { label: 'Disputes', href: '/itszaadminlogin/disputes', icon: '⚖️' },
+    { label: 'Stuck', href: '/itszaadminlogin/stuck-wagers', icon: '⚠️' },
     { label: 'Wallet', href: '/itszaadminlogin/wallet-bindings', icon: '💼' },
     { label: 'Appeals', href: '/itszaadminlogin/username-appeals', icon: '🔗' },
     { label: 'Changes', href: '/itszaadminlogin/username-changes', icon: '✏️' },
