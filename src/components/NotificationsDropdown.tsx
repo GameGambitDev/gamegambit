@@ -270,7 +270,7 @@ export function NotificationsDropdown() {
                         {/* Friend request inline accept+decline buttons */}
                         {notification.type === 'friend_request' && notification.actor_wallet && (() => {
                           const friendship = getFriendship(notification.actor_wallet!);
-                          if (!friendship) return null;
+
                           return (
                             <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
                               <Button
@@ -278,26 +278,41 @@ export function NotificationsDropdown() {
                                 variant="outline"
                                 className="h-9 px-4 text-xs font-semibold flex-1 border-primary/40 hover:bg-primary/10"
                                 onClick={() => {
+                                  if (!friendship) {
+                                    toast.error('Still loading… try again');
+                                    return;
+                                  }
+
                                   acceptRequest.mutate(friendship.id, {
-                                    onSuccess: () => toast.success('Friend request accepted!'),
+                                    onSuccess: () => {
+                                      toast.success('Friend request accepted!');
+                                      markRead(notification.id);
+                                      setOpen(false);
+                                    },
                                     onError: () => toast.error('Failed to accept request'),
                                   });
-                                  markRead(notification.id);
-                                  setOpen(false);
                                 }}
                               >
                                 ✓ Accept
                               </Button>
+
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 className="h-9 px-4 text-xs text-destructive hover:bg-destructive/10 flex-1"
                                 onClick={() => {
+                                  if (!friendship) {
+                                    toast.error('Still loading… try again');
+                                    return;
+                                  }
+
                                   declineRequest.mutate(friendship.id, {
-                                    onSuccess: () => toast.success('Request declined'),
+                                    onSuccess: () => {
+                                      toast.success('Request declined');
+                                      markRead(notification.id);
+                                    },
                                     onError: () => toast.error('Failed to decline'),
                                   });
-                                  markRead(notification.id);
                                 }}
                               >
                                 ✕ Decline
