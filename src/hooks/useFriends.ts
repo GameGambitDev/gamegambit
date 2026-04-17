@@ -112,6 +112,14 @@ export function useFriends() {
         status: 'pending',
       });
       if (error) throw error;
+      // Notify the recipient — actor_wallet = who sent the request
+      await supabase.from('notifications').insert({
+        player_wallet: targetWallet,
+        type: 'friend_request',
+        title: 'Friend Request',
+        message: 'Someone sent you a friend request.',
+        actor_wallet: walletAddress,
+      });
     },
     onSuccess: invalidate,
   });
@@ -119,11 +127,30 @@ export function useFriends() {
   // ── Accept request ─────────────────────────────────────────────────────────
   const acceptRequest = useMutation({
     mutationFn: async (friendshipId: string) => {
+      // Fetch the friendship first so we know who the requester is
+      const { data: friendship, error: fetchError } = await supabase
+        .from('friendships')
+        .select('requester_wallet, recipient_wallet')
+        .eq('id', friendshipId)
+        .single();
+      if (fetchError) throw fetchError;
+
       const { error } = await supabase
         .from('friendships')
         .update({ status: 'accepted' })
         .eq('id', friendshipId);
       if (error) throw error;
+
+      // Notify the original requester — actor_wallet = who accepted
+      if (friendship) {
+        await supabase.from('notifications').insert({
+          player_wallet: friendship.requester_wallet,
+          type: 'friend_accepted',
+          title: 'Friend Request Accepted',
+          message: 'Your friend request was accepted.',
+          actor_wallet: friendship.recipient_wallet,
+        });
+      }
     },
     onSuccess: invalidate,
   });

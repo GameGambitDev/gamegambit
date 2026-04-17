@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { AppNotification } from '@/hooks/useNotifications';
 import { useDeclineChallenge } from '@/hooks/useWagers';
+import { useFriends } from '@/hooks/useFriends';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
@@ -34,6 +35,7 @@ export function NotificationsDropdown() {
   const [open, setOpen] = useState(false);
   const [decliningId, setDecliningId] = useState<string | null>(null);
   const declineChallenge = useDeclineChallenge();
+  const { acceptRequest, declineRequest, getFriendship } = useFriends();
 
   const handleAccept = useCallback(
     (notification: AppNotification) => {
@@ -103,7 +105,7 @@ export function NotificationsDropdown() {
   };
 
   // All possible routes a notification can deep-link to
-  type NotificationRoute = 'arena' | 'my-wagers' | 'dashboard';
+  type NotificationRoute = 'arena' | 'my-wagers' | 'dashboard' | 'profile';
 
   const getModalTarget = (
     type: AppNotification['type'],
@@ -132,11 +134,10 @@ export function NotificationsDropdown() {
         return { route: 'dashboard', modal: '' };
       case 'friend_request':
       case 'friend_accepted':
-        return { route: 'my-wagers', modal: '' };
+      case 'new_follower':
+        return { route: 'profile', modal: '' };
       case 'feed_reaction':
         return { route: 'my-wagers', modal: 'details' };
-      case 'new_follower':
-        return { route: 'my-wagers', modal: '' };
       default:
         return { route: 'my-wagers', modal: 'details' };
     }
@@ -147,9 +148,20 @@ export function NotificationsDropdown() {
       if (!notification.read) markRead(notification.id);
       setOpen(false);
 
-      if (!notification.wager_id) return;
-
       const { route, modal } = getModalTarget(notification.type);
+
+      // Profile route — navigate to the actor's profile if known, else own profile
+      if (route === 'profile') {
+        if (notification.actor_wallet) {
+          router.push(`/profile/${notification.actor_wallet}`);
+        } else {
+          router.push('/profile');
+        }
+        return;
+      }
+
+      // Wager routes require a wager_id
+      if (!notification.wager_id) return;
 
       if (!modal) {
         router.push(`/${route}`);
@@ -237,6 +249,8 @@ export function NotificationsDropdown() {
                             </span>
                           )}
                         </div>
+
+                        {/* Wager proposal / rematch accept+decline buttons */}
                         {(notification.type === 'wager_proposal' || notification.type === 'rematch_challenge') && notification.wager_id && (
                           <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
                             <Button size="sm" variant="outline" className="h-9 px-4 text-xs font-semibold flex-1 border-primary/40 hover:bg-primary/10"
@@ -252,6 +266,45 @@ export function NotificationsDropdown() {
                             </Button>
                           </div>
                         )}
+
+                        {/* Friend request inline accept+decline buttons */}
+                        {notification.type === 'friend_request' && notification.actor_wallet && (() => {
+                          const friendship = getFriendship(notification.actor_wallet!);
+                          if (!friendship) return null;
+                          return (
+                            <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-9 px-4 text-xs font-semibold flex-1 border-primary/40 hover:bg-primary/10"
+                                onClick={() => {
+                                  acceptRequest.mutate(friendship.id, {
+                                    onSuccess: () => toast.success('Friend request accepted!'),
+                                    onError: () => toast.error('Failed to accept request'),
+                                  });
+                                  markRead(notification.id);
+                                  setOpen(false);
+                                }}
+                              >
+                                ✓ Accept
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-9 px-4 text-xs text-destructive hover:bg-destructive/10 flex-1"
+                                onClick={() => {
+                                  declineRequest.mutate(friendship.id, {
+                                    onSuccess: () => toast.success('Request declined'),
+                                    onError: () => toast.error('Failed to decline'),
+                                  });
+                                  markRead(notification.id);
+                                }}
+                              >
+                                ✕ Decline
+                              </Button>
+                            </div>
+                          );
+                        })()}
                       </div>
                       {!notification.read && (
                         <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />

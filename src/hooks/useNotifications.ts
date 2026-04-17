@@ -25,6 +25,7 @@ export interface AppNotification {
     title: string
     message: string
     wager_id: string | null
+    actor_wallet: string | null
     read: boolean
     created_at: string
 }

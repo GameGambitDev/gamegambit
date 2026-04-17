@@ -100,6 +100,14 @@ export function useFollows() {
                 .from('follows')
                 .insert({ follower_wallet: myWallet, following_wallet: targetWallet })
             if (error) throw error
+            // Notify the person being followed — actor_wallet = who followed them
+            await supabase.from('notifications').insert({
+                player_wallet: targetWallet,
+                type: 'new_follower',
+                title: 'New Follower',
+                message: 'Someone started following you.',
+                actor_wallet: myWallet,
+            })
         },
         onSuccess: invalidate,
     })

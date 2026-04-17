@@ -468,6 +468,7 @@ export type Database = {
       }
       notifications: {
         Row: {
+          actor_wallet: string | null
           created_at: string | null
           id: string
           message: string
@@ -478,6 +479,7 @@ export type Database = {
           wager_id: string | null
         }
         Insert: {
+          actor_wallet?: string | null
           created_at?: string | null
           id?: string
           message: string
@@ -488,6 +490,7 @@ export type Database = {
           wager_id?: string | null
         }
         Update: {
+          actor_wallet?: string | null
           created_at?: string | null
           id?: string
           message?: string
