@@ -116,7 +116,7 @@ export function Header() {
                 <>
                   <NotificationsDropdown />
 
-                  {/* Messages icon — wired fully in Task 9 */}
+                  {/* Messages icon — desktop only (mobile handled in drawer) */}
                   <div
                     className="relative hidden sm:block"
                     onMouseEnter={() => setHoveredIcon('/messages')}
@@ -336,6 +336,27 @@ export function Header() {
                         {truncateAddress(publicKey.toBase58(), 6)}
                       </span>
                     </div>
+
+                    {/* FIXED: Messages link added to mobile menu */}
+                    <Link
+                      href="/messages"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium",
+                        "transition-all duration-200 border border-transparent",
+                        pathname === '/messages'
+                          ? "bg-primary/15 text-primary border-primary/30"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                      )}
+                    >
+                      <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                      <span className="font-gaming tracking-wide">Messages</span>
+                      {unreadDms > 0 && (
+                        <span className="ml-auto min-w-[20px] h-5 px-1 rounded-full bg-destructive text-white text-[10px] font-bold flex items-center justify-center">
+                          {unreadDms > 9 ? '9+' : unreadDms}
+                        </span>
+                      )}
+                    </Link>
 
                     <Link
                       href="/profile"

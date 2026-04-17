@@ -100,17 +100,40 @@ export function FriendButton({ targetWallet, size = 'sm', className }: FriendBut
         )
     }
 
+    // FIXED: was a disabled static button — now a dropdown with Cancel option
     if (status === 'pending_sent') {
         return (
-            <Button
-                variant="ghost"
-                size={size}
-                className={cn('gap-1 text-muted-foreground cursor-default', className)}
-                disabled
-            >
-                <Clock className="h-3.5 w-3.5" />
-                Pending
-            </Button>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size={size}
+                        className={cn('gap-1 text-muted-foreground', className)}
+                        onClick={e => { e.preventDefault(); e.stopPropagation() }}
+                    >
+                        <Clock className="h-3.5 w-3.5" />
+                        Pending
+                        <ChevronDown className="h-3 w-3" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                        className="text-destructive focus:text-destructive cursor-pointer"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (!friendship) return
+                            declineRequest.mutate(friendship.id, {
+                                onSuccess: () => toast.success('Request cancelled'),
+                                onError: () => toast.error('Failed to cancel'),
+                            })
+                        }}
+                    >
+                        <UserX className="h-3.5 w-3.5 mr-2" />
+                        Cancel Request
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         )
     }
 

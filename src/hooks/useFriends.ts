@@ -140,15 +140,17 @@ export function useFriends() {
     onSuccess: invalidate,
   });
 
-  // ── Remove friend ──────────────────────────────────────────────────────────
+  // ── Remove friend — FIXED: single .or() with compound and() conditions ─────
   const removeFriend = useMutation({
     mutationFn: async (targetWallet: string) => {
       if (!walletAddress) throw new Error('Wallet not connected');
       const { error } = await supabase
         .from('friendships')
         .delete()
-        .or(`requester_wallet.eq.${walletAddress},recipient_wallet.eq.${walletAddress}`)
-        .or(`requester_wallet.eq.${targetWallet},recipient_wallet.eq.${targetWallet}`);
+        .or(
+          `and(requester_wallet.eq.${walletAddress},recipient_wallet.eq.${targetWallet}),` +
+          `and(requester_wallet.eq.${targetWallet},recipient_wallet.eq.${walletAddress})`
+        );
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -290,8 +292,6 @@ export function useUnreadDmCount() {
     enabled: !!walletAddress,
     refetchInterval: 30_000,
     queryFn: async () => {
-      // Get all channel IDs the user is part of, then count unread messages
-      // sent by someone else with no read_at
       const { count, error } = await supabase
         .from('direct_messages')
         .select('id', { count: 'exact', head: true })
