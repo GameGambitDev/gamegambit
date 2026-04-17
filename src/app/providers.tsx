@@ -99,10 +99,7 @@ export function Providers({ children }: { children: ReactNode }) {
       })
   )
 
-  const endpoint = useMemo(
-    () => process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? clusterApiUrl(SOLANA_NETWORK),
-    []
-  )
+  const endpoint = useMemo(() => clusterApiUrl(SOLANA_NETWORK), [])
 
   const wallets = useMemo(() => {
     const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
