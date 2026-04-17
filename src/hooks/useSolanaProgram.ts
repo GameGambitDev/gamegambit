@@ -179,20 +179,32 @@ async function sendAndConfirmViaAdapter(
   payer: PublicKey,
   sendTransaction: (tx: Transaction, connection: any, opts?: any) => Promise<string>,
   connection: any,
+  preBuiltTx?: { tx: Transaction; lastValidBlockHeight: number },
 ): Promise<string> {
-  const ixs = Array.isArray(instructions) ? instructions : [instructions];
-  console.log('[sendAndConfirmViaAdapter] fetching latest blockhash…');
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  let tx: Transaction;
+  let blockhash: string;
+  let lastValidBlockHeight: number;
 
-  // FIX 4: uses buildFullTransaction so the sent tx matches the pre-simulated one.
-  const tx = buildFullTransaction(ixs, payer, blockhash);
+  if (preBuiltTx) {
+    // Reuse the exact tx that was already simulated — Phantom will simulate
+    // the same transaction it receives, so its simulation matches ours.
+    tx = preBuiltTx.tx;
+    blockhash = tx.recentBlockhash!;
+    lastValidBlockHeight = preBuiltTx.lastValidBlockHeight;
+    console.log('[sendAndConfirmViaAdapter] reusing pre-built tx, blockhash:', blockhash);
+  } else {
+    const ixs = Array.isArray(instructions) ? instructions : [instructions];
+    console.log('[sendAndConfirmViaAdapter] fetching latest blockhash…');
+    const bh = await connection.getLatestBlockhash('confirmed');
+    blockhash = bh.blockhash;
+    lastValidBlockHeight = bh.lastValidBlockHeight;
+    tx = buildFullTransaction(ixs, payer, blockhash);
+  }
 
   console.log('[sendAndConfirmViaAdapter] sending tx, payer:', payer.toBase58(), 'blockhash:', blockhash);
 
-  // FIX 1: removed skipPreflight: true opts.
-  // With skipPreflight Phantom skips its own simulation and can't model the SOL
-  // transfer — it falls back to showing only the raw network fee (~0.00001 SOL).
-  // Without it, Phantom simulates the full tx and shows the real stake amount.
+  // skipPreflight must remain false (default) so Phantom runs its own simulation
+  // on the exact tx it receives and can correctly display the SOL stake amount.
   const signature = await sendTransaction(tx, connection);
 
   console.log('[sendAndConfirmViaAdapter] tx sent, signature:', signature, '— confirming…');
@@ -354,16 +366,18 @@ export function useCreateWagerOnChain() {
 
         const instructions = profileExists ? [createIx] : [initProfileIx, createIx];
 
-        // Simulate before sending to surface real Anchor errors early.
-        // FIX 4: use buildFullTransaction so the simulation includes the same
-        // ComputeBudget instructions that sendAndConfirmViaAdapter will send.
-        // Phantom's own simulation runs on the exact tx it receives — if our
-        // pre-sim used a stripped-down tx and Phantom's sim used the full one,
-        // they could diverge and cause Phantom to show only network fees.
+        // Simulate using the EXACT same tx we will send to Phantom.
+        // By reusing the same tx object (same blockhash, same instructions),
+        // Phantom's independent simulation operates on an identical transaction
+        // and can correctly model the SOL transfer → shows the real stake amount
+        // instead of falling back to the raw network fee (<0.00001 SOL).
+        let readyTx: Transaction;
+        let readyLastValidBlockHeight: number;
         {
-          const simBlockhash = (await connection.getLatestBlockhash()).blockhash;
-          const simTx = buildFullTransaction(instructions, publicKey, simBlockhash);
-          const simResult = await connection.simulateTransaction(simTx);
+          const bh = await connection.getLatestBlockhash('confirmed');
+          readyTx = buildFullTransaction(instructions, publicKey, bh.blockhash);
+          readyLastValidBlockHeight = bh.lastValidBlockHeight;
+          const simResult = await connection.simulateTransaction(readyTx);
           console.log('[createWager] SIMULATION RESULT:', JSON.stringify(simResult.value, null, 2));
           if (simResult.value.err) {
             console.error('[createWager] SIMULATION FAILED — err:', JSON.stringify(simResult.value.err));
@@ -381,7 +395,8 @@ export function useCreateWagerOnChain() {
           stakeAmount.toString(), 'lamports'
         );
         signature = await sendAndConfirmViaAdapter(
-          instructions, publicKey, sendTransaction, connection
+          instructions, publicKey, sendTransaction, connection,
+          { tx: readyTx, lastValidBlockHeight: readyLastValidBlockHeight }
         );
       }
 
@@ -532,12 +547,15 @@ export function useJoinWagerOnChain() {
 
         const instructions = profileExists ? [joinIx] : [initProfileIx, joinIx];
 
-        // Simulate before sending to surface real Anchor errors early.
-        // FIX 4: use buildFullTransaction — same reason as createWager above.
+        // Same pattern as createWager: build the tx once, simulate it, then
+        // send that exact tx object so Phantom simulates the same transaction.
+        let readyTx: Transaction;
+        let readyLastValidBlockHeight: number;
         {
-          const simBlockhash = (await connection.getLatestBlockhash()).blockhash;
-          const simTx = buildFullTransaction(instructions, publicKey, simBlockhash);
-          const simResult = await connection.simulateTransaction(simTx);
+          const bh = await connection.getLatestBlockhash('confirmed');
+          readyTx = buildFullTransaction(instructions, publicKey, bh.blockhash);
+          readyLastValidBlockHeight = bh.lastValidBlockHeight;
+          const simResult = await connection.simulateTransaction(readyTx);
           console.log('[joinWager] SIMULATION RESULT:', JSON.stringify(simResult.value, null, 2));
           if (simResult.value.err) {
             console.error('[joinWager] SIMULATION FAILED — err:', JSON.stringify(simResult.value.err));
@@ -557,7 +575,8 @@ export function useJoinWagerOnChain() {
 
         try {
           signature = await sendAndConfirmViaAdapter(
-            instructions, publicKey, sendTransaction, connection
+            instructions, publicKey, sendTransaction, connection,
+            { tx: readyTx, lastValidBlockHeight: readyLastValidBlockHeight }
           );
         } catch (err: unknown) {
           const normalized = normalizeSolanaError(err);
