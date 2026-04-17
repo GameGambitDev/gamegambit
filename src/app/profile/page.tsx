@@ -17,6 +17,7 @@ import {
   User, Trophy, Swords, Clock, Copy, Check, Loader2,
   Wallet, Edit2, Save, Link2, CheckCircle2, Settings,
   AlertTriangle, ShieldAlert, LogOut as Unlink, Users,
+  UserCheck, UserX, UserPlus, Heart, Eye,
 } from 'lucide-react'
 import { ProfilePageSkeleton } from '@/components/skeletons/GamingSkeletonLoader'
 import { Button } from '@/components/ui/button'
@@ -26,7 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { GAMES, truncateAddress, formatSol } from '@/lib/constants'
 import { toast } from 'sonner'
-import { usePlayer, useCreatePlayer, useUpdatePlayer } from '@/hooks/usePlayer'
+import { usePlayer, useCreatePlayer, useUpdatePlayer, usePlayersByWallets } from '@/hooks/usePlayer'
 import { useWalletBalance } from '@/hooks/useWalletBalance'
 import {
   useLichessUser,
@@ -39,6 +40,10 @@ import { getSupabaseClient } from '@/integrations/supabase/client'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import Link from 'next/link'
 import { AirdropShareButton } from '@/components/ShareCards'
+import { useFriends } from '@/hooks/useFriends'
+import { useFollows } from '@/hooks/useFollows'
+import { FriendButton } from '@/components/FriendButton'
+import { PlayerLink } from '@/components/PlayerLink'
 
 // ── Lazy-loaded heavy components ──────────────────────────────────────────────
 const GameAccountCard = dynamic(
@@ -90,6 +95,26 @@ function ProfilePageInner() {
   const { data: walletBalance, isLoading: balanceLoading } = useWalletBalance()
   const createPlayer = useCreatePlayer()
   const updatePlayer = useUpdatePlayer()
+
+  // ── Social — friends & follows ────────────────────────────────────────────
+  const {
+    friendships,
+    friendWallets,
+    pendingRequests,
+    friendsLoading,
+    pendingLoading,
+    acceptRequest,
+    declineRequest,
+    removeFriend,
+  } = useFriends()
+  const { followersList, followingList, useFollowCounts } = useFollows()
+  const { followers: myFollowersCount, following: myFollowingCount } = useFollowCounts(currentUserWallet ?? null)
+  const { data: friendPlayers = [] } = usePlayersByWallets(friendWallets)
+  const { data: pendingPlayers = [] } = usePlayersByWallets(pendingRequests.map(r => r.requester_wallet))
+  const { data: followerPlayers = [] } = usePlayersByWallets(followersList)
+  const { data: followingPlayers = [] } = usePlayersByWallets(followingList)
+
+  const [socialTab, setSocialTab] = useState<'friends' | 'requests' | 'followers' | 'following'>('friends')
 
   const { data: lichessConnected, isLoading: lichessLoading } = useLichessConnected()
   const disconnectLichess = useDisconnectLichess()
@@ -634,6 +659,193 @@ function ProfilePageInner() {
 
             <NFTGallery walletAddress={viewingWallet || null} />
             <AchievementBadges walletAddress={viewingWallet || null} />
+          </motion.div>
+
+          {/* ── Social: Friends & Follows ──────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.28 }}
+            className="lg:col-span-2"
+          >
+            <Card variant="gaming">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  Social
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Tab row */}
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {([
+                    { key: 'friends', label: `Friends (${friendWallets.length})`, icon: <UserCheck className="h-3.5 w-3.5" /> },
+                    { key: 'requests', label: `Requests (${pendingRequests.length})`, icon: <UserPlus className="h-3.5 w-3.5" />, badge: pendingRequests.length },
+                    { key: 'followers', label: `Followers (${myFollowersCount})`, icon: <Heart className="h-3.5 w-3.5" /> },
+                    { key: 'following', label: `Following (${myFollowingCount})`, icon: <Eye className="h-3.5 w-3.5" /> },
+                  ] as const).map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setSocialTab(tab.key)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all relative ${socialTab === tab.key
+                        ? 'bg-primary/15 text-primary border border-primary/30'
+                        : 'bg-muted/40 text-muted-foreground hover:text-foreground border border-transparent'
+                        }`}
+                    >
+                      {tab.icon}
+                      {tab.label}
+                      {tab.key === 'requests' && pendingRequests.length > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
+                          {pendingRequests.length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Friends tab */}
+                {socialTab === 'friends' && (
+                  <div className="space-y-2">
+                    {friendsLoading ? (
+                      <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                    ) : friendWallets.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">No friends yet. Visit other players' profiles to add them!</p>
+                    ) : (
+                      friendships.map(friendship => {
+                        const otherWallet = friendship.requester_wallet === currentUserWallet ? friendship.recipient_wallet : friendship.requester_wallet
+                        const p = friendPlayers.find(pl => pl.wallet_address === otherWallet)
+                        return (
+                          <div key={friendship.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-muted/30 border border-border/40">
+                            <Link href={`/profile/${otherWallet}`} className="flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <User className="h-4 w-4 text-primary" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{p?.username || truncateAddress(otherWallet, 6)}</p>
+                                {p?.username && <p className="text-xs text-muted-foreground">{truncateAddress(otherWallet, 4)}</p>}
+                              </div>
+                            </Link>
+                            <button
+                              className="text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1 flex-shrink-0 px-2 py-1 rounded hover:bg-destructive/10"
+                              onClick={() => removeFriend.mutate(otherWallet, {
+                                onSuccess: () => { import('sonner').then(m => m.toast.success('Friend removed')) },
+                                onError: () => { import('sonner').then(m => m.toast.error('Failed to remove friend')) },
+                              })}
+                              disabled={removeFriend.isPending}
+                            >
+                              <UserX className="h-3.5 w-3.5" />
+                              Unfriend
+                            </button>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* Requests tab */}
+                {socialTab === 'requests' && (
+                  <div className="space-y-2">
+                    {pendingLoading ? (
+                      <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                    ) : pendingRequests.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">No pending friend requests.</p>
+                    ) : (
+                      pendingRequests.map(req => {
+                        const p = pendingPlayers.find(pl => pl.wallet_address === req.requester_wallet)
+                        return (
+                          <div key={req.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-primary/5 border border-primary/20">
+                            <Link href={`/profile/${req.requester_wallet}`} className="flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <User className="h-4 w-4 text-primary" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{p?.username || truncateAddress(req.requester_wallet, 6)}</p>
+                                {p?.username && <p className="text-xs text-muted-foreground">{truncateAddress(req.requester_wallet, 4)}</p>}
+                              </div>
+                            </Link>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                className="text-xs font-semibold text-primary border border-primary/40 hover:bg-primary/10 transition-colors px-3 py-1.5 rounded-lg flex items-center gap-1"
+                                onClick={() => acceptRequest.mutate(req.id, {
+                                  onSuccess: () => { import('sonner').then(m => m.toast.success('Friend request accepted!')) },
+                                  onError: () => { import('sonner').then(m => m.toast.error('Failed to accept')) },
+                                })}
+                                disabled={acceptRequest.isPending}
+                              >
+                                <UserCheck className="h-3.5 w-3.5" /> Accept
+                              </button>
+                              <button
+                                className="text-xs text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-lg hover:bg-destructive/10 flex items-center gap-1"
+                                onClick={() => declineRequest.mutate(req.id, {
+                                  onSuccess: () => { import('sonner').then(m => m.toast.success('Request declined')) },
+                                  onError: () => { import('sonner').then(m => m.toast.error('Failed to decline')) },
+                                })}
+                                disabled={declineRequest.isPending}
+                              >
+                                <UserX className="h-3.5 w-3.5" /> Decline
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* Followers tab */}
+                {socialTab === 'followers' && (
+                  <div className="space-y-2">
+                    {followersList.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">No followers yet.</p>
+                    ) : (
+                      followersList.map(wallet => {
+                        const p = followerPlayers.find(pl => pl.wallet_address === wallet)
+                        return (
+                          <div key={wallet} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-muted/30 border border-border/40">
+                            <Link href={`/profile/${wallet}`} className="flex items-center gap-2 min-w-0 flex-1 hover:text-primary transition-colors">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <User className="h-4 w-4 text-primary" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{p?.username || truncateAddress(wallet, 6)}</p>
+                                {p?.username && <p className="text-xs text-muted-foreground">{truncateAddress(wallet, 4)}</p>}
+                              </div>
+                            </Link>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* Following tab */}
+                {socialTab === 'following' && (
+                  <div className="space-y-2">
+                    {followingList.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">You're not following anyone yet.</p>
+                    ) : (
+                      followingList.map(wallet => {
+                        const p = followingPlayers.find(pl => pl.wallet_address === wallet)
+                        return (
+                          <div key={wallet} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-muted/30 border border-border/40">
+                            <Link href={`/profile/${wallet}`} className="flex items-center gap-2 min-w-0 flex-1 hover:text-primary transition-colors">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <User className="h-4 w-4 text-primary" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{p?.username || truncateAddress(wallet, 6)}</p>
+                                {p?.username && <p className="text-xs text-muted-foreground">{truncateAddress(wallet, 4)}</p>}
+                              </div>
+                            </Link>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </motion.div>
 
           {/* Account Settings */}
