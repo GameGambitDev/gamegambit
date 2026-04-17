@@ -62,6 +62,8 @@ API routes:    https://thegamegambit.vercel.app/api
 Edge functions: https://<project>.supabase.co/functions/v1
 ```
 
+> **Twitch stream embeds require `NEXT_PUBLIC_APP_DOMAIN`** to be set in your environment. This value is passed as the `parent` parameter in the Twitch player iframe URL. Without it, Twitch embeds fail silently on custom domains and Vercel preview URLs (which have random subdomains). Falls back to `window.location.hostname` for local dev. Set it to your production domain with no `https://` prefix and no trailing slash (e.g. `thegamegambit.vercel.app`).
+
 ---
 
 ## Edge Functions
@@ -74,20 +76,26 @@ All wager lifecycle actions. Requires `X-Session-Token`.
 |--------|------|--------------|-------------|
 | `create` | ✅ | Any player | INSERT new wager, create on-chain PDA |
 | `join` | ✅ | Any player (not owner) | UPDATE status → joined |
+| `vote` | ✅ | Either participant | Legacy vote action — kept for compatibility with older clients. **All new code must use `submitVote`** |
 | `edit` | ✅ | Player A only | UPDATE stake/stream_url/is_public (status = created only) |
 | `applyProposal` | ✅ | Either participant | Apply accepted proposal — bypasses owner-only restriction |
 | `notifyChat` | ✅ | Either participant | INSERT notification to opponent (rate-limited: 1/5min/wager) |
 | `notifyProposal` | ✅ | Either participant | INSERT notification to opponent for new proposals |
+| `notifyRematch` | ✅ | Either participant | Send push notification for a rematch request |
 | `delete` | ✅ | Player A only | DELETE wager (status = created only) |
 | `setReady` | ✅ | Either participant | Calls `set_player_ready` DB RPC |
 | `startGame` | ✅ | Either participant | UPDATE status → voting; creates Lichess game (chess) |
 | `recordOnChainCreate` | ✅ | Player A only | UPDATE deposit_player_a = true, tx_signature_a |
 | `recordOnChainJoin` | ✅ | Player B only | UPDATE deposit_player_b = true, tx_signature_b |
+| `checkGameComplete` | ❌ | Cron only | Poll Lichess API for chess game result. **No auth required** — called by `check-chess-games` cron, not by any user session |
 | `cancelWager` | ✅ | Either participant | UPDATE status → cancelled; trigger on-chain refund |
 | `concedeDispute` | ✅ | Either participant | Grace period concession; resolves on-chain, no mod fee |
 | `markGameComplete` | ✅ | Either participant | Sets game_complete_a/b; when both set, stamps deadlines |
 | `submitVote` | ✅ | Either participant | Sets vote_player_a/b; agree → auto-resolve; disagree → disputed |
 | `retractVote` | ✅ | Either participant | Clears caller's vote (only while opponent hasn't voted) |
+| `finalizeVote` | ✅ | Either participant | Triggers on-chain `resolve_wager` once the 15s retract window expires without a retraction |
+| `voteTimeout` | ✅ | Either participant | Called when `vote_deadline` passes with no resolution — sets status → `disputed`, triggers moderator assignment |
+| `declineChallenge` | ✅ | Player B only | Soft-deletes an open wager (status = `created` only); fires `wager_declined` notification to Player A |
 
 ---
 
@@ -99,6 +107,7 @@ Player profile management. Requires `X-Session-Token`.
 |--------|-------------|
 | `create` | INSERT new player row (accepts optional `referrerCode`) |
 | `update` | UPDATE player profile fields (username, bio, avatar, game usernames) |
+| `bindGame` | Dedicated game account binding for PUBG/CODM/Free Fire. Checks username uniqueness, calls `merge_game_bound_at` RPC. Returns `USERNAME_TAKEN` (409) if already linked to another wallet — client should enter appeal flow |
 
 ---
 
@@ -133,11 +142,15 @@ Admin dispute resolution. Requires admin JWT. Called via `/api/admin/action`.
 
 | Action | Min Role | Description |
 |--------|----------|-------------|
-| `forceResolve` | moderator | Resolve wager with given winner on-chain |
-| `forceDraw` | moderator | Resolve as draw on-chain |
-| `forceCancel` | moderator | Cancel wager on-chain |
-| `banPlayer` | admin | Ban player wallet |
-| `unbanPlayer` | admin | Unban player wallet |
+| `forceResolve` | moderator | Force-resolve a disputed wager with a given winner wallet; calls on-chain `resolve_wager` |
+| `forceRefund` | moderator | Force-refund both players; calls on-chain `close_wager` |
+| `markDisputed` | moderator | Manually set wager status → `disputed` |
+| `banPlayer` | admin | Set `is_banned = true` on a player row |
+| `unbanPlayer` | admin | Clear ban on a player row |
+| `flagPlayer` | admin | Set `flagged_for_review = true` with a reason |
+| `unflagPlayer` | admin | Clear `flagged_for_review` and `flag_reason` on a player row |
+| `checkPdaBalance` | admin | Inspect the live on-chain WagerAccount PDA balance for a wager (`wagerId` required) |
+| `addNote` | admin | Insert a free-text row into `admin_notes` for a player or wager |
 
 ---
 
@@ -208,9 +221,11 @@ Issues Ed25519 session token from wallet signature.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/admin/action` | Wager/player actions (forceResolve, forceDraw, ban, etc.) |
+| `POST` | `/api/admin/action` | Wager/player actions (forceResolve, forceRefund, markDisputed, banPlayer, etc.) |
 | `GET` | `/api/admin/audit-logs` | Fetch audit logs |
 | `GET/PUT` | `/api/admin/profile` | Get/update admin profile |
+| `GET` | `/api/admin/wagers/inspect` | Fetch wager by UUID, match ID (numeric), or wallet address. Query param: `q`. Min role: moderator |
+| `GET` | `/api/admin/wagers/pda-scan` | Bulk PDA scanner. Params: `status` (optional), `limit` (default 200, max 500), `offset`. Returns per-wager verdict: `STUCK_FUNDS` / `ACTIVE_FUNDED` / `DISTRIBUTED` / `NOT_FOUND` / `PENDING_DEPOSIT` / `RPC_ERROR`. Min role: moderator |
 | `POST` | `/api/admin/wallet/bind` | Bind Solana wallet to admin |
 | `POST` | `/api/admin/wallet/verify` | Verify admin wallet signature |
 | `GET` | `/api/admin/wallet/list` | List admin wallet bindings |
@@ -318,6 +333,7 @@ All values that can appear in the `notifications` table and must be handled by `
 | `feed_reaction` | Someone reacted to your feed post |
 | `friend_request` | Someone sent you a friend request |
 | `friend_accepted` | Friend request accepted |
+| `new_follower` | Someone followed your profile |
 
 ---
 

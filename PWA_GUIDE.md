@@ -47,6 +47,18 @@ The manifest file provides metadata about the app:
 - `shortcuts` - Quick actions on home screen
 - `theme_color` - Color for browser chrome (Android)
 
+**Manifest Shortcuts:**
+
+The manifest includes three home-screen shortcuts visible on Android long-press (and as jump list items on desktop):
+
+| Shortcut | URL | Description |
+|----------|-----|-------------|
+| Arena | `/arena` | Jump directly to wager creation lobby |
+| Leaderboard | `/leaderboard` | Jump to rankings |
+| Dashboard | `/dashboard` | Jump to player dashboard |
+
+Shortcuts require 96×96px icons — use the existing app icon set in `/public/`. If you add new primary destinations, update the `shortcuts` array in `manifest.json` and supply matching icons.
+
 ### 2. Service Worker (`/public/sw.js`)
 
 Service workers enable offline functionality and caching:
@@ -221,11 +233,30 @@ self.addEventListener('push', event => {
 - **Action buttons**: Custom interactions (if implemented)
 
 ### Use Cases
-- Match invitation received
-- Opponent ready for match
-- Match results
-- Leaderboard ranking changes
-- Achievement unlocked
+
+**Web Push notifications** (delivered to OS even when tab is closed) — supported for:
+
+| Type | Trigger |
+|------|---------|
+| `wager_joined` | Opponent joined your open wager |
+| `game_started` | Both players deposited, game is live |
+| `wager_won` | You won the match |
+| `wager_lost` | You lost the match |
+| `wager_draw` | Match ended in a draw |
+| `wager_cancelled` | Wager was cancelled |
+| `wager_disputed` | Dispute raised — moderator being assigned |
+| `moderation_request` | You've been assigned as moderator |
+
+**In-app only** (bell dropdown, no OS push) — social notifications are never sent via Web Push:
+
+| Type | Trigger |
+|------|---------|
+| `feed_reaction` | Someone reacted to your feed post |
+| `friend_request` | Someone sent you a friend request |
+| `friend_accepted` | Friend request accepted |
+| `new_follower` | Someone followed your profile |
+
+> This split is enforced in the edge functions — social notification types are deliberately excluded from the Web Push delivery path. Do not add social types to push delivery without also updating the player notification preferences schema and the `push_subscriptions` opt-in flow.
 
 ## Performance Improvements
 
@@ -320,6 +351,7 @@ const CACHE_NAME = 'gamegambit-v2' // v1 → v2
 6. **Document changes** - Update PWA_GUIDE.md when modifying
 7. **Keep manifest updated** - Keep icons and metadata current
 8. **Use versioning** - Increment cache version for updates
+9. **`sw.js` must be served with `Cache-Control: no-cache`.** This is configured in `next.config.ts` via a custom response header. If you ever bypass Next.js or serve via a CDN edge layer, ensure this header is preserved — a cached service worker means users will not receive updates and can be stuck on a stale version indefinitely. Similarly, `manifest.json` must be served with `Content-Type: application/manifest+json` for the PWA install prompt to fire correctly on Chrome and Edge.
 
 ## Resources
 
@@ -340,5 +372,5 @@ For PWA-specific issues or questions:
 
 ---
 
-**Last Updated**: March 2026
+**Last Updated**: April 2026 — v1.8.0
 **PWA Status**: ✅ Fully Implemented

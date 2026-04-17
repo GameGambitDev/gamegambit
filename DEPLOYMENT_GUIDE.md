@@ -366,6 +366,15 @@ ADMIN_SMTP_PASSWORD=your-app-password
 # PWA Push Notifications
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=<your_vapid_public_key>
 
+# Required for Twitch stream embeds — sets the `parent` domain param in the Twitch player iframe URL.
+# Without this, Twitch embeds fail silently on custom domains. No https://, no trailing slash.
+NEXT_PUBLIC_APP_DOMAIN=yourdomain.com
+
+# WalletConnect (optional) — required if you want WalletConnect wallet support.
+# Without it, WalletConnect wallets won't appear in the connect modal.
+# Get a project ID at https://cloud.walletconnect.com
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<your_walletconnect_project_id>
+
 # PUBG API (optional — enables live username verification in GameAccountCard)
 # If not set, PUBG binding falls back to manual confirmation (same as CODM/Free Fire)
 PUBG_API_KEY=<your_pubg_api_key>
@@ -516,6 +525,9 @@ solana program show E2Vd3U91kMrgwp8JCXcLSn7bt3NowDmGwoBYsVRhGfMR \
 2. Log in with superadmin credentials
 3. Confirm wager list loads and dispute resolution is accessible
 4. Confirm the disputes page loads and shows the moderation queue
+5. Navigate to `/itszaadminlogin/on-chain` — confirm it loads and the PDA lookup field is visible
+6. Navigate to `/itszaadminlogin/pda-scanner` — confirm it loads (first scan may return empty if no deposits yet)
+7. Navigate to `/itszaadminlogin/stuck-wagers` — confirm it loads and the threshold filter renders
 
 ---
 
@@ -630,6 +642,18 @@ For high traffic:
 3. **Use caching aggressively** — leaderboard, player stats, and open wager lists are the highest read volume and can be cached for 30-60 seconds without user impact
 
 4. **Scale cron frequency carefully** — `check-chess-games` calls the PUBG/chess APIs per active wager. If concurrent chess wager counts exceed ~50, consider batching or staggering the cron interval.
+
+---
+
+## Known Production Limitations
+
+### In-Memory Rate Limiter
+
+> ⚠️ **`src/lib/rate-limiting.ts` uses an in-memory `Map` store — not a distributed store.** This means rate limit counts reset on every Vercel cold start and are not shared across concurrent function instances. Under normal single-instance load this is acceptable, but under burst traffic you may see limits bypassed.
+>
+> For production-grade distributed rate limiting, replace the in-memory store with Upstash Redis sliding window (tracked as "C1 in the fix plan" in the codebase). The `REDIS_URL` and `REDIS_TOKEN` env vars are already stubbed in the Vercel config for this upgrade.
+>
+> The DB-level `rate_limit_logs` table used by edge functions is a separate mechanism and is not affected by this limitation.
 
 ---
 

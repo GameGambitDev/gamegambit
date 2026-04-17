@@ -102,80 +102,99 @@ Session lifecycle management:
 
 ---
 
-## API Routes (6 files, 1,093 lines)
+## API Routes (14 files) *(v1.3.0 baseline + v1.5.0–v1.7.0 additions)*
 
-### `/src/app/api/admin/auth/signup/route.ts` (115 lines)
+### `/src/app/api/admin/auth/signup/route.ts`
 POST endpoint for account creation
 - Validates email and password
 - Creates admin user
 - Returns JWT token
 - Sets httpOnly session cookie
 
-### `/src/app/api/admin/auth/login/route.ts` (88 lines)
+### `/src/app/api/admin/auth/login/route.ts`
 POST endpoint for authentication
 - Verifies credentials
 - Creates session
 - Returns token and user data
 - Sets secure cookie
 
-### `/src/app/api/admin/auth/logout/route.ts` (88 lines)
+### `/src/app/api/admin/auth/logout/route.ts`
 POST endpoint for session termination
 - Revokes session token
 - Clears cookies
 - Logs logout event
 
-### `/src/app/api/admin/auth/verify/route.ts` (71 lines)
+### `/src/app/api/admin/auth/verify/route.ts`
 GET endpoint for session validation
 - Verifies JWT token
 - Returns current session
 - Returns user data or 401
 
-### `/src/app/api/admin/auth/refresh/route.ts` (90 lines)
+### `/src/app/api/admin/auth/refresh/route.ts`
 POST endpoint for token renewal
 - Validates existing token
 - Issues new token
 - Extends session expiry
 - Returns new token
 
-### `/src/app/api/admin/profile/route.ts` (183 lines)
+### `/src/app/api/admin/profile/route.ts`
 GET/PUT endpoint for profile operations
 - GET: Returns admin profile
 - PUT: Updates name, bio, avatar
 - Validates input
 - Logs changes
 
-### `/src/app/api/admin/wallet/bind/route.ts` (120 lines)
+### `/src/app/api/admin/wallet/bind/route.ts`
 POST endpoint to initiate wallet binding
 - Validates wallet address
 - Creates challenge nonce
 - Returns message to sign
 
-### `/src/app/api/admin/wallet/verify/route.ts` (171 lines)
+### `/src/app/api/admin/wallet/verify/route.ts`
 POST endpoint to complete wallet binding
 - Verifies Ed25519 signature
 - Confirms nonce match
 - Marks wallet as verified
 - Logs binding event
 
-### `/src/app/api/admin/wallet/list/route.ts` (167 lines)
+### `/src/app/api/admin/wallet/list/route.ts`
 GET endpoint to list bound wallets
 - Returns all wallets for admin
 - Shows primary wallet indicator
 - Includes binding date
 
-### `/src/app/api/admin/wallet/unbind/route.ts` (123 lines)
+### `/src/app/api/admin/wallet/unbind/route.ts`
 POST endpoint to remove wallet binding
 - Validates wallet exists
 - Prevents removing primary wallet
 - Logs unbind event
 - Revokes sessions if needed
 
-### `/src/app/api/admin/audit-logs/route.ts` (142 lines)
+### `/src/app/api/admin/audit-logs/route.ts`
 GET endpoint for audit log retrieval
 - Filters by action type
 - Supports date range filters
 - Pagination support
 - Returns formatted logs
+
+### `/src/app/api/admin/action/route.ts` *(~128 lines — v1.5.0)*
+POST endpoint for wager and player admin actions
+- Actions: `forceResolve`, `forceRefund`, `markDisputed`, `banPlayer`, `unbanPlayer`, `flagPlayer`, `unflagPlayer`, `checkPdaBalance`, `addNote`
+- Role-gated per action (moderator / admin / superadmin)
+- Full audit log entry on every call
+- Validates admin session + wallet binding
+
+### `/src/app/api/admin/wagers/inspect/route.ts` *(~69 lines — v1.7.0)*
+GET endpoint for wager lookup
+- Query by wager UUID, numeric match ID, or player wallet (`?q=`)
+- Returns full wager row with player details
+- Min role: moderator
+
+### `/src/app/api/admin/wagers/pda-scan/route.ts` *(~303 lines — v1.7.0)*
+GET endpoint for bulk on-chain PDA scan
+- Params: `status` (optional filter), `limit` (default 200, max 500), `offset`
+- Returns per-wager verdict: `STUCK_FUNDS` / `ACTIVE_FUNDED` / `DISTRIBUTED` / `NOT_FOUND` / `PENDING_DEPOSIT` / `RPC_ERROR`
+- Min role: moderator
 
 ---
 
@@ -278,29 +297,29 @@ Export barrel file for all admin components
 
 ---
 
-## Admin Pages (8 files, 320 lines)
+## Admin Pages (17 files) *(v1.3.0 baseline + v1.5.0–v1.7.0 additions)*
 
-### `/src/app/itszaadminlogin/layout.tsx` (16 lines)
+### `/src/app/itszaadminlogin/layout.tsx`
 Shared layout for all admin routes
 - Sets metadata
 - Provides consistent styling
 - Background and padding
 
-### `/src/app/itszaadminlogin/login/page.tsx` (18 lines)
+### `/src/app/itszaadminlogin/login/page.tsx`
 Login page
 - Uses LoginForm component
 - Centered layout
 - Redirects on success
 - Public route
 
-### `/src/app/itszaadminlogin/signup/page.tsx` (18 lines)
+### `/src/app/itszaadminlogin/signup/page.tsx`
 Signup page
 - Uses SignupForm component
 - Centered layout
 - Redirects to login after signup
 - Public route
 
-### `/src/app/itszaadminlogin/dashboard/page.tsx` (91 lines)
+### `/src/app/itszaadminlogin/dashboard/page.tsx`
 Main admin dashboard
 - Protected route with session check
 - Profile summary card
@@ -308,7 +327,7 @@ Main admin dashboard
 - Account status display
 - Logout button
 
-### `/src/app/itszaadminlogin/profile/page.tsx` (142 lines)
+### `/src/app/itszaadminlogin/profile/page.tsx`
 Profile settings page
 - Protected route
 - Edit name and bio
@@ -316,7 +335,7 @@ Profile settings page
 - Save/cancel actions
 - Success/error messages
 
-### `/src/app/itszaadminlogin/wallet-bindings/page.tsx` (67 lines)
+### `/src/app/itszaadminlogin/wallet-bindings/page.tsx`
 Wallet management page
 - Protected route
 - Wallet binding form
@@ -324,7 +343,7 @@ Wallet management page
 - Instructions sidebar
 - Unbind functionality
 
-### `/src/app/itszaadminlogin/audit-logs/page.tsx` (137 lines)
+### `/src/app/itszaadminlogin/audit-logs/page.tsx`
 Activity log page
 - Protected route
 - Logs display with formatting
@@ -332,11 +351,74 @@ Activity log page
 - IP and user agent info
 - Pagination and sorting
 
-### `/src/app/itszaadminlogin/unauthorized/page.tsx` (25 lines)
+### `/src/app/itszaadminlogin/unauthorized/page.tsx`
 403 error page
 - Shows unauthorized message
 - Link back to dashboard
 - Proper HTTP status
+
+### `/src/app/itszaadminlogin/disputes/page.tsx` *(~694 lines — v1.5.0)*
+Dispute management page
+- Full dispute queue with filters (open / assigned / resolved)
+- Assign moderator, force-resolve, mark disputed actions
+- Per-wager vote breakdown and timeline
+- Min role: moderator
+
+### `/src/app/itszaadminlogin/wagers/page.tsx` *(~750 lines — v1.5.0)*
+Wager oversight page
+- Searchable wager list with status filters
+- Per-wager detail panel: players, deposits, status history
+- Quick actions: forceRefund, markDisputed, addNote
+- Min role: moderator
+
+### `/src/app/itszaadminlogin/users/page.tsx` *(~641 lines — v1.5.0)*
+Player management page
+- Player search by wallet or username
+- Suspension, flag, unflag controls
+- Punishment history and behaviour log view
+- Min role: admin
+
+### `/src/app/itszaadminlogin/on-chain/page.tsx` *(~497 lines — v1.7.0)*
+On-chain wager tooling page
+- Manual PDA inspection by wager ID
+- On-chain balance vs DB deposit cross-check
+- Trigger `checkPdaBalance` admin-action
+- Min role: admin
+
+### `/src/app/itszaadminlogin/pda-scanner/page.tsx` *(~1,278 lines — v1.7.0)*
+Bulk PDA scanner page
+- Paginated scan of all wager PDAs (up to 500 per request)
+- Per-wager verdict: `STUCK_FUNDS` / `ACTIVE_FUNDED` / `DISTRIBUTED` / `NOT_FOUND` / `PENDING_DEPOSIT` / `RPC_ERROR`
+- Powered by `/api/admin/wagers/pda-scan`
+- Min role: moderator
+
+### `/src/app/itszaadminlogin/stuck-wagers/page.tsx` *(~753 lines — v1.7.0)*
+Stuck wager triage page
+- Filters to wagers with `STUCK_FUNDS` PDA verdict
+- One-click forceRefund flow per stuck wager
+- Audit trail of all refund actions taken
+- Min role: admin
+
+### `/src/app/itszaadminlogin/behaviour-flags/page.tsx` *(~512 lines — v1.7.0)*
+Player behaviour flags page
+- Lists flagged players with flag reason and date
+- Unflag, suspend, or add note actions
+- Links to per-player punishment log
+- Min role: admin
+
+### `/src/app/itszaadminlogin/username-appeals/page.tsx` *(~754 lines — v1.7.0)*
+Username appeal review page
+- Queue of open username ownership disputes
+- Approve (transfer binding) or reject with reason
+- Appeal history per player
+- Min role: admin
+
+### `/src/app/itszaadminlogin/username-changes/page.tsx` *(~656 lines — v1.7.0)*
+Username change request review page
+- Formal rebind requests (max 2 per game per rolling 12 months)
+- Approve or reject; fires notification to player
+- Change history per player
+- Min role: admin
 
 ---
 
@@ -375,18 +457,18 @@ This manifest file documenting all created files
 
 ## Summary Statistics
 
-| Category | Files | Lines | Purpose |
-|----------|-------|-------|---------|
-| Database | 1 | 241 | Schema and migrations |
-| Types | 1 | 155 | TypeScript definitions |
-| Utilities | 5 | 770 | Core business logic |
-| Integrations | 5 | 1,399 | Supabase operations |
-| API Routes | 11 | 1,213 | HTTP endpoints |
-| Hooks | 5 | 707 | React state management |
-| Components | 7 | 407 | React UI components |
-| Pages | 8 | 320 | Admin portal pages |
-| Docs | 4 | 1,200+ | Setup and guides |
-| **TOTAL** | **47** | **7,400+** | **Production-ready admin system** |
+| Category | Files | Purpose |
+|----------|-------|---------|
+| Database | 1 | Schema and migrations |
+| Types | 1 | TypeScript definitions |
+| Utilities | 5 | Core business logic |
+| Integrations | 5 | Supabase operations |
+| API Routes | 14 | HTTP endpoints (11 auth/profile/wallet + 3 action/wager routes) |
+| Hooks | 5 | React state management |
+| Components | 7 | React UI components |
+| Pages | 17 | Admin portal pages (8 original + 9 added v1.5.0–v1.7.0) |
+| Docs | 4 | Setup and guides |
+| **TOTAL** | **59** | **Production-ready admin system — v1.8.0** |
 
 ---
 

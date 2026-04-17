@@ -238,13 +238,18 @@ Server component — `generateMetadata` function provides dynamic per-wager:
 - `src/components/ShareCards.tsx` — WinShareCard + AirdropShareCard + AirdropShareButton
 - `src/components/FriendButton.tsx` — four-state friend action button
 - `src/hooks/useFriends.ts` — friends system hooks
+- `src/hooks/useFollows.ts` — follow/unfollow, follower/following counts, Realtime subscription on `follows:{walletAddress}`
 - `src/hooks/useSideBets.ts` — side bet hooks + realtime
 - `supabase/functions/secure-bet/index.ts` — side bet edge function
 - `supabase/migrations/task6_referral.sql` — referral columns + indexes
 - `supabase/migrations/task10_side_bets.sql` — spectator_bets table + RLS
-- `feed_reactions`, `friendships`, `direct_messages`, `spectator_bets` DB tables
+- `feed_reactions`, `friendships`, `direct_messages`, `spectator_bets`, `follows` DB tables
 - `invite_code`, `referred_by_wallet`, `referral_count` columns on `players`
 - "Events" + "Feed" + "Messages" added to header nav
+- `notifyRematch` action in `secure-wager` — sends push notification to opponent for a rematch request
+- `new_follower` notification type — in-app only (bell dropdown); fired when a player gains a new follower
+- `NEXT_PUBLIC_APP_DOMAIN` env var — required in Vercel config; used as Twitch embed `parent` parameter (no `https://`, no trailing slash)
+- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` env var — required in Vercel config for WalletConnect modal
 
 ### Changed (v1.8.0)
 
@@ -254,12 +259,12 @@ Server component — `generateMetadata` function provides dynamic per-wager:
 - `src/app/profile/page.tsx` — AirdropShareButton added to invite section
 - `src/app/events/page.tsx` — AirdropShareButton wired into activity card
 - Total edge functions: 10 → 11
-- Total DB tables: ~20 → ~25
+- Total DB tables: 20 → 25
 - Navbar: Feed + Messages + Events links added
 
 ### Known Issues (v1.8.0)
 
-- `spectator_bets`, `feed_reactions`, `friendships`, `direct_messages` tables and new `players` columns (`invite_code`, `referred_by_wallet`, `referral_count`) not yet in auto-generated `types.ts` — use local interface definitions until next `supabase gen types` run.
+- `spectator_bets`, `feed_reactions`, `friendships`, `direct_messages`, `follows` tables and new `players` columns (`invite_code`, `referred_by_wallet`, `referral_count`) not yet in auto-generated `types.ts` — use local interface definitions until next `supabase gen types` run.
 - `secure-bet` `resolveForWager` must be called manually from `resolve-wager` edge function after main wager settlement — wire-up between the two functions is a pending integration step.
 - Suspension auto-lift (planned pg_cron job) still pending from v1.7.0.
 
@@ -410,7 +415,10 @@ Fix: Player B polls `wagerRef.current.deposit_player_a` every 2s (up to 2 min) b
 - `/itszaadminlogin/behaviour-flags` admin page
 - `/itszaadminlogin/username-appeals` admin page
 - `/itszaadminlogin/username-changes` admin page
+- `/api/admin/wagers/inspect` — fetch wager by UUID, match ID, or wallet; min role: moderator
+- `/api/admin/wagers/pda-scan` — bulk PDA scanner returning per-wager on-chain verdict; params: `status`, `limit` (max 500), `offset`; min role: moderator
 - `concedeDispute` action in `secure-wager`
+- `bindGame` action in `secure-player` — validates and binds game username after PUBG/CODM/Free Fire verification; checks uniqueness, calls `merge_game_bound_at` RPC; returns `USERNAME_TAKEN` (409) if already linked
 - `increment_moderation_skip_count` Postgres RPC
 - `punishment_log` offense tracking with 5-tier auto-escalation
 - `player_behaviour_log` events
@@ -441,6 +449,10 @@ Fix: Player B polls `wagerRef.current.deposit_player_a` every 2s (up to 2 min) b
 - `markGameComplete` — sets `game_complete_a/b`; when both true: stamps `game_complete_deadline` (NOW+10s) and `vote_deadline` (NOW+5m10s)
 - `submitVote` — sets `vote_player_a/b`; if votes agree → on-chain resolve; if mismatch → `disputed`
 - `retractVote` — clears caller's vote (only while opponent hasn't voted)
+- `finalizeVote` — triggers on-chain `resolve_wager` once the 15s retract window expires without a retraction
+- `voteTimeout` — called when `vote_deadline` passes with no resolution; sets status → `disputed` and triggers moderator assignment
+- `declineChallenge` — soft-deletes an open wager (status `created` only); fires `wager_declined` notification to Player A
+- `checkGameComplete` — polls Lichess API for chess game result; called by `check-chess-games` cron only, no auth required
 
 **Page Wiring**
 - `my-wagers/page.tsx` — `GameCompleteModal` + `VotingModal` imported, state managed, `handleBothConfirmed` chains the two modals; `WagerRow` Vote button label changes dynamically based on confirmation state
@@ -531,6 +543,7 @@ Fix: Player B polls `wagerRef.current.deposit_player_a` every 2s (up to 2 min) b
 - Admin authentication completely redesigned with modern security
 - Deposit tracking split into separate confirmations per player
 - Match ID now integral to PDA derivation strategy
+- `admin-action` edge function expanded: `forceDraw` and `forceCancel` replaced by `forceRefund`, `markDisputed`, `flagPlayer`, `unflagPlayer`, `checkPdaBalance`, `addNote` — see API_REFERENCE for full action/role matrix
 
 ### Documentation Updates
 - **DB_SCHEMA.md**: Complete rewrite with admin tables, design decisions, and query examples

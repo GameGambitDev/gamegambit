@@ -123,6 +123,7 @@ A Next.js 15 application providing complete player and admin interfaces:
 |---|---|
 | **Social Feed** | `/feed` page — For You / Friends / Live Now tabs with win cards, stream cards, live wager cards |
 | **Reactions** | 🔥💀🐐👀 reactions via `feed_reactions` table with like/unlike + notifications |
+| **Follow System** | Asymmetric follow/unfollow (no mutual approval required). `useFollows` + `FollowButton`. Follower/following counts on profile pages. Fires `new_follower` notification. Entirely separate from the mutual Friends system — follows power the feed "Friends & Following" tab, friends power DMs and challenge invites. |
 | **Friends System** | Send/accept/decline/remove, FriendButton component, pending requests |
 | **Direct Messages** | Split-pane DM inbox at `/messages`, realtime chat, auto-open from `?with=WALLET` |
 | **Referral System** | Invite codes, referral tracking, `/invite/[code]` landing page |
@@ -360,6 +361,8 @@ voting → both confirm game complete → 10s sync → vote (5 min window)
 | **Platform Wallet** | `3hwPwugeuZ33HWJ3SoJkDN2JT3Be9fH62r19ezFiCgYY` |
 | **Network** | Solana Devnet |
 
+> ⚠️ **Stale `PROGRAM_ID` in `src/lib/constants.ts`:** This file exports `PROGRAM_ID = "CPS82nShfYFBdJPLs4kLMYEUrTwvxieqSrkw6VYRopzx"` which is an old, incorrect address. Nothing in the codebase imports it (all Solana-interacting code imports `PROGRAM_ID` from `src/lib/solana-config.ts` which has the correct address above), but if you add a new file and accidentally import from `constants.ts` instead of `solana-config.ts`, your transactions will target the wrong program and fail silently. Always import `PROGRAM_ID` from `@/lib/solana-config`.
+
 ---
 
 ## Local Development
@@ -442,6 +445,16 @@ ADMIN_SMTP_PASSWORD=your-app-password
 
 # PWA Push Notifications (VAPID)
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=your_vapid_public_key   # must have NO surrounding whitespace/quotes
+
+# Twitch stream embeds — sets the `parent` domain param in the iframe URL.
+# Without this, Twitch iframes silently fail on custom domains and Vercel preview URLs.
+# Falls back to window.location.hostname for local dev.
+NEXT_PUBLIC_APP_DOMAIN=thegamegambit.vercel.app
+
+# WalletConnect (optional) — required if you want WalletConnect wallet support.
+# Without it the WalletConnectWalletAdapter is not initialised and WalletConnect
+# wallets won't appear in the connect modal. Get a project ID at cloud.walletconnect.com.
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 ```
 
 **Edge function secrets** — set in Supabase Dashboard → Edge Functions → Secrets (not in `.env.local`):
@@ -517,30 +530,52 @@ gamegambit/
 │   │   │   ├── behaviour-flags/   # Phase 6 — player risk scores, false vote/dispute loss tracking
 │   │   │   ├── username-appeals/  # Phase 6 — review username appeal requests
 │   │   │   ├── username-changes/  # Phase 6 — review username change requests
+│   │   │   ├── on-chain/          # Live on-chain wager/player inspector — PDA lookup by wager UUID, match ID, or wallet
+│   │   │   ├── pda-scanner/       # Bulk PDA scanner — classifies each as STUCK_FUNDS / ACTIVE_FUNDED / DISTRIBUTED / NOT_FOUND / PENDING_DEPOSIT / RPC_ERROR; batch recovery UI
+│   │   │   ├── stuck-wagers/      # Filtered view of wagers with funds stuck on-chain; configurable age threshold (1h–7d); bulk force-resolve/refund
 │   │   │   └── unauthorized/
 │   │   ├── arena/                 # Wager creation & matching
 │   │   ├── dashboard/             # User statistics
+│   │   ├── feed/                  # Social feed — For You / Friends & Following / Live Now tabs
+│   │   ├── messages/              # Split-pane DM inbox with realtime chat
+│   │   ├── invite/[code]/         # Referral invite landing page
+│   │   ├── events/                # Airdrop/campaign page with per-user activity card
+│   │   ├── wager/[id]/            # Per-wager detail page with dynamic OG metadata
 │   │   ├── leaderboard/           # Rankings
 │   │   ├── my-wagers/             # Player's wager history
 │   │   ├── profile/[walletAddress]/ # Public player profiles
 │   │   ├── settings/              # Phase 6 — push notification + moderation prefs
+│   │   ├── faq/                   # FAQ accordion page
+│   │   ├── privacy/               # Privacy policy
+│   │   ├── terms/                 # Terms of service
+│   │   ├── not-found.tsx          # Custom 404 page
 │   │   └── page.tsx               # Landing page
 │   │
 │   ├── components/
 │   │   ├── admin/                 # Admin UI components
 │   │   ├── landing/               # Landing page sections
 │   │   ├── layout/                # Navbar, footer, layout shells
+│   │   ├── feed/                  # Feed card components (win card, stream card, live wager card)
 │   │   ├── CreateWagerModal.tsx   # Wager creation (chess time controls, game picker)
 │   │   ├── ReadyRoomModal.tsx     # Ready room + deposits + chat + proposals
 │   │   ├── EditWagerModal.tsx     # Wager edit proposals UI
 │   │   ├── LiveGameModal.tsx      # Lichess game embed (chess only)
 │   │   ├── GameCompleteModal.tsx  # Step 3 — non-chess "confirm game done" + sync countdown
 │   │   ├── VotingModal.tsx        # Step 3 — vote on winner (agree → resolve, disagree → dispute)
-│   │   ├── GameResultModal.tsx    # Win/loss/draw result screen
+│   │   ├── GameResultModal.tsx    # Win/loss/draw result screen; calls BalanceAnimationContext.queueAnimation before navigating
 │   │   ├── ModerationOrchestrator.tsx  # Mounts once in Providers; coordinates popup → panel state
 │   │   ├── ModerationRequestModal.tsx  # 30s accept/decline popup with countdown ring
 │   │   ├── ModerationPanel.tsx         # 5-step guided verdict workflow
 │   │   ├── DisputeGraceModal.tsx       # Phase 6 — concession prompt shown before moderator search
+│   │   ├── PunishmentNoticeModal.tsx   # Phase 6 — shown to dispute loser; displays offense count, tier, escalation ladder; "Report unfair verdict" button
+│   │   ├── ReportModeratorModal.tsx    # Phase 6 — files POST /api/moderation/report; min 10 chars; 409 treated as success
+│   │   ├── SuspensionBanner.tsx        # Phase 6 — sticky top banner when player.is_suspended === true; shows time remaining; session-dismissible
+│   │   ├── FollowButton.tsx            # Follow / Following (hover to unfollow) button; uses useFollows
+│   │   ├── PlayerLink.tsx              # Renders wallet address as /profile/[wallet] link with username or truncated address
+│   │   ├── ShareCards.tsx             # Canvas-based 1200×630 PNG share cards (Win card + Airdrop card)
+│   │   ├── PageTransition.tsx         # Framer Motion page-level fade-in wrapper
+│   │   ├── ScrollToTop.tsx            # Auto-scrolls to top on route change
+│   │   ├── ThemeToggle.tsx            # Dark/light mode toggle (app defaults to dark)
 │   │   ├── NotificationsDropdown.tsx
 │   │   ├── NFTGallery.tsx
 │   │   ├── AchievementBadges.tsx
@@ -557,6 +592,7 @@ gamegambit/
 │   │   │   └── useAdminWallet.ts
 │   │   ├── useAutoCreatePlayer.ts  # Auto-registers player on first wallet connect
 │   │   ├── useDisputeGrace.ts      # Phase 6 — useConcede mutation for grace period concession
+│   │   ├── useFollows.ts           # Asymmetric follow graph — follow/unfollow, follower/following counts, Realtime sync on follows:{wallet} channel. Distinct from useFriends (mutual). Powers feed "Friends & Following" tab
 │   │   ├── useGameComplete.ts      # useMarkGameComplete mutation (Step 3)
 │   │   ├── useLichess.ts           # OAuth PKCE flow, connect/disconnect
 │   │   ├── useModeration.ts        # ModerationRequest queries + accept/decline/verdict mutations
@@ -575,11 +611,12 @@ gamegambit/
 │   │   └── useWalletBalance.ts
 │   │
 │   ├── contexts/
+│   │   ├── AdminAuthContext.tsx    # Single source of truth for admin session state — mounted once in admin layout; all admin hooks read from here. Never call /api/admin/auth/verify directly; use useAdminAuth() which reads this context
 │   │   ├── GameEventContext.tsx    # Global Realtime listener — wager cache + moderation popup
 │   │   ├── WalletContext.tsx
 │   │   ├── ModalContext.tsx
 │   │   ├── PWAContext.tsx
-│   │   └── BalanceAnimationContext.tsx
+│   │   └── BalanceAnimationContext.tsx  # Queues win/loss SOL delta to sessionStorage for wallet balance flash animation on result. GameResultModal calls queueAnimation({ delta, wagerId, type }) before navigating; wallet balance display consumes it on next mount
 │   │
 │   ├── lib/
 │   │   ├── admin/
@@ -589,14 +626,16 @@ gamegambit/
 │   │   │   ├── validators.ts       # Input validation
 │   │   │   └── wallet-verify.ts    # Ed25519 signature verification
 │   │   ├── idl/                    # Solana IDL (gamegambit.json + gamegambit.ts)
-│   │   ├── constants.ts
+│   │   ├── constants.ts            # GAMES config, WAGER_STATUS enum, STATUS_LABELS, MANUAL_GAMES, fee helpers (calculatePlatformFee, getPlatformFeeBps, getFeeTierLabel), formatSol, truncateAddress. ⚠️ Also exports a stale PROGRAM_ID — never import it; use solana-config.ts instead
 │   │   ├── data-consistency.ts
 │   │   ├── database-utils.ts
 │   │   ├── performance-tradeoffs.ts
-│   │   ├── rate-limiting.ts
-│   │   ├── solana-config.ts
+│   │   ├── rate-limiting.ts        # Sliding-window rate limiter. ⚠️ Uses an in-memory Map store — resets on every Vercel cold start. Under burst traffic or multiple concurrent function instances, counts won't be shared. Replace with Upstash Redis for production-grade distributed limiting (tracked as C1 in fix plan)
+│   │   ├── solana-config.ts        # Canonical PROGRAM_ID, PDA derivation helpers, INSTRUCTION_DISCRIMINATORS, EVENT_DISCRIMINATORS, ACCOUNT_DISCRIMINATORS, WAGER_JOIN_EXPIRY_SECONDS
+│   │   ├── streamEmbed.ts          # Converts YouTube (full + youtu.be) and Twitch channel URLs into embeddable iframe URLs. Twitch requires NEXT_PUBLIC_APP_DOMAIN for the parent param — falls back to window.location.hostname
+│   │   ├── confetti.ts             # triggerConfetti() (3s interval burst from both sides) and triggerCelebration() (big burst + two side bursts). Used in GameResultModal, LiveGameModal, UsernameSetupModal
 │   │   ├── utils.ts
-│   │   └── validation.ts
+│   │   └── validation.ts           # All Zod schemas: usernameSchema, walletAddressSchema, gameTypeSchema, createWagerSchema, submitVoteSchema, bindUsernameSchema, usernameAppealSchema, appealResponseSchema, usernameChangeRequestSchema, updateSettingsSchema. Use validateWithError() helper throughout — do not define inline Zod schemas elsewhere
 │   │
 │   ├── integrations/supabase/
 │   │   ├── client.ts
@@ -615,7 +654,7 @@ gamegambit/
 ├── supabase/functions/
 │   ├── secure-wager/       # All wager actions + Lichess game creation
 │   ├── secure-player/      # Player create/update
-│   ├── admin-action/       # Admin dispute resolution (force resolve/draw/cancel, ban)
+│   ├── admin-action/       # Admin moderation actions (forceResolve, forceRefund, markDisputed, banPlayer, unbanPlayer, flagPlayer, unflagPlayer, checkPdaBalance, addNote)
 │   ├── resolve-wager/      # On-chain settlement (called by admin-action + Lichess webhook)
 │   ├── assign-moderator/   # Assigns moderator from eligible pool on dispute
 │   ├── moderation-timeout/ # pg_cron — marks expired requests, triggers reassignment
@@ -651,6 +690,7 @@ All tables confirmed in the live production DB. See [`DB_SCHEMA.md`](./DB_SCHEMA
 | `push_subscriptions` | ❌ | VAPID Web Push endpoint + keys per player |
 | `feed_reactions` | ❌ | Per-post reaction counts and user reactions (v1.8.0) |
 | `friendships` | ❌ | Bidirectional friendship graph (v1.8.0) |
+| `follows` | ✅ (channel: `follows:{wallet}`) | Asymmetric follow graph — powers feed "Friends & Following" tab. Distinct from `friendships` (mutual/approval-required) |
 | `direct_messages` | ✅ | DM messages per conversation channel (v1.8.0) |
 | `spectator_bets` | ✅ | Spectator side bet records (v1.8.0) |
 | `nfts` | ❌ | Victory NFTs minted to Solana |
@@ -680,6 +720,7 @@ All tables confirmed in the live production DB. See [`DB_SCHEMA.md`](./DB_SCHEMA
 | `moderation_requests` | ❌ Not in `types.ts` | `ModerationRequest` interface defined in `useModeration.ts` and imported where needed |
 | `feed_reactions` | ❌ Not in `types.ts` | Local interface in `useFeed.ts` (v1.8.0) |
 | `friendships` | ❌ Not in `types.ts` | Local interface in `useFriends.ts` (v1.8.0) |
+| `follows` | ❌ Not in `types.ts` | Local interface inlined in `useFollows.ts` (v1.8.0) |
 | `direct_messages` | ❌ Not in `types.ts` | Local interface in `useDirectMessages.ts` (v1.8.0) |
 | `spectator_bets` | ❌ Not in `types.ts` | Local interface in `useSideBets.ts` (v1.8.0) |
 | `username_appeals` | ❌ Not in `types.ts` | Define local interface in consuming hook |
@@ -705,22 +746,26 @@ All wager lifecycle actions. Requires `X-Session-Token` header (Ed25519 wallet s
 |--------|---------------|--------------|-------------|
 | `create` | ✅ | Any player | INSERT new wager, create on-chain PDA |
 | `join` | ✅ | Any player (not owner) | UPDATE status → joined |
-| `vote` | ✅ | Either participant | UPDATE vote_player_a/b (legacy — use `submitVote` for new flow) |
+| `vote` | ✅ | Either participant | UPDATE vote_player_a/b (legacy — kept for compatibility; use `submitVote` for all new code) |
 | `edit` | ✅ | Player A only | UPDATE stake/stream_url/is_public (status = created only) |
 | `applyProposal` | ✅ | Either participant | Apply an accepted proposal — bypasses owner-only edit restriction |
 | `notifyChat` | ✅ | Either participant | INSERT notification to opponent (rate-limited: 1 per 5 min per wager) |
 | `notifyProposal` | ✅ | Either participant | INSERT notification to opponent about new proposals |
+| `notifyRematch` | ✅ | Either participant | Send `rematch_challenge` push notification to opponent with wager details |
 | `delete` | ✅ | Player A only | DELETE wager (status = created only) |
 | `setReady` | ✅ | Either participant | Calls `set_player_ready` DB RPC |
 | `startGame` | ✅ | Either participant | UPDATE status → voting; creates Lichess game via platform token |
 | `recordOnChainCreate` | ✅ | Player A only | UPDATE deposit_player_a = true, tx_signature_a |
 | `recordOnChainJoin` | ✅ | Player B only | UPDATE deposit_player_b = true, tx_signature_b |
-| `checkGameComplete` | ✅ | Either participant | Poll Lichess API — if game ended, trigger resolve |
+| `checkGameComplete` | ❌ | Either participant (unauthenticated) | Poll Lichess API — if game ended, trigger resolve. Only unauthenticated action; called by `check-chess-games` cron with no user session |
 | `cancelWager` | ✅ | Either participant | UPDATE status → cancelled; trigger on-chain refund |
 | `concedeDispute` | ✅ | Either participant | **Phase 6** — concede during grace period; resolves on-chain instantly, no mod fee, logs honesty event |
 | `markGameComplete` | ✅ | Either participant | **Step 3** — sets `game_complete_a` or `game_complete_b`; when both set, writes `game_complete_deadline` (+10s) and `vote_deadline` (+5m 10s) |
 | `submitVote` | ✅ | Either participant | **Step 3** — sets `vote_player_a` or `vote_player_b`; if both match → auto-resolve on-chain; if mismatch → status = `disputed` |
 | `retractVote` | ✅ | Either participant | **Step 3** — clears caller's vote (only allowed while opponent hasn't voted yet) |
+| `finalizeVote` | ✅ | Either participant | Triggers on-chain `resolve_wager` when wager is in `retractable` status and the 15s retract window has passed without a retraction |
+| `voteTimeout` | ✅ | Either participant | Called when `vote_deadline` has passed with no resolution — sets status → `disputed` |
+| `declineChallenge` | ✅ | Player B only | DELETE wager (status = created only); sends `wager_declined` notification to Player A |
 
 > **`applyProposal` vs `edit`:** `edit` is owner-only and blocked when status = `joined`. `applyProposal` accepts auth from either participant and applies the change regardless of status. Always use `applyProposal` when responding to a proposal acceptance — never `edit`.
 
@@ -735,6 +780,7 @@ Player profile management. Requires `X-Session-Token` header.
 |--------|-------------|
 | `create` | INSERT new player row (accepts optional `referrerCode` — looks up referrer, links `referred_by_wallet`, increments `referral_count`) |
 | `update` | UPDATE player profile fields (username, bio, avatar, game usernames) |
+| `bindGame` | Dedicated game username binding for PUBG, CODM, and Free Fire. Checks uniqueness across all players, updates username + player ID + `game_username_bound_at` JSONB via `merge_game_bound_at` RPC. Returns `USERNAME_TAKEN` (409) if another player holds the username — client should enter appeal flow |
 
 ---
 
@@ -759,10 +805,14 @@ Admin dispute resolution and moderation. Requires admin JWT (not a player sessio
 | Action | Min Role | Description |
 |--------|----------|-------------|
 | `forceResolve` | moderator | UPDATE wager status → resolved with given winner; calls on-chain `resolve_wager` |
-| `forceDraw` | moderator | UPDATE wager status → resolved as draw; calls on-chain `close_wager` |
-| `forceCancel` | moderator | UPDATE wager status → cancelled; calls on-chain `close_wager` |
-| `banPlayer` | admin | UPDATE player is_banned = true |
-| `unbanPlayer` | admin | UPDATE player is_banned = false |
+| `forceRefund` | moderator | UPDATE wager status → cancelled; calls on-chain `close_wager` to refund both players |
+| `markDisputed` | moderator | Manually set wager status → disputed and `requires_moderator = true` |
+| `banPlayer` | admin | UPDATE player `is_banned = true` with reason |
+| `unbanPlayer` | admin | UPDATE player `is_banned = false` |
+| `flagPlayer` | admin | Set `flagged_for_review = true` on player with reason |
+| `unflagPlayer` | admin | Clear `flagged_for_review` flag on player |
+| `checkPdaBalance` | admin | Derive wager PDA and fetch live on-chain lamport balance |
+| `addNote` | admin | INSERT free-text note into `admin_notes` for a player or wager |
 
 All actions write to both `admin_logs` and `admin_audit_logs` with before/after state.
 
@@ -965,7 +1015,7 @@ Auto-refresh `updated_at` on any UPDATE. Two versions exist (`update_updated_at`
 
 ## Realtime Subscriptions
 
-Five tables/channels are used for Realtime (confirmed live):
+Eight tables/channels are used for Realtime (confirmed live):
 
 | Table | Channel Pattern | Used By |
 |-------|----------------|---------|
@@ -976,6 +1026,7 @@ Five tables/channels are used for Realtime (confirmed live):
 | `notifications` | `notifications:{walletAddress}` | `useNotifications` — bell icon dropdown |
 | `wager_messages` | `wager-chat:{wagerId}` | `useWagerChat` — ready room chat + proposals |
 | `moderation_requests` | `moderation_requests:{walletAddress}` | `GameEventContext` — moderator assignment popup |
+| `follows` | `follows:{walletAddress}` | `useFollows` — invalidates follower/following query cache on INSERT/DELETE |
 
 > ⚠️ **Duplicate channel warning:** Never call `useWagerChat` for the same `wagerId` from both a parent and child component — Supabase silently drops duplicate channel names. The channel is created inside `useWagerChat` and must only exist once per wager per client session. Same applies to any other filtered channel. `GameCompleteModal` and `VotingModal` receive the live wager object from the React Query cache (kept fresh by `GameEventContext`) — they do NOT create their own Supabase subscriptions.
 
@@ -998,12 +1049,13 @@ Five tables/channels are used for Realtime (confirmed live):
 | `chat_message` | MessageSquare (muted) | `/arena?modal=ready-room` |
 | `wager_proposal` | FileEdit (amber) | `/arena?modal=ready-room` |
 | `wager_disputed` | Swords (orange) | `/my-wagers?modal=details` |
-| `moderation_request` | Scale (amber) | `/dashboard?modal=moderation` |
-| `feed_reaction` | Heart (pink) | `/feed` (v1.8.0) |
-| `friend_request` | UserPlus (primary) | `/messages` (v1.8.0) |
-| `friend_accepted` | Users (green) | `/messages` (v1.8.0) |
+| `moderation_request` | Scale (amber) | `/dashboard` |
+| `feed_reaction` | Heart (pink) | `/my-wagers?modal=details` |
+| `friend_request` | UserPlus (primary) | `/profile/[actor_wallet]` |
+| `friend_accepted` | Users (green) | `/profile/[actor_wallet]` |
+| `new_follower` | UserPlus (accent) | `/profile/[actor_wallet]` (v1.8.0) |
 
-> The `NotificationRoute` type in `NotificationsDropdown` is `'arena' | 'my-wagers' | 'dashboard' | 'feed' | 'messages'` — all routes must be valid Next.js pages.
+> The `NotificationRoute` type in `NotificationsDropdown` is `'arena' | 'my-wagers' | 'dashboard' | 'profile'` — all routes must be valid Next.js pages.
 
 ---
 
@@ -1177,6 +1229,8 @@ Session tokens are Ed25519 wallet signatures issued by `verify-wallet` and manag
 | `GET/PUT` | `/api/admin/profile` | Get/update admin profile |
 | `POST` | `/api/admin/action` | Admin wager/player actions |
 | `GET` | `/api/admin/audit-logs` | Fetch audit logs |
+| `GET` | `/api/admin/wagers/inspect` | Fetch wager by UUID, match ID (numeric), or wallet address — query param: `q` |
+| `GET` | `/api/admin/wagers/pda-scan` | Bulk on-chain PDA scanner — query params: `status`, `limit` (default 200, max 500), `offset`. Returns per-wager verdict: STUCK_FUNDS / ACTIVE_FUNDED / DISTRIBUTED / NOT_FOUND / PENDING_DEPOSIT / RPC_ERROR |
 | `POST` | `/api/admin/wallet/bind` | Bind Solana wallet to admin |
 | `POST` | `/api/admin/wallet/verify` | Verify admin wallet signature |
 | `POST` | `/api/moderation/accept` | Moderator accepts assignment |
@@ -1287,6 +1341,7 @@ See [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) for the full checklist.
 | [`DEVELOPMENT_GUIDE.md`](./DEVELOPMENT_GUIDE.md) | Local dev setup and workflows |
 | [`PWA_GUIDE.md`](./PWA_GUIDE.md) | PWA setup, VAPID key generation, push notifications |
 | [`CHANGE_LOGS.md`](./CHANGE_LOGS.md) | Version history |
+| [`ADMIN_FILES_CREATED.md`](./ADMIN_FILES_CREATED.md) | Admin panel file manifest — all pages, API routes, hooks, components |
 
 ---
 

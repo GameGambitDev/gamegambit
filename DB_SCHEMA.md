@@ -125,6 +125,7 @@ Role-based access control:
 | `friendships` | Friend requests and social connections between players | requester_wallet, recipient_wallet, status *(v1.8.0)* |
 | `direct_messages` | DM channel messages between friended players | channel_id, sender_wallet, message *(v1.8.0)* |
 | `spectator_bets` | Side-bets placed by spectators on active wagers | wager_id, bettor_wallet, backed_player, amount_lamports *(v1.8.0)* |
+| `follows` | Asymmetric follow graph — powers feed "Friends & Following" tab. Distinct from `friendships` (mutual/approval-required). | follower_wallet, following_wallet *(v1.8.0)* |
 
 ---
 
@@ -171,6 +172,8 @@ wagers  (1) ──────────────────────�
 players (1) ──────────────────────────────────────────────── (N) feed_reactions [wallet]
 players (1) ──────────────────────────────────────────────── (N) friendships [requester_wallet]
 players (1) ──────────────────────────────────────────────── (N) friendships [recipient_wallet]
+players (1) ──────────────────────────────────────────────── (N) follows [follower_wallet]
+players (1) ──────────────────────────────────────────────── (N) follows [following_wallet]
 ```
 
 > **Note on `admin_logs.wallet_address`:** This column stores a player wallet string for context but does **not** have a FK constraint in the live DB. It is informational only — the player row may not exist if the action was taken before the player was created. `admin_logs.wager_id` does have a FK to `wagers(id)`.
@@ -764,7 +767,14 @@ CREATE TABLE notifications (
                    'username_appeal',
                    'username_appeal_resolved',
                    'username_appeal_update',
-                   'username_change_request'
+                   'username_change_request',
+                   -- Social (v1.8.0)
+                   'feed_reaction',
+                   'friend_request',
+                   'friend_accepted',
+                   'new_follower'
+                   -- NOTE: 'wager_declined' is emitted by declineChallenge in secure-wager
+                   -- but is not yet handled in useNotifications.ts — pending integration gap
                  )),
   title          TEXT NOT NULL,
   message        TEXT NOT NULL,
@@ -808,6 +818,12 @@ CREATE POLICY "Players can update own notifications"
 - `username_appeal_resolved` — Sent to both parties when an appeal is resolved (release or rejection)
 - `username_appeal_update` — Sent to both parties when holder contests (appeal enters moderator review)
 - `username_change_request` — Sent to the requesting player confirming their change request was received
+- `feed_reaction` — Sent to wager owner when a viewer reacts to their feed post (10-minute digest guard prevents spam)
+- `friend_request` — Sent when another player sends a friend request
+- `friend_accepted` — Sent when a pending friend request is accepted by the recipient
+- `new_follower` — Sent when another player follows your profile
+
+> **Known gap:** `wager_declined` is emitted by `declineChallenge` in `secure-wager` but is not yet handled in `useNotifications.ts` — insert will succeed (type is not in the CHECK) but the notification will not appear in the bell dropdown until the hook is updated.
 
 **Realtime:** Frontend subscribes to `postgres_changes` on `notifications` filtered by `player_wallet`. New rows appear instantly in the bell icon dropdown without refresh.
 
@@ -1150,7 +1166,30 @@ CREATE INDEX idx_spectator_bets_open   ON spectator_bets (wager_id, status) WHER
 **Notes:**
 - `bettor_wallet` and `backer_wallet` have **no DB-level FK constraints** — confirmed by `Relationships` in `types.ts` only containing the `wager_id` FK.
 - The `counter_amount` allows asymmetric odds — e.g. bettor risks 0.1 SOL, backer risks 0.05 SOL at 2:1 odds.
-- The `spectator_bets` feature is defined in `types.ts` and referenced via `useSpectatorCount` in `useFeed.ts`, but the full resolution/payout flow via Solana is not yet wired end-to-end as of v1.8.0. Treat as **in-development**.
+- `spectator_bets` is fully wired as of v1.8.0. The primary hook is `useSideBets.ts` (local interface — table is not yet in auto-generated `types.ts`, see Known Issues). `useSpectatorCount` in `useFeed.ts` reads the count only. Place/counter/accept/cancel flow and auto-resolve on wager end are all implemented per the v1.8.0 roadmap.
+
+---
+
+### Table 25: FOLLOWS *(v1.8.0)*
+
+```sql
+CREATE TABLE IF NOT EXISTS follows (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  follower_wallet  TEXT        NOT NULL,   -- player who followed
+  following_wallet TEXT        NOT NULL,   -- player being followed
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (follower_wallet, following_wallet)
+);
+
+CREATE INDEX idx_follows_follower  ON follows (follower_wallet);
+CREATE INDEX idx_follows_following ON follows (following_wallet);
+```
+
+**Notes:**
+- `follower_wallet` and `following_wallet` have **no DB-level FK constraints** — access enforced by RLS policies only.
+- Distinct from `friendships`: follows are **asymmetric and immediate** (no request/approval step). Player A can follow Player B without Player B following back.
+- Realtime is enabled on the `follows` table. `useFollows.ts` subscribes to the channel `follows:{walletAddress}` filtered by `following_wallet=eq.{wallet}` to keep follower/following counts in sync.
+- Run `ALTER PUBLICATION supabase_realtime ADD TABLE follows;` after applying the migration if the table was created after the initial Realtime setup.
 
 
 ## DB Functions (RPC)
@@ -1312,18 +1351,19 @@ The following tables are enabled in the `supabase_realtime` publication and emit
 | `notifications` | INSERT | Bell icon dropdown, filtered by `player_wallet` |
 | `moderation_requests` | INSERT | `GameEventContext` — filtered by `moderator_wallet=eq.{wallet}`, triggers moderator popup |
 | `wager_messages` | INSERT, UPDATE | Ready room chat and proposals, filtered by `wager_id` — **one subscription per wager per client** |
+| `follows` | INSERT, DELETE | `useFollows` — filtered by `following_wallet=eq.{wallet}`; invalidates follower/following query cache |
 
 > **Migration required:** Run `ALTER PUBLICATION supabase_realtime ADD TABLE moderation_requests;` in the SQL editor if this table was created after the initial Realtime setup. Without this, `GameEventContext`'s moderator popup subscription will never fire.
 
 Tables **not** in realtime: `players`, `admin_*`, `push_subscriptions`, `rate_limit_logs`, `nfts`, `achievements`, `username_appeals`, `username_change_requests`, `punishment_log`, `player_behaviour_log`, `feed_reactions`, `friendships`, `spectator_bets`.
 
-> **Note on `direct_messages`:** Not yet in the realtime publication as of v1.8.0. The `messages` page in `useFriends.ts` currently polls rather than subscribing. Add `ALTER PUBLICATION supabase_realtime ADD TABLE direct_messages;` when adding realtime DM delivery.
+> **Note on `direct_messages`:** Not yet in the realtime publication as of v1.8.0. The `messages` page in `useDirectMessages.ts` currently polls rather than subscribing. Add `ALTER PUBLICATION supabase_realtime ADD TABLE direct_messages;` when adding realtime DM delivery.
 
 ---
 
 ## Indexes & Performance
 
-### Complete Index List (live DB, v1.5.0)
+### Complete Index List (live DB, v1.8.0)
 
 | Table | Index | Definition |
 |-------|-------|------------|
@@ -1427,6 +1467,10 @@ Tables **not** in realtime: `players`, `admin_*`, `push_subscriptions`, `rate_li
 | `spectator_bets` | `idx_spectator_bets_wager` | btree (wager_id) |
 | `spectator_bets` | `idx_spectator_bets_bettor` | btree (bettor_wallet) |
 | `spectator_bets` | `idx_spectator_bets_open` | btree (wager_id, status) WHERE status = 'open' |
+| `follows` | `follows_pkey` | UNIQUE btree (id) |
+| `follows` | `follows_follower_wallet_following_wallet_key` | UNIQUE btree (follower_wallet, following_wallet) |
+| `follows` | `idx_follows_follower` | btree (follower_wallet) |
+| `follows` | `idx_follows_following` | btree (following_wallet) |
 
 ### Query Performance Targets
 
@@ -1505,7 +1549,7 @@ All previously listed gaps have been resolved. The following tables and columns 
 
 ### v1.8.0 — April 13, 2026
 
-Four new tables for social, feed, and spectator features. Run in the Supabase SQL editor:
+Five new tables for social, feed, and spectator features, plus a `notifications` CHECK constraint expansion. Run in the Supabase SQL editor:
 
 **001 — `feed_reactions`**
 ```sql
@@ -1573,9 +1617,40 @@ CREATE INDEX IF NOT EXISTS idx_spectator_bets_bettor ON spectator_bets (bettor_w
 CREATE INDEX IF NOT EXISTS idx_spectator_bets_open   ON spectator_bets (wager_id, status) WHERE status = 'open';
 ```
 
-**005 — Regenerate TypeScript types** *(clears all previously listed type gaps)*
+**005 — `follows`**
+```sql
+CREATE TABLE IF NOT EXISTS follows (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  follower_wallet  TEXT        NOT NULL,
+  following_wallet TEXT        NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (follower_wallet, following_wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_follows_follower  ON follows (follower_wallet);
+CREATE INDEX IF NOT EXISTS idx_follows_following ON follows (following_wallet);
+ALTER PUBLICATION supabase_realtime ADD TABLE follows;
+```
+
+**006 — Regenerate TypeScript types** *(clears all previously listed type gaps)*
 ```bash
 npx supabase gen types typescript --project-id vqgtwalwvalbephvpxap > src/integrations/supabase/types.ts
+```
+
+**007 — Expand `notifications.type` CHECK constraint to include social types**
+```sql
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+
+ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+  CHECK (type IN (
+    'wager_joined', 'wager_won', 'wager_lost', 'wager_draw',
+    'wager_cancelled', 'game_started',
+    'wager_vote', 'wager_disputed', 'wager_proposal',
+    'chat_message', 'rematch_challenge',
+    'moderation_request',
+    'username_appeal', 'username_appeal_resolved',
+    'username_appeal_update', 'username_change_request',
+    'feed_reaction', 'friend_request', 'friend_accepted', 'new_follower'
+  ));
 ```
 
 ---
