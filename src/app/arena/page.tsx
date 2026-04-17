@@ -139,37 +139,37 @@ function OpenWagerCard({
             {isOwner ? (
               <>
                 <Button
-                  variant="outline" size="sm" className="flex-1"
+                  variant="outline" size="sm" className="flex-1 h-10 px-3 text-sm"
                   onClick={() => onEdit?.(wager)}
                 >
-                  <Pencil className="h-4 w-4 sm:mr-1" />
+                  <Pencil className="h-3.5 w-3.5 sm:mr-1.5" />
                   <span className="hidden sm:inline">Edit</span>
                 </Button>
                 <Button
-                  variant="destructive" size="sm" className="flex-1"
+                  variant="destructive" size="sm" className="flex-1 h-10 px-3 text-sm"
                   onClick={() => onDelete?.(wager)}
                 >
-                  <Trash2 className="h-4 w-4 sm:mr-1" />
+                  <Trash2 className="h-3.5 w-3.5 sm:mr-1.5" />
                   <span className="hidden sm:inline">Delete</span>
                 </Button>
               </>
             ) : (
               <>
                 <Button
-                  variant="outline" size="sm" className="flex-1"
+                  variant="outline" size="sm" className="flex-1 h-10 px-3 text-sm"
                   onClick={() => onViewDetails(wager)}
                 >
-                  <Eye className="h-4 w-4 sm:mr-1" />
+                  <Eye className="h-3.5 w-3.5 sm:mr-1.5" />
                   <span className="hidden sm:inline">Details</span>
                 </Button>
                 <Button
-                  variant="neon" size="sm" className="flex-1"
+                  variant="neon" size="sm" className="flex-1 h-10 px-4 text-sm font-semibold"
                   onClick={() => onJoin(wager.id)}
                   disabled={isJoining}
                 >
                   {isJoining
                     ? <ButtonDots />
-                    : 'Accept Challenge'
+                    : <><Swords className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />Accept Challenge</>
                   }
                 </Button>
               </>

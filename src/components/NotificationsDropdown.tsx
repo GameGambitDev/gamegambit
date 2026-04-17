@@ -177,30 +177,30 @@ export function NotificationsDropdown() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      {/* w-[min(320px,calc(100vw-12px))] prevents overflow on narrow phones */}
+      {/* On mobile: near full-width; on desktop: 360px capped */}
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-[min(320px,calc(100vw-12px))] p-0 bg-card border-border"
+        className="w-[calc(100vw-16px)] sm:w-[360px] p-0 bg-card border-border"
       >
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-border">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
+        {/* Header — always two rows on mobile so mark-all-read is never squeezed */}
+        <div className="px-4 pt-3 pb-3 border-b border-border">
+          <div className="flex items-center justify-between gap-2">
             <h3 className="font-gaming text-sm">Notifications</h3>
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 px-2 rounded-md hover:bg-muted min-h-[32px]"
+                className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors py-1.5 px-2.5 rounded-lg bg-primary/10 hover:bg-primary/20 min-h-[32px] flex-shrink-0"
               >
                 <CheckCheck className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="whitespace-nowrap">Mark all read</span>
+                <span className="whitespace-nowrap font-medium">Mark all read</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* List — max-h-[min(384px,70vh)] prevents overflow on short phone screens */}
-        <div className="max-h-[min(384px,70vh)] overflow-y-auto">
+        {/* List */}
+        <div className="max-h-[min(420px,72vh)] overflow-y-auto">
           {loading ? (
             <div className="py-12 flex items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -239,7 +239,7 @@ export function NotificationsDropdown() {
                         </div>
                         {(notification.type === 'wager_proposal' || notification.type === 'rematch_challenge') && notification.wager_id && (
                           <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
-                            <Button size="sm" variant="outline" className="h-9 px-4 text-xs font-semibold flex-1"
+                            <Button size="sm" variant="outline" className="h-9 px-4 text-xs font-semibold flex-1 border-primary/40 hover:bg-primary/10"
                               onClick={() => handleAccept(notification)}
                             >
                               ✓ Accept
