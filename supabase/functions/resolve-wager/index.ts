@@ -203,6 +203,18 @@ serve(async (req) => {
     const respond = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
+    // SEC-01: Verify caller secret — only trusted internal callers (secure-wager, lichess webhook) may trigger payouts
+    const callerSecret = Deno.env.get('RESOLVE_WAGER_CALLER_SECRET');
+    if (!callerSecret) {
+        console.error('[resolve-wager] RESOLVE_WAGER_CALLER_SECRET not configured — rejecting all requests');
+        return respond({ error: 'Function not configured' }, 503);
+    }
+    const providedSecret = req.headers.get('x-caller-secret');
+    if (!providedSecret || providedSecret !== callerSecret) {
+        console.error('[resolve-wager] Unauthorized caller — missing or invalid x-caller-secret');
+        return respond({ error: 'Unauthorized' }, 401);
+    }
+
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

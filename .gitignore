@@ -39,3 +39,4 @@ env.local
 .vercel
 .env.local
 supabase_linux_amd64.tar.gz
+.env*.local

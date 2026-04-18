@@ -9,7 +9,11 @@ interface JWTPayload {
   exp: number;
 }
 
-const JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'your_super_secret_key_here_min_32_chars';
+// SEC-03: Hard-fail if ADMIN_JWT_SECRET is not set — no insecure fallback
+const JWT_SECRET = process.env.ADMIN_JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('[admin/auth] ADMIN_JWT_SECRET environment variable is not set. Admin auth is disabled.');
+}
 const JWT_EXPIRY = parseInt(process.env.ADMIN_JWT_EXPIRY || '3600'); // 1 hour default
 
 /**
@@ -19,6 +23,7 @@ export function generateToken(adminId: string, email: string, role: string): str
   if (!adminId || !email) {
     throw new Error('Admin ID and email are required');
   }
+  if (!JWT_SECRET) throw new Error('ADMIN_JWT_SECRET not configured');
 
   const now = Math.floor(Date.now() / 1000);
   const payload: JWTPayload = {

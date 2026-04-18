@@ -6,6 +6,18 @@ import { validateSignupForm, sanitizeInput } from '@/lib/admin/validators';
 
 export async function POST(request: NextRequest) {
   try {
+    // SEC-02: Require ADMIN_SIGNUP_SECRET to prevent unauthorized admin account creation
+    const signupSecret = process.env.ADMIN_SIGNUP_SECRET;
+    if (!signupSecret) {
+      console.error('[admin-signup] ADMIN_SIGNUP_SECRET not configured — endpoint disabled');
+      return NextResponse.json({ success: false, error: 'Endpoint not available' }, { status: 503 });
+    }
+    const providedSecret = request.headers.get('x-admin-signup-secret');
+    if (!providedSecret || providedSecret !== signupSecret) {
+      console.error('[admin-signup] Unauthorized signup attempt');
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json() as AdminSignupRequest;
 
     // Validate input

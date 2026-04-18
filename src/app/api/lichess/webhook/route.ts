@@ -39,13 +39,16 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     const signature = req.headers.get('x-lichess-signature');
 
-    // Verify signature if secret is configured
-    if (WEBHOOK_SECRET) {
-        const valid = verifySignature(rawBody, signature);
-        if (!valid) {
-            console.error('[lichess-webhook] Invalid signature');
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+    // SEC-05: Hard-fail if LICHESS_WEBHOOK_SECRET is not configured — never allow unauthenticated payouts
+    if (!WEBHOOK_SECRET) {
+        console.error('[lichess-webhook] LICHESS_WEBHOOK_SECRET not configured — rejecting all requests');
+        return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 });
+    }
+
+    const valid = verifySignature(rawBody, signature);
+    if (!valid) {
+        console.error('[lichess-webhook] Invalid signature');
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     let payload: { gameId?: string; game?: { id?: string }; type?: string };

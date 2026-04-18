@@ -9,7 +9,12 @@ const corsHeaders = {
 };
 
 const NONCE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
-const SECRET_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'fallback-secret';
+
+// SEC-04: Hard-fail if SUPABASE_SERVICE_ROLE_KEY is not set — no insecure fallback
+const SECRET_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+if (!SECRET_KEY) {
+    throw new Error('[verify-wallet] SUPABASE_SERVICE_ROLE_KEY is not configured. Function cannot start.');
+}
 
 async function generateNonce(walletAddress: string, timestamp: number): Promise<string> {
     const encoder = new TextEncoder();

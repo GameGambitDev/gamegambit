@@ -80,6 +80,12 @@ async function dispatchResolveOnChain(
     // deno-lint-ignore no-explicit-any
     let result: Record<string, any> = { success: false, error: 'never_set' };
 
+    const resolveCallerSecret = Deno.env.get('RESOLVE_WAGER_CALLER_SECRET');
+    if (!resolveCallerSecret) {
+        console.error(`[dispatch:${callerLabel}] RESOLVE_WAGER_CALLER_SECRET not set — cannot call resolve-wager`);
+        return;
+    }
+
     try {
         const res = await fetch(resolveUrl, {
             method: 'POST',
@@ -87,6 +93,7 @@ async function dispatchResolveOnChain(
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${serviceKey}`,
                 'apikey': serviceKey,
+                'x-caller-secret': resolveCallerSecret,
             },
             body: JSON.stringify(body),
         });
@@ -599,7 +606,7 @@ export async function handleCancelWager(supabase: Supabase, walletAddress: strin
                 try {
                     const res = await fetch(`${supabaseUrl}/functions/v1/resolve-wager`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}`, 'apikey': serviceKey },
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}`, 'apikey': serviceKey, 'x-caller-secret': Deno.env.get('RESOLVE_WAGER_CALLER_SECRET') ?? '' },
                         body: JSON.stringify(body),
                     });
                     const rawText = await res.text();
